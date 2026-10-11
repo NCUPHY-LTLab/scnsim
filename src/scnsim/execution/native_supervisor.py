@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 from .native_guard import receive_record, send_record, restore_error
 
@@ -163,6 +164,8 @@ class NativeSupervisor:
         self._control = None
         self._guard = None
         self._alive_write = None
+        self._guard_stderr = None
+        self._guard_diagnostics_noted = False
         parent = child = None
         alive_read = alive_write = None
         leases = []
@@ -179,6 +182,7 @@ class NativeSupervisor:
                 self._alive_write = None
             if self._guard is not None:
                 _complete_wait(self._guard, error)
+            self._finish_guard_diagnostics(error)
 
         try:
             parent, child = socket.socketpair()
@@ -192,11 +196,14 @@ class NativeSupervisor:
             self._control = parent
             self._alive_write = alive_write
             fds = (child.fileno(), alive_read, *leases)
+            # Disk-backed, operation-owned diagnostics avoid a PIPE deadlock
+            # and retain no permanent full-log copy in notebook memory.
+            self._guard_stderr = tempfile.TemporaryFile(mode="w+b")
             self._guard = subprocess.Popen(
                 [sys.executable, '-I', '-B', str(Path(__file__).with_name('native_guard.py')),
                  str(child.fileno()), str(alive_read), *map(str, leases)],
                 pass_fds=fds, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, start_new_session=True)
+                stderr=self._guard_stderr, start_new_session=True)
             child.close(); os.close(alive_read); alive_read = None
             record, incoming = receive_record(parent)
             for fd in incoming: os.close(fd)
@@ -223,6 +230,33 @@ class NativeSupervisor:
                 abort_setup(cleanup_error)
                 raise cleanup_error
 
+    def _attach_guard_diagnostics(self, original):
+        if self._guard_stderr is None or self._guard_diagnostics_noted:
+            return
+        try:
+            # Only a bounded traceback tail enters exception notes; the entire
+            # temporary spool is reclaimed by its operation owner.
+            end = self._guard_stderr.seek(0, os.SEEK_END)
+            self._guard_stderr.seek(max(0, end - 65536))
+            text = self._guard_stderr.read().decode('utf-8', errors='replace')
+            if text:
+                original.add_note('Native guardian stderr (terminal tail):\n' + text)
+                self._guard_diagnostics_noted = True
+        except BaseException as secondary:
+            original.add_note(f'Native guardian diagnostic read: {secondary!r}')
+
+    def _finish_guard_diagnostics(self, original):
+        if self._guard_stderr is None:
+            return original
+        if original is not None:
+            self._attach_guard_diagnostics(original)
+        try:
+            self._guard_stderr.close()
+        except BaseException as secondary:
+            original = _retain_error(original, secondary, 'Native guardian diagnostic cleanup')
+        self._guard_stderr = None
+        return original
+
     def _request(self, command, fds=(), *, timeout_args=None, timeout=None):
         with self._lock:
             if self._closed:
@@ -242,6 +276,10 @@ class NativeSupervisor:
                     except BaseException as secondary:
                         original.add_note(f'Native interrupted transport cleanup: {secondary!r}')
                     self._alive_write = None
+                # Broken control ends the scope. Drain before reading terminal
+                # diagnostics, retaining the original transport/interruption.
+                _complete_wait(self._guard, original)
+                self._attach_guard_diagnostics(original)
                 raise
             if 'error' in record:
                 raise restore_error(record['error'])
@@ -448,9 +486,10 @@ class NativeSupervisor:
                             original = _retain_error(original, error, 'Native stream cleanup')
             self._processes.clear()
             self._closed = self._guard.returncode is not None
+            if original is None and self._guard.returncode:
+                original = RuntimeError(f'native guardian exited with status {self._guard.returncode}')
+            original = self._finish_guard_diagnostics(original)
             if original is not None: raise original
-            if self._guard.returncode:
-                raise RuntimeError(f'native guardian exited with status {self._guard.returncode}')
 
     def __enter__(self): return self
     def __exit__(self, kind, error, traceback):

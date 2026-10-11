@@ -235,6 +235,14 @@ a workspace pointer. The pointer update is the logical commit; the supplied
 Plan is sealed from that already-validated state only after commit. A bounded
 maintenance record, not a background task, owns cleanup of a replaced leaf.
 
+The native supervisor owns direct managed roots, owned process groups and
+identity/lineage-verified descendants through actual drain, using Linux-specific
+monitoring or supported macOS kqueue/libproc interfaces. It does not infer
+ownership for unobserved escaped descendants. The platform limits and the
+Kernel-death versus UI-disconnection distinction belong to the single
+[Native supervision contract](../v1-runtime-contract.qmd#native-supervision).
+Preparation/smoke CI is not a macOS Kernel-death observation.
+
 Julia never imports Notebook objects or calls a Python objective callback. It
 receives one sealed request and owns the numerical work inside that request:
 component realization, candidate compilation, reduction, Direct quantities,

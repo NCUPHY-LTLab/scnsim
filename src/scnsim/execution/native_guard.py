@@ -1,8 +1,10 @@
 """Operation guardian: descriptor liveness, OS descendant ownership, native drain.
 
 No SQL/checkpoint authority. Linux subreaping owns detached descendants; macOS
-kqueue NOTE_TRACK follows forks before the exec barrier opens. Owned processes
-are never inferred from an unrelated PID or an age/PID cleanup heuristic.
+supported kqueue fork/exit notifications wake a libproc identity/lineage scan.
+Managed sessions/groups and observed descendants are owned; an unseen child
+that escapes through a vanished intermediate is outside the macOS guarantee.
+No process is inferred from a name, PID alone, or an age cleanup heuristic.
 """
 from __future__ import annotations
 import array
@@ -10,6 +12,7 @@ import base64
 import builtins
 import traceback
 import ctypes
+import errno
 import json
 import os
 from pathlib import Path
@@ -154,18 +157,100 @@ def restore_error(record):
         return error
 
 
+class _DarwinBSDInfo(ctypes.Structure):
+    # libproc proc_bsdinfo ABI; identity/lineage comes from the atomic uniqid flavor.
+    _fields_ = [(name, ctypes.c_uint32) for name in (
+        'flags', 'status', 'xstatus', 'pid', 'ppid', 'uid', 'gid',
+        'ruid', 'rgid', 'svuid', 'svgid', 'rfu1')] + [
+        ('comm', ctypes.c_char * 16), ('name', ctypes.c_char * 32)] + [
+        (name, ctypes.c_uint32) for name in
+        ('nfiles', 'pgid', 'pjobc', 'e_tdev', 'e_tpgid')] + [
+        ('nice', ctypes.c_int32), ('start_sec', ctypes.c_uint64),
+        ('start_usec', ctypes.c_uint64)]
+
+
+class _DarwinUniqueInfo(ctypes.Structure):
+    _fields_ = [('uuid', ctypes.c_uint8 * 16), ('uniqueid', ctypes.c_uint64),
+        ('parent_uniqueid', ctypes.c_uint64), ('idversion', ctypes.c_int32),
+        ('original_parent_version', ctypes.c_int32),
+        ('reserve2', ctypes.c_uint64), ('reserve3', ctypes.c_uint64)]
+
+
+class _DarwinProcessInfo(ctypes.Structure):
+    _fields_ = [('bsd', _DarwinBSDInfo), ('unique', _DarwinUniqueInfo)]
+
+
+class _DarwinProcesses:
+    def __init__(self):
+        self.lib = ctypes.CDLL('/usr/lib/libproc.dylib', use_errno=True)
+        self.lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int,
+            ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+        self.lib.proc_pidinfo.restype = ctypes.c_int
+        self.lib.proc_listpids.argtypes = [ctypes.c_uint32, ctypes.c_uint32,
+            ctypes.c_void_p, ctypes.c_int]
+        self.lib.proc_listpids.restype = ctypes.c_int
+
+    def identity(self, pid):
+        info = _DarwinProcessInfo()
+        ctypes.set_errno(0)
+        size = self.lib.proc_pidinfo(pid, 18, 0, ctypes.byref(info), ctypes.sizeof(info))
+        if size <= 0:
+            code = ctypes.get_errno()
+            if code in (errno.ENOENT, errno.ESRCH):
+                return None
+            raise OSError(code, 'proc_pidinfo failed', str(pid))
+        if size != ctypes.sizeof(info):
+            raise RuntimeError('libproc returned an incomplete process identity')
+        if info.bsd.status == 5:  # Darwin SZOMB: no live native work remains.
+            return None
+        return info.unique.uniqueid, info.unique.parent_uniqueid, info.bsd.pgid
+
+    def snapshot(self, required):
+        size = self.lib.proc_listpids(1, 0, None, 0)  # PROC_ALL_PIDS
+        if size <= 0:
+            raise OSError(ctypes.get_errno(), 'proc_listpids failed')
+        while True:
+            buffer = (ctypes.c_int * (size // ctypes.sizeof(ctypes.c_int) + 1))()
+            capacity = ctypes.sizeof(buffer)
+            actual = self.lib.proc_listpids(1, 0, buffer, capacity)
+            if actual <= 0:
+                raise OSError(ctypes.get_errno(), 'proc_listpids failed')
+            if actual < capacity:
+                break
+            size = capacity * 2  # Enumeration grew during the metadata read.
+        result = {}
+        for pid in buffer[:actual // ctypes.sizeof(ctypes.c_int)]:
+            if pid:
+                try:
+                    info = self.identity(pid)
+                except OSError as error:
+                    # Unrelated protected processes cannot establish ownership.
+                    # An owned process becoming unreadable remains a real error.
+                    if pid not in required and error.errno in (errno.EPERM, errno.EACCES):
+                        continue
+                    raise
+                if info is not None:
+                    result[pid] = info
+        return result
+
+
 class Descendants:
     def __init__(self):
         self.owned = {}
         self.lock = threading.RLock()
         self.failure = None
         self.kqueue = None
+        self.darwin = None
+        self.groups = {}
+        self.ancestor_identities = set()
         if sys.platform.startswith('linux'):
             libc = ctypes.CDLL(None, use_errno=True)
             if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
                 errno = ctypes.get_errno()
                 raise OSError(errno, os.strerror(errno))
         elif sys.platform == 'darwin':
+            # Initialize libproc before allocating the tracker descriptor.
+            self.darwin = _DarwinProcesses()
             self.kqueue = select.kqueue()
         else:
             raise RuntimeError('native guardian requires Linux or macOS process ownership')
@@ -174,8 +259,10 @@ class Descendants:
     def _linux_identity(pid):
         try:
             text = Path(f'/proc/{pid}/stat').read_text()
-        except FileNotFoundError:
-            return None
+        except OSError as error:
+            if error.errno in (errno.ENOENT, errno.ESRCH):
+                return None
+            raise
         fields = text[text.rfind(')') + 2:].split()
         return int(fields[1]), fields[19], fields[0]  # ppid, starttime, state
 
@@ -187,26 +274,72 @@ class Descendants:
                     raise ProcessLookupError(pid)
                 self.owned[pid] = identity[1]
             else:
-                event = select.kevent(pid, filter=select.KQ_FILTER_PROC,
-                    flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE,
-                    fflags=select.KQ_NOTE_EXIT | select.KQ_NOTE_FORK | select.KQ_NOTE_TRACK)
-                self.kqueue.control([event], 0, 0)
-                self.owned[pid] = True
+                identity = self.darwin.identity(pid)
+                if identity is None:
+                    raise ProcessLookupError(pid)
+                self._watch_darwin(pid)
+                self.owned[pid] = identity[0]
+                self.ancestor_identities.add(identity[0])
+                # launch() starts a fresh session before the exec barrier. Only
+                # that verified managed session establishes group ownership.
+                session = os.getsid(pid)
+                if identity[2] == pid and session == pid:
+                    self.groups[pid] = session
+
+    def _watch_darwin(self, pid):
+        event = select.kevent(pid, filter=select.KQ_FILTER_PROC,
+            flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_CLEAR,
+            fflags=select.KQ_NOTE_EXIT | select.KQ_NOTE_FORK)
+        self.kqueue.control([event], 0, 0)
 
     def scan(self):
         with self.lock:
             if self.kqueue is not None:
-                while True:
-                    events = self.kqueue.control(None, max(1, len(self.owned) + 1), 0)
-                    if not events:
-                        break
-                    for event in events:
-                        if event.fflags & select.KQ_NOTE_TRACKERR:
-                            raise RuntimeError('native descendant tracking failed')
-                        if event.fflags & select.KQ_NOTE_CHILD:
-                            self.owned[event.ident] = True
-                        if event.fflags & select.KQ_NOTE_EXIT:
-                            self.owned.pop(event.ident, None)
+                # Notifications are wakeups, never an ancestry certificate.
+                while self.kqueue.control(None, max(1, len(self.owned) + 1), 0):
+                    pass
+                snapshot = self.darwin.snapshot(self.owned)
+                self.owned = {pid: token for pid, token in self.owned.items()
+                    if pid in snapshot and snapshot[pid][0] == token}
+                # Retire group authority BEFORE admitting group-only members.
+                # A numerical PGID/SID must not survive the last verified member
+                # and then adopt an unrelated process after identifier reuse.
+                live_groups = {}
+                for group, session in self.groups.items():
+                    for pid, token in self.owned.items():
+                        current = self.darwin.identity(pid)
+                        if current is None or current[0] != token or current[2] != group:
+                            continue
+                        try:
+                            if os.getsid(pid) == session:
+                                live_groups[group] = session
+                                break
+                        except ProcessLookupError:
+                            continue
+                self.groups = live_groups
+                changed = True
+                while changed:
+                    changed = False
+                    for pid, info in snapshot.items():
+                        if pid in self.owned:
+                            continue
+                        parent_owned = info[1] in self.ancestor_identities
+                        group_owned = False
+                        if info[2] in self.groups:
+                            try:
+                                group_owned = os.getsid(pid) == self.groups[info[2]]
+                            except ProcessLookupError:
+                                continue
+                        if parent_owned or group_owned:
+                            try:
+                                self._watch_darwin(pid)
+                            except ProcessLookupError:
+                                continue
+                            current = self.darwin.identity(pid)
+                            if current is not None and current[0] == info[0]:
+                                self.owned[pid] = info[0]
+                                self.ancestor_identities.add(info[0])
+                                changed = True
                 return
             # Direct children include subreaper-adopted double-fork descendants.
             pending = [os.getpid(), *self.owned]
@@ -222,8 +355,10 @@ class Descendants:
                         continue
                 try:
                     children = Path(f'/proc/{pid}/task/{pid}/children').read_text().split()
-                except FileNotFoundError:
-                    continue
+                except OSError as error:
+                    if error.errno in (errno.ENOENT, errno.ESRCH):
+                        continue
+                    raise
                 for value in children:
                     child = int(value)
                     identity = self._linux_identity(child)
@@ -238,11 +373,24 @@ class Descendants:
     def signal_all(self, number):
         self.scan()
         with self.lock:
+            signaled_groups = set()
             for pid, token in list(self.owned.items()):
                 if self.kqueue is None:
                     identity = self._linux_identity(pid)
                     if identity is None or identity[1] != token:
                         continue
+                else:
+                    identity = self.darwin.identity(pid)
+                    if identity is None or identity[0] != token:
+                        continue
+                    group = identity[2]
+                    if group in self.groups and group not in signaled_groups:
+                        try:
+                            if os.getsid(pid) == self.groups[group]:
+                                os.killpg(group, number)
+                                signaled_groups.add(group)
+                        except ProcessLookupError:
+                            pass
                 try:
                     os.kill(pid, number)
                 except ProcessLookupError:
@@ -363,11 +511,21 @@ def main():
                     tracker.scan()
             except BaseException as error:
                 ownership_failure.append(error)
-                stop.set()
+                # Control shutdown must not erase the tracker exception behind
+                # a later transport error; the owner retains this stderr spool.
                 try:
-                    control.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
+                    traceback.print_exception(error, file=sys.stderr)
+                except BaseException as secondary:
+                    try:
+                        error.add_note(f'Native guardian traceback emission: {secondary!r}')
+                    except BaseException:
+                        pass  # Reporting cannot prevent ownership shutdown.
+                finally:
+                    stop.set()
+                    try:
+                        control.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
         watcher = threading.Thread(target=monitor, name='scnsim-native-owner', daemon=True)
         watcher.start()
         try:

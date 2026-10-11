@@ -136,11 +136,20 @@ an immutable prepared runtime does not hide a live supervisor. Standalone native
 preparation owns its own scope. JAX scopes allocate no native supervisor.
 Installed dependencies are not patched globally. A separate Kernel-liveness pipe
 preserves stdin protocol and does not leak its writer into descendants. UI/network
-disconnection alone does not cancel a live Kernel. Kernel death triggers owned
-process termination/reaping, including managed process-group escape handling;
-the lease remains until actual exit. The supervisor has no COMMIT/checkpoint or
-numerical publication authority, is not a persistent daemon, and does not claim
-protection against arbitrary OS/process-tree disruption. Handled interruption
+disconnection alone does not cancel a live Kernel. Kernel death triggers
+termination and reaping of direct managed roots, owned process groups, and
+identity- and lineage-verified descendants; leases remain until actual drain.
+Children that stay in an owned process group remain within that boundary.
+Linux monitoring uses its platform-specific ownership mechanism. macOS uses
+supported kqueue/libproc interfaces, without `NOTE_TRACK`, `NOTE_TRACKERR` or
+`NOTE_CHILD`. An unseen short-lived intermediate followed by a child escaping
+the owned group cannot be universally attributed; exec may also disrupt the
+original parent lineage. Process names, PID alone or age do not establish
+ownership. This boundary remains CONVERGING. Runtime preparation or smoke CI
+is narrower than a macOS Kernel-death observation and does not establish that
+observation. The supervisor has no COMMIT/checkpoint or numerical publication
+authority, is not a persistent daemon, and does not claim protection against
+arbitrary OS/process-tree disruption. Handled interruption
 cancels queued work and drains active work before cleanup; garbage collection is
 not a safety mechanism for external processes or publication.
 
