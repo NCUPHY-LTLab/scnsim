@@ -29,13 +29,28 @@ from .common import (
 _NATIVE_OPTIMIZATION_ALGORITHM_ID = (
     "scnsim.direct_cmaes.cmaes_jl_0_2_6_state_replay.v9"
 )
-_RUNTIME_SEMANTIC_FIELDS = frozenset({
+_JULIA_RUNTIME_SEMANTIC_FIELDS = frozenset({
     "algorithm_id",
     "python_source_sha256",
     "julia_source_sha256",
     "julia_version",
     "project_sha256",
     "manifest_sha256",
+})
+_JAX_RUNTIME_SEMANTIC_FIELDS = frozenset({
+    "backend", "precision", "python_source_sha256", "scipy_version",
+    "jax_version", "jaxlib_version", "cmaes_version", "resources",
+})
+_JAX_ALGORITHMS = {
+    "solve_direct": "scnsim.jax.physical_program.direct.v1",
+    "evaluate_direct": "scnsim.jax.physical_program.evaluate.v1",
+    "optimize_direct": "scnsim.jax.physical_program.optimize.v1",
+    "sensitivity": "scnsim.jax.physical_program.sensitivity.v1",
+}
+_JAX_RESOURCE_FIELDS = frozenset({
+    "cpu_threads", "pjrt_nproc", "allocation_policy", "optimization_workers",
+    "optimization_execution_model", "optimization_numeric_pool_location",
+    "optimization_pjrt_nproc", "optimization_blas_threads",
 })
 
 
@@ -63,7 +78,7 @@ def _verify_request_document(
     operation = request.get("operation")
     spec = request.get("spec")
     runtime = request.get("runtime_semantic")
-    algorithms = {
+    julia_algorithms = {
         "solve_direct": {"direct_solve": "scnsim.direct_response.v1"},
         "solve_hb": {"hb_solve": "scnsim.hb_response.josephsoncircuits.v1"},
         "evaluate_direct": {
@@ -77,20 +92,45 @@ def _verify_request_document(
         },
         "optimize_direct": {"optimization": _NATIVE_OPTIMIZATION_ALGORITHM_ID},
     }
-    expected_algorithm = algorithms.get(operation, {}).get(spec.get("type") if isinstance(spec, dict) else None)
+    is_jax = isinstance(runtime, dict) and runtime.get("backend") == "jax"
+    if is_jax:
+        expected_algorithm = _JAX_ALGORITHMS.get(operation)
+        expected_spec = {
+            "solve_direct": "direct_solve",
+            "evaluate_direct": "diagonal_root",  # checked against its closed evaluation catalog below
+            "optimize_direct": "optimization",
+            "sensitivity": "sensitivity",
+        }.get(operation)
+        if operation == "evaluate_direct":
+            expected_spec = spec.get("type") if isinstance(spec, dict) else None
+            if expected_spec not in julia_algorithms["evaluate_direct"]:
+                expected_spec = None
+    else:
+        expected_algorithm = julia_algorithms.get(operation, {}).get(spec.get("type") if isinstance(spec, dict) else None)
+        expected_spec = {
+            "solve_direct": "direct_solve",
+            "solve_hb": "hb_solve",
+            "optimize_direct": "optimization",
+        }.get(operation)
     if (
         set(request) != {"schema", "schema_version", "plan_sha256", "operation", "view", "spec", "parameter_source", "runtime_semantic"}
         or request.get("schema") != "scnsim.request"
         or request.get("schema_version") != 2
         or request.get("plan_sha256") != plan_sha256
         or expected_algorithm is None
+        or expected_spec is None
+        or not isinstance(spec, dict)
+        or spec.get("type") != expected_spec
         or any(not isinstance(request.get(field), dict) for field in ("view", "spec", "parameter_source", "runtime_semantic"))
     ):
         raise _integrity("Stored request envelope is open or inconsistent.")
-    if set(runtime) != _RUNTIME_SEMANTIC_FIELDS or not isinstance(runtime.get("julia_version"), str) or not runtime["julia_version"]:
-        raise _integrity("Stored runtime semantic identity is open or malformed.")
-    for field in ("python_source_sha256", "julia_source_sha256", "project_sha256", "manifest_sha256"):
-        _valid_sha(runtime.get(field))
+    if is_jax:
+        _verify_jax_runtime_semantic(runtime)
+    else:
+        if set(runtime) != _JULIA_RUNTIME_SEMANTIC_FIELDS or not isinstance(runtime.get("julia_version"), str) or not runtime["julia_version"]:
+            raise _integrity("Stored runtime semantic identity is open or malformed.")
+        for field in ("python_source_sha256", "julia_source_sha256", "project_sha256", "manifest_sha256"):
+            _valid_sha(runtime.get(field))
     algorithm_id = runtime.get("algorithm_id")
     historical_optimization_algorithms = {
         "scnsim.direct_cmaes.cmaes_jl_0_2_6_state_replay.v3",
@@ -123,6 +163,9 @@ def _verify_request_document(
     if algorithm_id != expected_algorithm:
         raise _integrity("Stored request runtime identity is inconsistent.")
     _verify_parameter_source(request["parameter_source"], plan)
+    if operation == "sensitivity":
+        _verify_v1_sensitivity_request(request["view"], spec, request["parameter_source"], plan, plan_sha256)
+        return
     terminal, port_realizable = _verify_view_declaration(request["view"], plan)
     if operation == "solve_direct":
         _verify_v1_direct_spec(spec, terminal, port_realizable)
@@ -132,7 +175,12 @@ def _verify_request_document(
     elif operation == "evaluate_direct":
         _verify_v1_evaluation_spec(spec, terminal, port_realizable)
     else:
-        _verify_v1_optimization_spec(spec, plan, request["parameter_source"].get("parameters"))
+        if is_jax:
+            _verify_v1_jax_optimization_spec(
+                spec, plan, request["parameter_source"].get("parameters")
+            )
+        else:
+            _verify_v1_optimization_spec(spec, plan, request["parameter_source"].get("parameters"))
         leaves = _optimization_selector_leaves(spec)
         if not leaves or request["view"] != leaves[0].get("view"):
             raise _integrity("Optimization primary View is not its first normalized selector View.")
@@ -143,6 +191,365 @@ def _verify_request_document(
         declared = {_parameter_key_integrity(item) for item in spec["allow_extrapolation"]}
         if declared != ({_parameter_key_integrity(item) for item in parameters["allow_extrapolation"]} & active):
             raise _integrity("Optimization request has inconsistent active extrapolation authorities.")
+
+
+def _verify_jax_runtime_semantic(runtime: Mapping[str, object]) -> None:
+    """Verify the closed JAX identity without initializing a numerical backend."""
+    if set(runtime) != _JAX_RUNTIME_SEMANTIC_FIELDS:
+        raise _integrity("Stored JAX runtime identity is open or malformed.")
+    if runtime.get("backend") != "jax" or runtime.get("precision") not in {"float32", "float64"}:
+        raise _integrity("Stored JAX backend or precision identity is malformed.")
+    _valid_sha(runtime.get("python_source_sha256"))
+    for field in ("scipy_version", "jax_version", "jaxlib_version", "cmaes_version"):
+        value = runtime.get(field)
+        if not isinstance(value, str) or not value:
+            raise _integrity("Stored JAX package identity is malformed.", field=field)
+    resources = runtime.get("resources")
+    if not isinstance(resources, Mapping) or set(resources) != _JAX_RESOURCE_FIELDS:
+        raise _integrity("Stored JAX resource identity is open or malformed.")
+    cpu_threads = resources.get("cpu_threads")
+    workers = resources.get("optimization_workers")
+    if cpu_threads is not None and (
+        not isinstance(cpu_threads, int) or isinstance(cpu_threads, bool) or cpu_threads < 1
+    ):
+        raise _integrity("Stored JAX thread declaration is malformed.")
+    if not isinstance(workers, int) or isinstance(workers, bool) or workers < 1:
+        raise _integrity("Stored JAX optimization worker declaration is malformed.")
+    for field in ("pjrt_nproc", "optimization_pjrt_nproc"):
+        if resources.get(field) is not None and not isinstance(resources[field], str):
+            raise _integrity("Stored JAX PJRT resource identity is malformed.", field=field)
+    if resources.get("allocation_policy") != "scnsim.candidate-thread-ready-batch.v1":
+        raise _integrity("Stored JAX allocation policy is unsupported.")
+    if resources.get("optimization_execution_model") not in {"serial", "threads", "processes"}:
+        raise _integrity("Stored JAX execution model is malformed.")
+    if resources.get("optimization_numeric_pool_location") not in {"parent", "child"}:
+        raise _integrity("Stored JAX numerical pool location is malformed.")
+    blas_threads = resources.get("optimization_blas_threads")
+    if blas_threads is not None and (
+        not isinstance(blas_threads, int) or isinstance(blas_threads, bool) or blas_threads < 1
+    ):
+        raise _integrity("Stored JAX BLAS thread declaration is malformed.")
+
+
+def _verify_v1_sensitivity_request(
+    view_set: object,
+    spec: Mapping[str, object],
+    parameter_source: Mapping[str, object],
+    plan: Mapping[str, object],
+    plan_sha256: str,
+) -> None:
+    """Close the physical Sensitivity declaration and its ordered View set."""
+    if set(spec) != {
+        "type", "quantities", "wrt", "derivative", "discretization", "scales",
+        "functional_unit",
+    } or spec.get("type") != "sensitivity":
+        raise _integrity("Sensitivity request Spec is open or malformed.")
+    if not isinstance(view_set, Mapping) or set(view_set) != {"type", "views"} or view_set.get("type") != "network_view_set":
+        raise _integrity("Sensitivity View set is malformed.")
+    views = view_set.get("views")
+    if not isinstance(views, list) or not views:
+        raise _integrity("Sensitivity View set must contain its selected Views.")
+
+    parameter_document = parameter_source.get("parameters")
+    if parameter_source.get("kind") != "point" or not isinstance(parameter_document, Mapping):
+        raise _integrity("Sensitivity request requires one complete parameter point.")
+    parameter_bindings = {
+        _parameter_key_integrity(binding["parameter"]): binding["value"]
+        for binding in parameter_document.get("bindings", ())
+        if isinstance(binding, Mapping) and isinstance(binding.get("parameter"), Mapping)
+    }
+    definitions = plan.get("parameter_closure", {}).get("definitions")
+    if not isinstance(definitions, list):
+        raise _integrity("Plan parameter definitions are malformed.")
+    definitions_by_key = {
+        _parameter_key_integrity({
+            "definitions_id": row.get("definitions_id"),
+            "parameter_id": row.get("parameter_id"),
+        }): row
+        for row in definitions if isinstance(row, Mapping)
+    }
+
+    def parameter_role(reference: object) -> tuple[tuple[str, str], str, str]:
+        key = _parameter_key_integrity(reference)
+        definition = definitions_by_key.get(key)
+        if not isinstance(definition, Mapping) or key not in parameter_bindings:
+            raise _integrity("Sensitivity parameter is absent from its Plan-bound point.", parameter=key)
+        parameter_spec = definition.get("spec")
+        if not isinstance(parameter_spec, Mapping) or parameter_spec.get("kind") != "scalar":
+            raise _integrity("Sensitivity input must bind a scalar physical parameter.", parameter=key)
+        unit, dimension = parameter_spec.get("si_unit"), parameter_spec.get("dimensionality")
+        if not isinstance(unit, str) or not unit or not isinstance(dimension, str) or not dimension:
+            raise _integrity("Sensitivity parameter physical role is malformed.", parameter=key)
+        return key, unit, dimension
+
+    wrt = spec.get("wrt")
+    if not isinstance(wrt, list) or not wrt:
+        raise _integrity("Sensitivity WRT declaration is malformed.")
+    wrt_keys = [parameter_role(reference)[0] for reference in wrt]
+    if len(set(wrt_keys)) != len(wrt_keys):
+        raise _integrity("Sensitivity WRT declaration repeats a parameter.")
+
+    quantities = spec.get("quantities")
+    if not isinstance(quantities, list) or not quantities:
+        raise _integrity("Sensitivity output declaration is malformed.")
+    output_roles: dict[str, tuple[str, str, tuple[int, ...], bool]] = {}
+    encountered_views: list[dict[str, object]] = []
+
+    def checked_leaf_view(value: object) -> tuple[list[str], bool]:
+        if not isinstance(value, Mapping) or set(value) != {
+            "type", "plan_sha256", "ptc", "transforms", "retain",
+        } or value.get("type") != "network_view" or value.get("plan_sha256") != plan_sha256:
+            raise _integrity("Sensitivity leaf View is not bound to this Plan.")
+        declaration = {key: value[key] for key in ("type", "ptc", "transforms", "retain")}
+        full_declaration = dict(value)
+        if not any(_canonical_bytes(item) == _canonical_bytes(full_declaration) for item in encountered_views):
+            encountered_views.append(full_declaration)
+        return _verify_view_declaration(declaration, plan)
+
+    def frequency_grid(value: object) -> list[object]:
+        if not isinstance(value, Mapping) or set(value) != {"type", "shape", "values"} or value.get("type") != "quantity_array":
+            raise _integrity("Sensitivity frequency grid is malformed.")
+        shape, values = value.get("shape"), value.get("values")
+        if not isinstance(shape, list) or len(shape) != 1 or not isinstance(values, list) or shape != [len(values)]:
+            raise _integrity("Sensitivity frequency grid shape is malformed.")
+        for item in values:
+            _verify_quantity_role(item, complex_value=False, unit="hertz", dimensionality="inverse_time")
+        return values
+
+    def expression(value: object) -> tuple[str, str, tuple[int, ...], bool]:
+        if not isinstance(value, Mapping) or not isinstance(value.get("type"), str):
+            raise _integrity("Sensitivity quantity expression is malformed.")
+        kind = value["type"]
+        if kind == "quantity_sum":
+            if set(value) != {"type", "terms"} or not isinstance(value.get("terms"), list) or not value["terms"]:
+                raise _integrity("Sensitivity QuantitySum is malformed.")
+            roles = [expression(term) for term in value["terms"]]
+            if any(role[1] != roles[0][1] or role[2] != roles[0][2] for role in roles[1:]):
+                raise _integrity("Sensitivity QuantitySum terms have incompatible layouts.")
+            return roles[0]
+        if kind == "quantity_difference":
+            if set(value) != {"type", "left", "right"}:
+                raise _integrity("Sensitivity QuantityDifference is malformed.")
+            left, right = expression(value["left"]), expression(value["right"])
+            if left[1] != right[1] or left[2] != right[2]:
+                raise _integrity("Sensitivity QuantityDifference operands have incompatible layouts.")
+            return left
+        if kind == "quantity_absolute":
+            if set(value) != {"type", "operand"}:
+                raise _integrity("Sensitivity QuantityAbsolute is malformed.")
+            unit, dimension, shape, _ = expression(value["operand"])
+            return unit, dimension, shape, False
+
+        if set(value) != {"type", "spec", "projection", "view"} or not isinstance(value.get("spec"), Mapping):
+            raise _integrity("Sensitivity quantity selector is malformed.")
+        terminal, port_realizable = checked_leaf_view(value.get("view"))
+        selected_spec = value["spec"]
+        if kind == "matrix_projection":
+            if value.get("projection") not in {"S", "Y", "Z"} or selected_spec.get("type") != "direct_solve":
+                raise _integrity("Sensitivity matrix projection is malformed.")
+            normalized_spec = dict(selected_spec)
+            normalized_spec["frequencies"] = frequency_grid(selected_spec.get("frequencies"))
+            _verify_v1_direct_spec(normalized_spec, terminal, port_realizable)
+            role = {
+                "S": ("dimensionless", "dimensionless"),
+                "Y": ("siemens", "conductance"),
+                "Z": ("ohm", "resistance"),
+            }[value["projection"]]
+            return role[0], role[1], (len(normalized_spec["frequencies"]), len(terminal), len(terminal)), True
+        if kind == "operator_projection":
+            if value.get("projection") != "matrix" or selected_spec.get("type") != "operator":
+                raise _integrity("Sensitivity operator projection is malformed.")
+            frequencies = frequency_grid(selected_spec.get("frequencies"))
+            _verify_v1_evaluation_spec(
+                {"type": "operator", "frequencies": frequencies}, terminal, port_realizable,
+            )
+            return "siemens / second", "conductance_per_time", (len(frequencies), len(terminal), len(terminal)), True
+        projections = {
+            "diagonal_root_projection": ("diagonal_root", {"frequency", "linewidth"}, ("hertz", "inverse_time"), False),
+            "operator_element_root_projection": ("operator_element_root", {"frequency"}, ("hertz", "inverse_time"), False),
+            "hybridized_pole_projection": ("hybridized_pole", {"frequency", "linewidth"}, ("hertz", "inverse_time"), False),
+            "transfer_zero_projection": ("transfer_zero", {"frequency"}, ("hertz", "inverse_time"), False),
+            "residue_coupling_projection": ("residue_normalized_coupling", {"real", "imag", "magnitude"}, ("radian / second", "inverse_time"), False),
+            "response_element_projection": ("response_element", {"magnitude", "real", "imag"}, None, False),
+        }
+        expected = projections.get(kind)
+        if expected is None or value.get("projection") not in expected[1] or selected_spec.get("type") != expected[0]:
+            raise _integrity("Sensitivity quantity selector is outside the Direct catalog.")
+        _verify_v1_evaluation_spec(selected_spec, terminal, port_realizable)
+        role = expected[2]
+        if role is None:
+            family = selected_spec.get("family")
+            role = {
+                "S": ("dimensionless", "dimensionless"),
+                "Y": ("siemens", "conductance"),
+                "Z": ("ohm", "resistance"),
+            }.get(family)
+            if role is None:
+                raise _integrity("Sensitivity response selector family is malformed.")
+        return role[0], role[1], (), False
+
+    labels: list[str] = []
+    for row in quantities:
+        if not isinstance(row, Mapping) or set(row) != {"id", "quantity"}:
+            raise _integrity("Sensitivity quantity row is open or malformed.")
+        label = row.get("id")
+        if not isinstance(label, str) or _IDENTIFIER.fullmatch(label) is None or label in output_roles:
+            raise _integrity("Sensitivity quantity label is malformed or duplicated.")
+        labels.append(label)
+        output_roles[label] = expression(row.get("quantity"))
+
+    if views != encountered_views:
+        raise _integrity("Sensitivity View set differs from its ordered leaf declarations.")
+
+    derivative = spec.get("derivative")
+    if not isinstance(derivative, Mapping) or not isinstance(derivative.get("type"), str):
+        raise _integrity("Sensitivity derivative declaration is malformed.")
+
+    def derived_scalar(value: object, *, expected_role: tuple[str, str] | None = None) -> tuple[str, str]:
+        if not isinstance(value, Mapping):
+            raise _integrity("Sensitivity physical value is malformed.")
+        kind = value.get("type")
+        if kind == "quantity_array":
+            if set(value) != {"type", "shape", "values"}:
+                raise _integrity("Sensitivity physical array is open or malformed.")
+            shape, values = value.get("shape"), value.get("values")
+            if not isinstance(shape, list) or not isinstance(values, list):
+                raise _integrity("Sensitivity physical array shape or values are malformed.")
+            count = 1
+            for dimension in shape:
+                if not isinstance(dimension, int) or isinstance(dimension, bool) or dimension < 0:
+                    raise _integrity("Sensitivity physical array dimension is malformed.")
+                count *= dimension
+            if count != len(values):
+                raise _integrity("Sensitivity physical array shape differs from its values.")
+            roles = [derived_scalar(item, expected_role=expected_role) for item in values]
+            if roles and any(role != roles[0] for role in roles[1:]):
+                raise _integrity("Sensitivity physical array mixes unit roles.")
+            return roles[0] if roles else (expected_role or ("", ""))
+        if kind not in {"quantity_f64", "complex_quantity_f64"}:
+            raise _integrity("Sensitivity value is outside the derived-quantity vocabulary.")
+        complex_value = kind == "complex_quantity_f64"
+        fields = {"type", "si_unit", "dimensionality", "real_si_f64", "imag_si_f64"} if complex_value else {"type", "si_unit", "dimensionality", "si_value_f64"}
+        if set(value) != fields:
+            raise _integrity("Sensitivity scalar quantity is open or malformed.")
+        unit, dimension = value.get("si_unit"), value.get("dimensionality")
+        numeric = (value.get("real_si_f64"), value.get("imag_si_f64")) if complex_value else (value.get("si_value_f64"),)
+        if not isinstance(unit, str) or not unit or not isinstance(dimension, str) or not dimension or any(not _finite_f64(token) for token in numeric):
+            raise _integrity("Sensitivity scalar quantity unit or Float64 encoding is malformed.")
+        if expected_role is not None and (unit, dimension) != expected_role:
+            raise _integrity("Sensitivity scalar quantity has the wrong physical role.", expected=expected_role)
+        return unit, dimension
+
+    def output_coordinate(value: object) -> tuple[str, str, tuple[int, ...], bool]:
+        if not isinstance(value, Mapping) or set(value) != {"quantity_label", "component", "index"}:
+            raise _integrity("Sensitivity output coordinate is malformed.")
+        label, component, index = value.get("quantity_label"), value.get("component"), value.get("index")
+        if (not isinstance(label, str) or label not in output_roles
+                or component not in {"real", "imag"} or not isinstance(index, list)):
+            raise _integrity("Sensitivity output coordinate is outside its declared quantity layout.")
+        if any(not isinstance(item, int) or isinstance(item, bool) or item < 0 for item in index):
+            raise _integrity("Sensitivity output coordinate index is malformed.")
+        unit, dimension, shape, complex_output = output_roles[label]
+        if (len(index) != len(shape)
+                or any(coordinate >= extent for coordinate, extent in zip(index, shape))
+                or (component == "imag" and not complex_output)):
+            raise _integrity("Sensitivity output coordinate is outside its declared quantity axes.")
+        return unit, dimension, shape, complex_output
+
+    derivative_kind = derivative.get("type")
+    if derivative_kind == "jacobian":
+        if set(derivative) != {"type"}:
+            raise _integrity("Sensitivity Jacobian declaration is malformed.")
+    elif derivative_kind == "jvp":
+        rows = derivative.get("direction")
+        if set(derivative) != {"type", "direction"} or not isinstance(rows, list):
+            raise _integrity("Sensitivity JVP declaration is malformed.")
+        observed: set[tuple[str, str]] = set()
+        for row in rows:
+            if not isinstance(row, Mapping) or set(row) != {"parameter", "value"}:
+                raise _integrity("Sensitivity JVP direction row is malformed.")
+            key, unit, dimension = parameter_role(row.get("parameter"))
+            if key not in wrt_keys or key in observed:
+                raise _integrity("Sensitivity JVP direction does not match its WRT declaration.")
+            derived_scalar(row.get("value"), expected_role=(unit, dimension))
+            observed.add(key)
+    elif derivative_kind == "vjp":
+        rows = derivative.get("weights")
+        if set(derivative) != {"type", "weights"} or not isinstance(rows, list):
+            raise _integrity("Sensitivity VJP declaration is malformed.")
+        observed_outputs: set[bytes] = set()
+        for row in rows:
+            if not isinstance(row, Mapping) or set(row) != {"output", "value"}:
+                raise _integrity("Sensitivity VJP weight row is malformed.")
+            output_coordinate(row.get("output"))
+            key = _canonical_bytes(row["output"])
+            if key in observed_outputs:
+                raise _integrity("Sensitivity VJP repeats an output coordinate.")
+            derived_scalar(row.get("value"))
+            observed_outputs.add(key)
+    else:
+        raise _integrity("Sensitivity derivative operation is unknown.")
+
+    if derivative_kind == "vjp":
+        if spec.get("functional_unit") is not None and (not isinstance(spec["functional_unit"], str) or not spec["functional_unit"]):
+            raise _integrity("Sensitivity VJP functional unit is malformed.")
+    elif spec.get("functional_unit") is not None:
+        raise _integrity("Only VJP requests may bind a functional unit.")
+
+    discretization = spec.get("discretization")
+    if discretization is not None:
+        if not isinstance(discretization, Mapping) or set(discretization) != {"type", "resolution", "sections"} or discretization.get("type") != "fixed_mesh":
+            raise _integrity("Sensitivity fixed-mesh declaration is malformed.")
+        resolution, sections = discretization.get("resolution"), discretization.get("sections")
+        if (resolution is None) == (sections is None):
+            raise _integrity("Sensitivity fixed mesh must declare one resolution form.")
+        if resolution is not None:
+            if (not isinstance(resolution, Mapping)
+                    or set(resolution) != {"kind", "max_frequency", "sections_per_wavelength"}
+                    or resolution.get("kind") != "electrical_resolution"):
+                raise _integrity("Sensitivity electrical resolution is malformed.")
+            _verify_quantity_role(resolution.get("max_frequency"), complex_value=False, unit="hertz", dimensionality="inverse_time")
+            count = resolution.get("sections_per_wavelength")
+            if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+                raise _integrity("Sensitivity electrical resolution count is malformed.")
+        if sections is not None:
+            if not isinstance(sections, list):
+                raise _integrity("Sensitivity fixed sections are malformed.")
+            prior_path = None
+            for row in sections:
+                if (not isinstance(row, Mapping) or set(row) != {"path", "count"}
+                        or not isinstance(row.get("path"), list) or not row["path"]
+                        or any(not isinstance(part, str) or _IDENTIFIER.fullmatch(part) is None for part in row["path"])
+                        or not isinstance(row.get("count"), int) or isinstance(row["count"], bool) or row["count"] < 1):
+                    raise _integrity("Sensitivity fixed section row is malformed.")
+                path = tuple(row["path"])
+                if prior_path is not None and path <= prior_path:
+                    raise _integrity("Sensitivity fixed section paths are not ordered and unique.")
+                prior_path = path
+
+    scales = spec.get("scales")
+    if scales is not None:
+        if not isinstance(scales, Mapping) or set(scales) != {"inputs", "outputs"} or not isinstance(scales.get("inputs"), list) or not isinstance(scales.get("outputs"), list):
+            raise _integrity("Sensitivity normalization scales are malformed.")
+        seen_inputs: set[tuple[str, str]] = set()
+        for row in scales["inputs"]:
+            if not isinstance(row, Mapping) or set(row) != {"parameter", "value"}:
+                raise _integrity("Sensitivity input scale row is malformed.")
+            key, unit, dimension = parameter_role(row.get("parameter"))
+            if key not in wrt_keys or key in seen_inputs:
+                raise _integrity("Sensitivity input scale does not match its WRT declaration.")
+            derived_scalar(row.get("value"), expected_role=(unit, dimension))
+            seen_inputs.add(key)
+        seen_outputs: set[bytes] = set()
+        for row in scales["outputs"]:
+            if not isinstance(row, Mapping) or set(row) != {"output", "value"}:
+                raise _integrity("Sensitivity output scale row is malformed.")
+            unit, dimension, _, _ = output_coordinate(row.get("output"))
+            key = _canonical_bytes(row["output"])
+            if key in seen_outputs:
+                raise _integrity("Sensitivity output scales repeat a coordinate.")
+            derived_scalar(row.get("value"), expected_role=(unit, dimension))
+            seen_outputs.add(key)
 
 def _verify_parameter_source(source: object, plan: Mapping[str, object]) -> None:
     if not isinstance(source, dict):
@@ -758,6 +1165,253 @@ def _verify_v1_optimization_spec(spec: object, plan: Mapping[str, object], initi
         ) for value, variable in zip(baseline_coordinates, variables))
     ):
         raise _integrity("Optimization baseline coordinates are malformed.")
+
+
+def _verify_v1_jax_optimization_spec(
+    spec: object, plan: Mapping[str, object], initial_parameters: object
+) -> None:
+    """Verify the current physical CMA/L-BFGS-B/Hybrid request grammar.
+
+    The Julia optimization validator remains a separate source-owned contract.
+    This validates the closed request serialization only; it does not initialize
+    the numerical backend or derive candidate values.
+    """
+    if (not isinstance(spec, dict)
+            or set(spec) not in (
+                {"type", "variables", "objectives", "optimizer", "allow_extrapolation"},
+                {"type", "variables", "objectives", "optimizer", "discretization", "allow_extrapolation"},
+            )
+            or spec.get("type") != "optimization"):
+        raise _integrity("Physical Optimization Spec is open or malformed.")
+    variables, objectives = spec.get("variables"), spec.get("objectives")
+    optimizer, authorizations = spec.get("optimizer"), spec.get("allow_extrapolation")
+    if (not isinstance(variables, list) or not variables
+            or not isinstance(objectives, list) or not objectives
+            or not isinstance(optimizer, dict) or not isinstance(authorizations, list)):
+        raise _integrity("Physical Optimization Spec has malformed collections.")
+
+    initial = ({_parameter_key_integrity(binding["parameter"]): binding["value"]
+                for binding in initial_parameters.get("bindings", [])}
+               if isinstance(initial_parameters, Mapping) else {})
+    variable_keys = []
+    for variable in variables:
+        if not isinstance(variable, dict):
+            raise _integrity("Physical Optimization variable is malformed.")
+        key = _parameter_key_integrity(variable.get("parameter"))
+        variable_keys.append(key)
+        if "domain" in variable:
+            if set(variable) != {"parameter", "domain", "transform", "scale"}:
+                raise _integrity("Physical Optimization domain variable is open.")
+            domain = variable.get("domain")
+            linear = domain in {"UNBOUNDED", "NONNEGATIVE", "NONPOSITIVE"}
+            signed = domain in {"POSITIVE", "NEGATIVE"}
+            if not (linear or signed) or variable.get("transform") != ("linear" if linear else "log"):
+                raise _integrity("Physical Optimization domain transform is malformed.")
+            value = initial.get(key)
+            if not isinstance(value, Mapping):
+                raise _integrity("Physical Optimization initial parameter is absent.")
+            x0 = _f64_value(value.get("si_value_f64"))
+            if ((domain == "POSITIVE" and x0 <= 0.0)
+                    or (domain == "NEGATIVE" and x0 >= 0.0)
+                    or (domain == "NONNEGATIVE" and x0 < 0.0)
+                    or (domain == "NONPOSITIVE" and x0 > 0.0)):
+                raise _integrity("Physical Optimization initial value is outside its domain.")
+            scale = variable.get("scale")
+            if linear and scale is not None:
+                _verify_quantity_compatible(scale, value)
+                if _f64_value(scale["si_value_f64"]) <= 0.0:
+                    raise _integrity("Physical Optimization domain scale is not positive.")
+            elif not linear and scale is not None:
+                raise _integrity("Signed log domain cannot carry a physical scale.")
+            continue
+        fields = {"parameter", "model_default_bounds", "consumer_override_bounds",
+                  "lower", "upper", "transform"}
+        if set(variable) != fields or variable.get("transform") not in {"linear", "log"}:
+            raise _integrity("Physical Optimization bounded variable is malformed.")
+        _verify_bounds(variable.get("model_default_bounds"))
+        override = variable.get("consumer_override_bounds")
+        if override is not None:
+            _verify_bounds(override)
+        _verify_quantity_compatible(variable.get("lower"), variable.get("upper"))
+        if (override is None and variable.get("model_default_bounds") !=
+                [variable.get("lower"), variable.get("upper")]):
+            raise _integrity("Physical Optimization bounds differ from model defaults.")
+        if (override is not None and override !=
+                [variable.get("lower"), variable.get("upper")]):
+            raise _integrity("Physical Optimization bounds differ from consumer override.")
+    if len(set(variable_keys)) != len(variable_keys):
+        raise _integrity("Physical Optimization variables are not unique.")
+    active = set(variable_keys)
+    auth_keys = [_parameter_key_integrity(item) for item in authorizations]
+    if auth_keys != sorted(set(auth_keys)) or any(key not in active for key in auth_keys):
+        raise _integrity("Physical Optimization extrapolation authorization is malformed.")
+
+    objective_ids = set()
+    for objective in objectives:
+        required = {"id", "quantity", "comparison", "target", "weight_f64",
+                    "resolved_scale", "scale_source"}
+        if (not isinstance(objective, dict) or set(objective) != required
+                or not isinstance(objective.get("id"), str)
+                or _IDENTIFIER.fullmatch(objective["id"]) is None
+                or objective["id"] in objective_ids):
+            raise _integrity("Physical Optimization objective is malformed.")
+        objective_ids.add(objective["id"])
+        unit, dimensionality = _verify_selector(objective.get("quantity"), plan)
+        _verify_quantity_role(objective.get("target"), complex_value=False,
+                              unit=unit, dimensionality=dimensionality)
+        _verify_quantity_role(objective.get("resolved_scale"), complex_value=False,
+                              unit=unit, dimensionality=dimensionality)
+        if (objective.get("comparison") not in {"target", "at_least"}
+                or objective.get("scale_source") not in {
+                    "relative_target", "dimensionless_unity", "explicit"}
+                or not _finite_f64(objective.get("weight_f64"))
+                or _f64_value(objective["weight_f64"]) <= 0.0
+                or _f64_value(objective["resolved_scale"]["si_value_f64"]) <= 0.0):
+            raise _integrity("Physical Optimization objective scale is malformed.")
+
+    def verify_mesh(value):
+        if value is None:
+            return
+        if (not isinstance(value, Mapping)
+                or set(value) != {"type", "resolution", "sections"}
+                or value.get("type") != "fixed_mesh"):
+            raise _integrity("Physical Optimization fixed mesh is malformed.")
+        resolution, sections = value.get("resolution"), value.get("sections")
+        if (resolution is None) == (sections is None):
+            raise _integrity("Physical Optimization mesh must declare one resolution form.")
+        if resolution is not None:
+            if (not isinstance(resolution, Mapping)
+                    or set(resolution) != {"kind", "max_frequency", "sections_per_wavelength"}
+                    or resolution.get("kind") != "electrical_resolution"):
+                raise _integrity("Physical Optimization electrical resolution is malformed.")
+            _verify_quantity_role(resolution.get("max_frequency"), complex_value=False,
+                                  unit="hertz", dimensionality="inverse_time")
+            count = resolution.get("sections_per_wavelength")
+            if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+                raise _integrity("Physical Optimization section resolution is malformed.")
+        if sections is not None:
+            if not isinstance(sections, list):
+                raise _integrity("Physical Optimization fixed sections are malformed.")
+            prior_path = None
+            for row in sections:
+                if (not isinstance(row, Mapping) or set(row) != {"path", "count"}
+                        or not isinstance(row.get("path"), list) or not row["path"]
+                        or any(not isinstance(part, str) or _IDENTIFIER.fullmatch(part) is None
+                               for part in row["path"])
+                        or not isinstance(row.get("count"), int)
+                        or isinstance(row.get("count"), bool) or row["count"] < 1):
+                    raise _integrity("Physical Optimization section entry is malformed.")
+                path = tuple(row["path"])
+                if prior_path is not None and path <= prior_path:
+                    raise _integrity("Physical Optimization section paths are not ordered and unique.")
+                prior_path = path
+
+    if "discretization" in spec:
+        verify_mesh(spec["discretization"])
+
+    def verify_controls(control):
+        if not isinstance(control, Mapping):
+            raise _integrity("Physical Optimization stage controls are malformed.")
+        kind = control.get("type")
+        if kind == "cma_es":
+            required = {"type", "seed", "max_evaluations", "population_size",
+                        "resolved_population_size", "initial_sigma_f64",
+                        "baseline_optimizer_coordinates_f64", "box_transform_id",
+                        "complete_generations", "unused_evaluations", "hidden_stops"}
+            if set(control) != required:
+                raise _integrity("Physical CMA controls are open or malformed.")
+            seed = control.get("seed")
+            budget = control.get("max_evaluations")
+            declared_pop = control.get("population_size")
+            population = control.get("resolved_population_size")
+            generations, unused = control.get("complete_generations"), control.get("unused_evaluations")
+            expected_population = (declared_pop if declared_pop is not None else
+                                  4 + math.floor(3 * math.log(len(variables))))
+            if (not isinstance(seed, int) or isinstance(seed, bool) or not -(2**63) <= seed < 2**63
+                    or not isinstance(budget, int) or isinstance(budget, bool) or budget < 1
+                    or (declared_pop is not None and
+                        (not isinstance(declared_pop, int) or isinstance(declared_pop, bool) or declared_pop < 2))
+                    or population != expected_population
+                    or not isinstance(population, int) or isinstance(population, bool)
+                    or population < 2
+                    or generations != (budget - 1) // population
+                    or unused != budget - (1 + generations * population)
+                    or not isinstance(generations, int) or isinstance(generations, bool) or generations < 0
+                    or not isinstance(unused, int) or isinstance(unused, bool) or unused < 0
+                    or control.get("hidden_stops") != "disabled"
+                    or control.get("box_transform_id") != (
+                        "scnsim-python-cmaes-0.13.1-native-domains.v1"
+                        if any("domain" in variable for variable in variables)
+                        else "scnsim-python-cmaes-0.13.1-linquad-unit-box.v1")):
+                raise _integrity("Physical CMA controls are inconsistent.")
+            sigma = control.get("initial_sigma_f64")
+            if not _finite_f64(sigma) or _f64_value(sigma) <= 0.0:
+                raise _integrity("Physical CMA sigma is malformed.")
+            coordinates = control.get("baseline_optimizer_coordinates_f64")
+            if (not isinstance(coordinates, list) or len(coordinates) != len(variables)
+                    or any(not _finite_f64(value) for value in coordinates)):
+                raise _integrity("Physical CMA baseline coordinates are malformed.")
+            for coordinate, variable in zip(coordinates, variables):
+                value = _f64_value(coordinate)
+                if ("domain" in variable and value != 0.0) or ("domain" not in variable and not 0.0 <= value <= 1.0):
+                    raise _integrity("Physical CMA baseline coordinate is outside its transform.")
+            return
+        if kind == "lbfgsb":
+            required = {"type", "max_evaluations", "max_iterations", "ftol_f64", "gtol_f64",
+                        "max_line_search", "commit_every_iterations", "coordinate_scales"}
+            if set(control) != required:
+                raise _integrity("Physical L-BFGS-B controls are open or malformed.")
+            for name in ("max_evaluations", "max_iterations", "max_line_search", "commit_every_iterations"):
+                value = control.get(name)
+                if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                    raise _integrity("Physical L-BFGS-B integer control is malformed.", field=name)
+            for name in ("ftol_f64", "gtol_f64"):
+                value = control.get(name)
+                if not _finite_f64(value) or _f64_value(value) < 0.0:
+                    raise _integrity("Physical L-BFGS-B tolerance encoding is malformed.", field=name)
+            scales = control.get("coordinate_scales")
+            if scales is not None:
+                if not isinstance(scales, list) or len(scales) != len(variables):
+                    raise _integrity("Physical L-BFGS-B coordinate scales are malformed.")
+                for scale, variable in zip(scales, variables):
+                    if (not isinstance(scale, Mapping) or set(scale) != {"parameter", "value"}
+                            or scale.get("parameter") != variable.get("parameter")):
+                        raise _integrity("Physical L-BFGS-B coordinate scale order differs from variables.")
+                    value = scale.get("value")
+                    _verify_quantity_role(
+                        value, complex_value=False,
+                        unit=variable["lower"]["si_unit"] if "lower" in variable else initial[variable_keys[variables.index(variable)]]["si_unit"],
+                        dimensionality=variable["lower"]["dimensionality"] if "lower" in variable else initial[variable_keys[variables.index(variable)]]["dimensionality"],
+                    )
+            return
+        raise _integrity("Physical Optimization strategy is unsupported.", strategy=kind)
+
+    optimizer_type = optimizer.get("type")
+    if optimizer_type in {"cma_es", "lbfgsb"}:
+        verify_controls(optimizer)
+    elif optimizer_type == "hybrid":
+        if set(optimizer) != {"type", "stages", "comparison_stage_id"}:
+            raise _integrity("Physical Hybrid controls are open or malformed.")
+        stages = optimizer.get("stages")
+        stage_ids = []
+        if not isinstance(stages, list) or not stages:
+            raise _integrity("Physical Hybrid stages are malformed.")
+        for stage in stages:
+            if (not isinstance(stage, Mapping)
+                    or set(stage) != {"id", "optimizer", "discretization", "seed"}
+                    or not isinstance(stage.get("id"), str)
+                    or _IDENTIFIER.fullmatch(stage["id"]) is None):
+                raise _integrity("Physical Hybrid stage is malformed.")
+            stage_ids.append(stage["id"])
+            verify_controls(stage["optimizer"])
+            verify_mesh(stage["discretization"])
+            if stage.get("seed") is not None:
+                _verify_parameter_set_document(stage["seed"])
+        if (len(set(stage_ids)) != len(stage_ids)
+                or optimizer.get("comparison_stage_id") not in stage_ids):
+            raise _integrity("Physical Hybrid comparison stage is malformed.")
+    else:
+        raise _integrity("Physical Optimization strategy is unsupported.", strategy=optimizer_type)
 
 def _optimization_selector_leaves(spec: object) -> list[Mapping[str, object]]:
     if not isinstance(spec, Mapping) or not isinstance(spec.get("objectives"), list):

@@ -179,31 +179,3 @@ def current_operation_spool() -> OperationSpool | None:
     return _ACTIVE.get()
 
 
-def is_spool_reference(value: object) -> bool:
-    return isinstance(value, SpoolReference)
-
-
-def prepare_resume_checkpoint(checkpoint: dict[str, Any], spool: OperationSpool) -> dict[str, Any]:
-    """Keep only coordinator-required resume state and spill immutable bodies.
-
-    The verified checkpoint hydration retains the public numerical ledger in
-    SQLite. CMA needs the baseline dependency anchors, completed-candidate
-    duplicate keys, best score/ordinal, and committed RNG state only.
-    """
-    checkpoint.pop("generations", None)
-    cache = checkpoint["cache"]
-    for key in tuple(cache):
-        if not is_spool_reference(cache[key]):
-            cache[key] = spool.put_record(cache[key])
-
-    anchor_ids = set(checkpoint.get("anchors", {}).values())
-    baseline = checkpoint["baseline"]
-    dependencies = baseline.get("dependencies", {})
-    baseline["dependencies"] = {key: dependencies[key] for key in anchor_ids}
-
-    best = checkpoint["best"]
-    checkpoint["best"] = {
-        "evaluation_ordinal": best["evaluation_ordinal"],
-        "cost_f64": best["cost_f64"],
-    }
-    return checkpoint

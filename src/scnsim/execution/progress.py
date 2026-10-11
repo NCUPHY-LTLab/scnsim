@@ -16,11 +16,16 @@ from typing import TextIO
 @dataclass(frozen=True, slots=True)
 class _ProgressState:
     phase: str
-    completed_generations: int
-    total_generations: int
+    stage_id: str
+    strategy: str
+    completed_generations: int | None
+    total_generations: int | None
+    completed_iterations: int | None
+    total_iterations: int | None
     evaluated_count: int
     best_cost: float | None
     committed_generations: int | None
+    committed_iterations: int | None
     reused: bool
 
 
@@ -40,11 +45,16 @@ class OptimizationProgressDisplay:
         self._warned = False
         self._state = _ProgressState(
             phase="preparing",
+            stage_id="main",
+            strategy="cmaes",
             completed_generations=0,
             total_generations=0,
+            completed_iterations=None,
+            total_iterations=None,
             evaluated_count=0,
             best_cost=None,
             committed_generations=0,
+            committed_iterations=None,
             reused=False,
         )
         self._notebook_handle = None
@@ -79,18 +89,33 @@ class OptimizationProgressDisplay:
         best_cost: float | None,
         committed_generations: int | None,
         reused: bool = False,
+        stage_id: str = "main",
+        strategy: str = "cmaes",
+        completed_iterations: int | None = None,
+        total_iterations: int | None = None,
+        committed_iterations: int | None = None,
     ) -> None:
-        """Display one real lifecycle update from the execution owner."""
+        """Display one real lifecycle update from the execution owner.
+
+        CMA stages report generation counts; local stages report iteration
+        counts. The display keeps these units separate and never substitutes
+        a completed count for a durable committed count.
+        """
 
         if self._closed or self._disabled:
             return
         self._state = _ProgressState(
             phase=phase,
+            stage_id=stage_id,
+            strategy=strategy,
             completed_generations=completed_generations,
             total_generations=total_generations,
+            completed_iterations=completed_iterations,
+            total_iterations=total_iterations,
             evaluated_count=evaluated_count,
             best_cost=best_cost,
             committed_generations=committed_generations,
+            committed_iterations=committed_iterations,
             reused=reused,
         )
         if not self._started:
@@ -131,33 +156,76 @@ class OptimizationProgressDisplay:
         if state.phase == "preparing":
             return "Preparing optimization…"
         if state.phase == "baseline":
+            strategy = self._strategy_label(state.strategy)
             return self._with_best(
-                f"Baseline evaluated; 0/{state.total_generations} generations completed; "
+                f"Baseline evaluated — {strategy}, stage {state.stage_id}; "
                 f"{state.evaluated_count} evaluations; {self._saved_text()}"
             )
         if state.phase == "failed":
-            return "Optimization failed; no completion was reported"
+            return self._with_best(
+                f"Optimization failed — {self._stage_detail()}; "
+                f"{state.evaluated_count} evaluations; {self._saved_text()}; "
+                "no completion was reported"
+            )
         if state.phase == "interrupted":
-            return "Optimization interrupted; no completion was reported"
-        if state.phase == "resume":
-            status = "Resuming from saved checkpoint"
+            return self._with_best(
+                f"Optimization interrupted — {self._stage_detail()}; "
+                f"{state.evaluated_count} evaluations; {self._saved_text()}; "
+                "no completion was reported"
+            )
+        if state.phase == "result_reuse" or state.reused:
+            status = "Reused completed result"
+        elif state.phase == "resume":
+            status = "Resuming"
         elif state.phase == "population_evaluating":
             status = "Evaluating population"
+        elif state.phase == "iteration":
+            status = "Evaluating local iteration"
+        elif state.phase == "stage_transition":
+            status = "Transitioning optimization stage"
+        elif state.phase == "partial":
+            status = "Optimization partially completed"
         elif state.phase == "complete":
             status = "Optimization finished"
-        elif state.phase == "result_reuse" or state.reused:
-            status = "Reused completed result"
         else:
             status = "Optimization progress"
         return self._with_best(
-            f"{status}: {state.completed_generations}/{state.total_generations} "
-            f"generations completed; {state.evaluated_count} evaluations; "
-            f"{self._saved_text()}"
+            f"{status} — {self._stage_detail()}; "
+            f"{state.evaluated_count} evaluations; {self._saved_text()}"
         )
 
+    def _stage_detail(self) -> str:
+        state = self._state
+        work = self._generation_text() if state.strategy == "cmaes" else self._iteration_text()
+        return f"{self._strategy_label(state.strategy)}, stage {state.stage_id}: {work}"
+
+    @staticmethod
+    def _strategy_label(strategy: str) -> str:
+        if strategy == "cmaes":
+            return "CMA-ES"
+        if strategy == "lbfgsb":
+            return "L-BFGS-B"
+        return strategy
+
+    def _generation_text(self) -> str:
+        state = self._state
+        if state.completed_generations is None or state.total_generations is None:
+            return "generation count unknown"
+        return f"{state.completed_generations}/{state.total_generations} generations completed"
+
+    def _iteration_text(self) -> str:
+        state = self._state
+        if state.completed_iterations is None or state.total_iterations is None:
+            return "iteration count unknown"
+        return f"{state.completed_iterations}/{state.total_iterations} iterations completed"
+
     def _saved_text(self) -> str:
-        count = self._state.committed_generations
-        return "durable generation count unknown" if count is None else f"{count} generations saved"
+        state = self._state
+        if state.strategy == "cmaes":
+            count = state.committed_generations
+            return "durable generation count unknown" if count is None else f"{count} generations saved"
+        count = state.committed_iterations
+        return "durable iteration count unknown" if count is None else f"{count} iterations saved"
 
     def _with_best(self, text: str) -> str:
         cost = self._state.best_cost

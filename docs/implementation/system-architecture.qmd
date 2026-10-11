@@ -4,13 +4,14 @@ subtitle: "Which layer owns each Runtime responsibility?"
 toc-depth: 2
 ---
 
-**Status:** the dev24 responsibility and lifecycle target is `CONVERGING`,
-implementation is in progress. Numerical meanings remain unchanged. The single
-[Runtime lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle)
-owns Run state, operation leases, fixed lazy Results, bounded recovery and native
-supervision. This page describes its module handoffs, not a second policy.
-Existing dev23 WIP is candidate input; historical observations are not relabelled.
-Schematic completion remains incomplete and deferred.
+**Status:** the dev26 physical-program and inherited lifecycle responsibilities
+are `CONVERGING`; implementation is in progress. The single
+[Runtime contract](../v1-runtime-contract.qmd#physical-program-target) owns
+physical-program declarations, derivative/optimizer semantics and the inherited
+Run state, operation leases, fixed lazy Results, bounded recovery and native
+supervision. This page describes module handoffs, not a second policy.
+Historical dev23–25 candidate observations are not relabelled. Schematic
+completion remains incomplete and deferred.
 
 ## Organize Python by responsibility
 
@@ -34,10 +35,15 @@ second implementation or a compatibility fallback.
 | `benchmark/` | Current readonly public operation Benchmark facade | Diagnostic queries and presentation; no experiment execution |
 | `visualization/` | Schematic, numerical plots, HTML and reports | Presentation from frozen authoring or typed Results |
 
-These are target responsibilities; active compiler/numerics/CMA/storage code
-currently under `benchmark/` must move before obsolete experiment paths are
-removed. No empty abstraction hierarchy, parallel implementation, compatibility
-wrapper or numerical redesign is implied.
+These are current ownership boundaries. `benchmark/` is the readonly facade;
+compilation, numerical execution and storage have their own owners. The
+[dev26 physical-program target](../v1-runtime-contract.qmd#physical-program-target)
+adds one shared value/derivative evaluator, not a second AD model or another
+relocation campaign. Specs own declarations, compilation fixed discretization
+and dependency structure, numerics pure sparse kernels, execution stage ordering
+and synchronized resources, and Workspace/Results verified evidence and readonly
+selection. JAX is primary; existing Julia code is frozen legacy/reference scope.
+Implementation remains CONVERGING, without a compatibility wrapper.
 
 Public modules such as `runtime.py` and `specs.py` remain facades with their
 existing imports and interfaces. Converting `authoring.py` and `results.py`
@@ -301,19 +307,24 @@ algorithms, process count, or public methods.
 `run.explain()` and a compiled schematic may use the same Julia compile
 preflight, but neither launches a solver nor writes the evidence workspace.
 
-The `CONVERGING` Parameter System keeps this boundary: one ordered
-`ParameterSpace` operation is one request and one Julia process, not one
-process per point or a persistent service. Values are runtime data; compatible
-topology preparation may be reused, but every parameter-dependent assembly and
-calculation is recomputed. Exact target behavior belongs to the
+One ordered `ParameterSpace` operation is one request. The current JAX path
+executes in process and reuses operation-owned programs by actual static mesh
+and structured material identity; scalar coefficients and View operands remain
+runtime data. Listed points are sparse overrides of the recorded complete
+baseline, expanded in author order before compilation. The frozen explicit
+Julia path uses one Julia process per request, not one process per point or a
+persistent service. Both paths evaluate each point's declared physical model. Exact target behavior belongs to the
 [Parameter System Contract](../contracts/parameter-system.qmd#parameterized-operations).
 
 ## Same-process CPU execution and read-only Benchmark
 
-The dev11 [backend contract](benchmark-and-backends.qmd) and
-[usage guide](../guides/benchmark.qmd) describe the `CONVERGING` current candidate.
-Normal Run operations default to same-process JAX using the existing Python
-physical lowering, View realization, continuation and CMA authorities. Explicit
+The [backend guide](benchmark-and-backends.qmd) and
+[Benchmark usage guide](../guides/benchmark.qmd) describe the current
+`CONVERGING` candidate; dev11 is the historical origin of the same-process
+boundary. Normal supported Run operations default to JAX through the shared
+physical program. Ordinary analysis and Sensitivity use that program directly;
+CMA, local L-BFGS-B and Hybrid stages share its Objective graph with separate
+controller and publication owners. Explicit
 Julia retains the native process path described above; that path is no longer
 the default for supported Direct/root/response and corresponding Optimization.
 The Plan leaf owns verified typed Results and checkpoints for either backend.
@@ -361,13 +372,16 @@ train. Reusable algorithms are admitted only through the classified matrix in
 
 [Next: Plan sealing and identity](plan-sealing-and-identity.qmd)
 
-## Sparse CPU numerical foundation (dev13 candidate)
+## Sparse CPU numerical foundation
 
-The CONVERGING dev13 implementation replaces the JAX dense nodal path with
-immutable indexed local stamps, candidate-specific sparse View congruences and
-JAX numeric assembly followed by CPU CSC SuperLU. The source candidate now implements this path; installed-wheel observations
-remain pending. There is
-no selectable dense numerical fallback. Dense conductor, Port, selected Schur
+The sparse foundation introduced in dev13 remains part of the current
+CONVERGING physical-program candidate: immutable indexed local stamps,
+parameter-dependent sparse View congruences and JAX numeric assembly followed
+by CPU CSC SuperLU. The shared program is the numerical authority for ordinary
+values, Sensitivity and staged optimization. Installed-wheel observations bind
+their actual source and requested workflow; historical dev13 receipts are not
+current functionality or performance evidence. There is no selectable dense
+numerical fallback. Dense conductor, Port, selected Schur
 and actual RHS blocks remain where the mathematics requires them; genuine fill
 is preserved without dropping small values.
 
@@ -381,6 +395,6 @@ a dense descriptor at that adapter boundary; explicit ordinary Julia is unchange
 
 Runtime coefficients, indices and View weights are inputs, rather than captured
 physical constants. Static-pattern preparation, compiled-kernel reuse and actual
-call-local factor reuse are distinct observations. Installed-wheel functionality
-remains pending; historical measurements
-retain their original implementation identity.
+call-local factor reuse are distinct observations. Each installed-wheel
+functionality claim is limited to its recorded workflow; historical measurements
+retain their original implementation identity and imply no current speed claim.

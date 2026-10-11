@@ -8,7 +8,7 @@ import numpy as np
 from .. import units
 from ..authoring import ElectricNodeRef, CoordinateRef, ParameterRef, ParameterSet, ParameterSpace
 from ..authoring.physical_values import RLGC, RLGCParameterSpec
-from ..canonical import canonical_json_bytes, complex_quantity_envelope, quantity_envelope
+from ..canonical import canonical_json_bytes, complex_quantity_envelope, quantity_envelope, derived_quantity_envelope
 from ..errors import CompilerInvariantError, InvalidOptimizationSpec
 from .run_binding import _parameter_key, compatible_parameter
 from ..specs import (
@@ -19,6 +19,11 @@ from ..specs import (
     HybridizedPoleSpec,
     OperatorSpec,
     OptimizationSpec,
+    SensitivitySpec,
+    JVP,
+    VJP,
+    LBFGSBSpec,
+    HybridSpec,
     OptimizationProgress,
     QuantityAbsolute,
     QuantityDifference,
@@ -203,7 +208,7 @@ def source_units(
                     parameter.spec.si_unit,
                 )
         if isinstance(parameter_space, ParameterSpace) and parameter_space.kind == "grid":
-            for axis_index, ((parameter, values), source_units) in enumerate(
+            for axis_index, ((parameter, values), axis_source_units) in enumerate(
                 zip(parameter_space.axes, parameter_space._axis_source_units)
             ):
                 current = compatible_parameter(parameter_lookup, parameter)
@@ -233,7 +238,7 @@ def source_units(
                                 units_by_field[field],
                             )
                     continue
-                for value_index, (value, source_unit) in enumerate(zip(values, source_units)):
+                for value_index, (value, source_unit) in enumerate(zip(values, axis_source_units)):
                     source_value = value if source_unit is None else value.to(source_unit)
                     add(
                         _source_unit_identity(
@@ -287,6 +292,40 @@ def source_units(
                         value.to(source_unit),
                         current.spec.si_unit,
                     )
+        if isinstance(spec, SensitivitySpec):
+            # Each leaf has its own View/spec declaration and source-unit domain.
+            inherited = set(identities)
+            for label, expression in spec.quantities.items():
+                for leaf_ordinal, leaf in enumerate(_quantity_selectors(expression)):
+                    for row in source_units(source_provenance, parameter_lookup, leaf.spec,
+                                            parameters, parameter_space=parameter_space):
+                        if row["identity"] in inherited:
+                            continue
+                        identity = canonical_json_bytes({"scope": "request_sensitivity_leaf",
+                                                         "quantity_label": label,
+                                                         "leaf_ordinal": leaf_ordinal,
+                                                         "source_identity": row["identity"]}).decode("utf-8")
+                        identities.add(identity)
+                        evidence.append({**row, "identity": identity})
+
+            def derived_rows(role, values, key_record):
+                for key, value in values.items():
+                    encoded = derived_quantity_envelope(value, registry=units.registry)
+                    identity = canonical_json_bytes({"scope": "request_sensitivity", "role": role,
+                                                     "coordinate": key_record(key)}).decode("utf-8")
+                    identities.add(identity)
+                    evidence.append({"identity": identity, "source_unit": str(value.units),
+                                     "canonical_si_unit": encoded["si_unit"],
+                                     "canonical_dimensionality": encoded["dimensionality"]})
+
+            if isinstance(spec.derivative, JVP):
+                derived_rows("direction", spec.derivative._source_direction, lambda key: key._key_record())
+            elif isinstance(spec.derivative, VJP):
+                derived_rows("weights", spec.derivative.weights, lambda key: key._canonical_record())
+            if spec.scales is not None:
+                derived_rows("input_scales", spec.scales.inputs, lambda key: key._key_record())
+                derived_rows("output_scales", spec.scales.outputs, lambda key: key._canonical_record())
+            return sorted(evidence, key=lambda item: str(item["identity"]))
         if isinstance(spec, DirectSolveSpec):
             add(_source_unit_identity(scope="request_spec", parameter_id="frequencies", field="value"), spec.frequencies, "hertz")
         elif isinstance(spec, HBSolveSpec):
@@ -390,6 +429,29 @@ def source_units(
                         for branch_name, branch in (("branch_a", selected_spec.branch_a), ("branch_b", selected_spec.branch_b)):
                             field = "root_hint" if isinstance(branch, DiagonalRootSpec) else "anchor"
                             add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field=f"{prefix}:{branch_name}:{field}"), getattr(branch, field), "hertz")
+        if isinstance(spec, OptimizationSpec):
+            stages = spec.optimizer.stages if isinstance(spec.optimizer, HybridSpec) else ()
+            controls = tuple((stage.id, stage.optimizer) for stage in stages) or (("main", spec.optimizer),)
+            for stage_id, control in controls:
+                if isinstance(control, LBFGSBSpec) and control.coordinate_scales is not None:
+                    for parameter, value in control.coordinate_scales.items():
+                        add(_source_unit_identity(scope="request_local_optimizer", component_path=(stage_id, parameter.definitions_id),
+                                                  parameter_id=parameter.id, field="coordinate_scale"), value, parameter.spec.si_unit)
+            meshes = [(("common",), spec.discretization)] + [(("stage", stage.id), stage.discretization) for stage in stages]
+            for mesh_path, mesh in meshes:
+                if mesh is not None and mesh.resolution is not None:
+                    add(_source_unit_identity(scope="request_mesh", component_path=mesh_path,
+                                              parameter_id="resolution", field="max_frequency"), mesh.resolution.max_frequency, "hertz")
+            for stage in stages:
+                if stage.seed is not None:
+                    for parameter, value in stage.seed.values.items():
+                        source_unit = stage.seed._source_units.get(parameter)
+                        if isinstance(parameter.spec, RLGCParameterSpec):
+                            field_units = {"resistance_per_length": "ohm / meter", "inductance_per_length": "henry / meter", "conductance_per_length": "siemens / meter", "capacitance_per_length": "farad / meter", "extraction_frequency": "hertz"}
+                            for field, quantity in value._source_quantities.items():
+                                add(_source_unit_identity(scope="request_stage_seed", component_path=(stage.id, parameter.definitions_id), parameter_id=parameter.id, field=field), quantity, field_units[field])
+                        else:
+                            add(_source_unit_identity(scope="request_stage_seed", component_path=(stage.id, parameter.definitions_id), parameter_id=parameter.id, field="value"), value if source_unit is None else value.to(source_unit), parameter.spec.si_unit)
         return sorted(evidence, key=lambda item: str(item["identity"]))
 
 

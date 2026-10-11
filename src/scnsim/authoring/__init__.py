@@ -13,10 +13,12 @@ from .handles import (
     TapRef, TwoTerminalUse,
 )
 from .parameters import ParameterDefinitions, ParameterRef, ParameterSet, ParameterSpace
-from .physical_values import AffineMap, ElectricalResolution, ParameterSpec, RLGC, RLGCParameterSpec
+from .physical_values import RLGCScalarTerm, ScalarRLGCMap, AffineMap, ElectricalResolution, ParameterSpec, RLGC, RLGCParameterSpec
 from .plan import CircuitPlan
 
 __all__ = [
+    "RLGCScalarTerm",
+    "ScalarRLGCMap",
     "RLGC",
     "AffineMap",
     "ElectricalResolution",

@@ -154,7 +154,8 @@ class _BuiltinComponents(Library):
             if not isinstance(discretization, ElectricalResolution):
                 raise TypeError("discretization must be ElectricalResolution")
             metadata = {"discretization": discretization._record()}
-        b = rlgc.baseline if isinstance(rlgc, ParameterRef) else rlgc
+        from .physical_values import ScalarRLGCMap
+        b = rlgc.baseline if isinstance(rlgc, (ParameterRef, ScalarRLGCMap)) else rlgc
         if not isinstance(b, RLGC):
             raise TypeError("rlgc must be RLGC or ParameterRef")
         if discretization is not None and (

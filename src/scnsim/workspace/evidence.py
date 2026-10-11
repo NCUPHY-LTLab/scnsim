@@ -33,6 +33,71 @@ def finish_operation(binding, row, *, failure=None):
     return _store().finish_operation(binding, row, failure=failure)
 
 
+def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id,
+                                    manifest, result_summary, blocks, outcome):
+    return _store().complete_sensitivity_operation(
+        binding, operation_id=operation_id, task_id=task_id, attempt_id=attempt_id,
+        manifest=manifest, result_summary=result_summary, blocks=blocks, outcome=outcome,
+    )
+
+
+def commit_physical_stage_batch(binding, *, operation_id, task_id, attempt_id,
+                                stage_id, model_identity, rows, stage_state, checkpoint,
+                                transitions=()):
+    return _store().commit_physical_stage_batch(
+        binding, operation_id=operation_id, task_id=task_id, attempt_id=attempt_id,
+        stage_id=stage_id, model_identity=model_identity, rows=rows,
+        stage_state=stage_state, checkpoint=checkpoint, transitions=transitions,
+    )
+
+
+def read_physical_optimization_checkpoint(binding, *, task_id, attempt_id,
+                                           expected_request_sha256, reference=None,
+                                           expected_stage_id=None):
+    return _store().read_physical_optimization_checkpoint(
+        binding, task_id=task_id, attempt_id=attempt_id,
+        expected_request_sha256=expected_request_sha256, reference=reference,
+        expected_stage_id=expected_stage_id,
+    )
+
+
+def read_physical_optimization_candidate(binding, *, task_id, attempt_id, locator,
+                                          expected_request_sha256=None, resume_from=None):
+    return _store().read_physical_optimization_candidate(
+        binding, task_id=task_id, attempt_id=attempt_id, locator=locator,
+        expected_request_sha256=expected_request_sha256, resume_from=resume_from,
+    )
+
+
+def read_physical_accepted_iterate(binding, *, attempt_id, stage_id,
+                                   accepted_iterate_id):
+    return _store().read_physical_accepted_iterate(
+        binding, attempt_id=attempt_id, stage_id=stage_id,
+        accepted_iterate_id=accepted_iterate_id,
+    )
+
+
+def complete_optimization_operation(binding, *, operation_id, task_id, attempt_id,
+                                    result, manifest, stages, transitions, outcome):
+    return _store().complete_optimization_operation(
+        binding, operation_id=operation_id, task_id=task_id, attempt_id=attempt_id,
+        result=result, manifest=manifest, stages=stages, transitions=transitions,
+        outcome=outcome,
+    )
+
+
+def read_sensitivity_result(binding, task_id, *, attempt_id=None, projection_consumer=None):
+    return _store().read_sensitivity_result(
+        binding, task_id, attempt_id=attempt_id, projection_consumer=projection_consumer,
+    )
+
+
+def read_operation_attempt(binding, attempt_id, *, projection_consumer=None):
+    return _store().read_operation_attempt(
+        binding, attempt_id, projection_consumer=projection_consumer,
+    )
+
+
 def publish_timing_batch(binding, batch):
     return _store().publish_timing_batch(binding, batch)
 
@@ -80,8 +145,8 @@ def __getattr__(name: str):
     """Resolve the current Workspace task/checkpoint transaction surface."""
     allowed = {
         "TaskWriter", "append_event", "begin_task_writer", "commit_barrier",
-        "complete_operation", "find_operation_success", "flush_completed",
-        "operation_task_record", "read_checkpoint", "read_operation_success",
+        "complete_operation", "find_operation_success",
+        "operation_task_record", "read_operation_success",
         "task_record", "update_attempt",
     }
     if name not in allowed:

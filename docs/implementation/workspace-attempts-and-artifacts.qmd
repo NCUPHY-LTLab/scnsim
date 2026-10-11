@@ -11,7 +11,7 @@ checkpoint/resume ownership paths remain `CONVERGING`.
 ## Current JAX operation evidence
 
 Current operation evidence uses the Plan leaf's `operations/operations.sqlite3`,
-OperationStore version6, with DELETE/EXTRA. Older operation stores are rejected:
+OperationStore version7, with DELETE/EXTRA. Older operation stores are rejected:
 use a new Workspace and recompute; no old reader, migration or deletion is
 provided. The native Julia request/attempt/result-file protocol below remains
 its distinct current backend contract, not a JAX compatibility path.
@@ -41,7 +41,7 @@ success selection atomically, followed by optional timing and the separate
 operation root. Result reads never execute a solver. The detailed current
 ownership belongs to the [Runtime Contract](../v1-runtime-contract.qmd).
 
-The SQLite v6 completion seal binds request/attempt/instance, result and baseline refs,
+The SQLite v7 completion seal binds request/attempt/instance, result and baseline refs,
 selected generation ancestry, counts, exact best locator and sealed index root.
 Generation/candidate locators and summary projections publish within the existing
 required generation or terminal transaction; they do not add a COMMIT or become

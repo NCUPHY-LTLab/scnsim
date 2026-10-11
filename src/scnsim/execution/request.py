@@ -24,15 +24,23 @@ _DIRECT_ALGORITHMS = {
 
 
 _JAX_ALGORITHMS = {
-    "solve_direct": "scnsim.jax.sparse_superlu.direct_response.v1",
-    "diagonal_root": "scnsim.jax.sparse_superlu.diagonal_root.newton32.v1",
-    "response_element": "scnsim.jax.sparse_superlu.response_element.v1",
-    "operator_element_root": "scnsim.jax.sparse_superlu.operator_element_root.newton32.v1",
-    "hybridized_pole": "scnsim.jax.sparse_superlu.hybridized_pole.newton32.v1",
-    "transfer_zero": "scnsim.jax.sparse_superlu.transfer_zero.newton32.v1",
-    "residue_normalized_coupling": "scnsim.jax.sparse_superlu.residue_normalized_coupling.v1",
-    "operator": "scnsim.jax.sparse_superlu.direct_operator.v1",
-    "optimize_direct": "scnsim.jax.sparse_superlu.direct_cmaes.cmaes_0_13_1.v2",
+    # Canonical request identity is one physical-program authority per
+    # operation. The quantity-type aliases below serve existing internal
+    # dispatch sites that select an algorithm before PreparedAnalysis sees
+    # the coarse operation name; they deliberately resolve to that same
+    # operation identity rather than preserving the superseded per-quantity
+    # identities.
+    "solve_direct": "scnsim.jax.physical_program.direct.v1",
+    "evaluate_direct": "scnsim.jax.physical_program.evaluate.v1",
+    "diagonal_root": "scnsim.jax.physical_program.evaluate.v1",
+    "response_element": "scnsim.jax.physical_program.evaluate.v1",
+    "operator_element_root": "scnsim.jax.physical_program.evaluate.v1",
+    "hybridized_pole": "scnsim.jax.physical_program.evaluate.v1",
+    "transfer_zero": "scnsim.jax.physical_program.evaluate.v1",
+    "residue_normalized_coupling": "scnsim.jax.physical_program.evaluate.v1",
+    "operator": "scnsim.jax.physical_program.evaluate.v1",
+    "optimize_direct": "scnsim.jax.physical_program.optimize.v1",
+    "sensitivity": "scnsim.jax.physical_program.sensitivity.v1",
 }
 
 
@@ -131,13 +139,12 @@ def canonical_request_document(
         else _DIRECT_ALGORITHMS.get(selected_operation)
     )
     if runtime.get("backend") == "jax":
-        expected_algorithm = _JAX_ALGORITHMS.get(
-            str(spec_type) if selected_operation == "evaluate_direct" else selected_operation
-        )
+        expected_algorithm = _JAX_ALGORITHMS.get(selected_operation)
     expected_spec = {
         "solve_direct": "direct_solve",
         "solve_hb": "hb_solve",
         "optimize_direct": "optimization",
+        "sensitivity": "sensitivity",
     }.get(selected_operation)
     if expected_algorithm is None:
         raise _validation("operation or Spec is outside the runtime", operation=selected_operation, spec_type=spec_type)

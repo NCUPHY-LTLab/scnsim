@@ -510,6 +510,23 @@ Unsupported requests fail explicitly instead of replacing tracking with
 independent root selection. This is the candidate's supported scope, not a
 claim of mathematical impossibility.
 
+### Scalar mappings in the dev26 target
+
+The [physical-program target](../v1-runtime-contract.qmd#physical-program-target)
+adds explicit scalar/affine mappings into fixed-shape RLGC fields, preserving
+conductor order, reference, dimensions and source provenance. These differ from
+complete-RLGC values; arbitrary matrix entries are not independent parameters
+and no interpolation is implied. Loads, View weights and normalization remain
+physical dependencies. Finite declared length bounds may support section
+planning where actual material dependence permits it; missing bounds warn
+without inventing a range. Active L/C requires a justified bound, otherwise
+planning fixes the starting realized mesh with a warning and no adequacy claim.
+Lossless ElectricalResolution and explicitly fixed-count lossy models remain
+distinct. Every optimization stage, including CMA-ES, fixes realized sections while
+section length remains differentiable. Section changes require an explicit new
+stage and reevaluation. These additions remain CONVERGING and do not claim
+continuous whole-matrix optimization is implemented.
+
 ## Identity and implementation alignment {#parameter-identity-alignment}
 
 Canonical SI value encoding remains the physical identity mechanism. Target

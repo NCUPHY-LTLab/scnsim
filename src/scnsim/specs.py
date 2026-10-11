@@ -25,6 +25,9 @@ from .value_storage import immutable_quantity, quantity_view
 from .construction import unavailable
 from .authoring import (
     CoordinateRef,
+    ElectricalResolution,
+    ParameterSpec,
+    ParameterSet,
     ElectricNodeRef,
     ParameterRef,
     PortRef,
@@ -334,6 +337,18 @@ class DirectSolveSpec:
         object.__setattr__(self, "frequencies", _detached_quantity(frequencies))
         object.__setattr__(self, "traces", checked)
 
+    @property
+    def S(self) -> QuantitySelector:
+        return QuantitySelector(self, "S", "matrix_projection")
+
+    @property
+    def Y(self) -> QuantitySelector:
+        return QuantitySelector(self, "Y", "matrix_projection")
+
+    @property
+    def Z(self) -> QuantitySelector:
+        return QuantitySelector(self, "Z", "matrix_projection")
+
     def _canonical_record(self) -> Mapping[str, object]:
         return {"type": "direct_solve", "frequencies": self.frequencies, "traces": tuple(trace._canonical_record() for trace in self.traces)}
 
@@ -627,6 +642,10 @@ class OperatorSpec:
         _validate_frequency_grid(frequencies)
         object.__setattr__(self, "frequencies", _detached_quantity(frequencies))
 
+    @property
+    def matrix(self) -> QuantitySelector:
+        return QuantitySelector(self, "matrix", "operator_projection")
+
     def _canonical_record(self) -> Mapping[str, object]:
         return {"type": "operator", "frequencies": self.frequencies}
 
@@ -641,16 +660,26 @@ class OptimizationDomain(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class OptimizationProgress:
-    """Validated, non-durable observation of one optimization request."""
+    """One stage observation; durable callbacks follow an acknowledged commit.
 
-    phase: Literal["initial", "resume", "generation", "complete", "result_reuse"]
+    Generation counters apply to CMA stages and iteration counters to local
+    stages. An unavailable counter is None, never a fabricated generation.
+    """
+
+    phase: Literal["initial", "resume", "generation", "iteration", "stage_transition", "partial", "complete", "result_reuse"]
     reused: bool
-    completed_generations: int
-    total_generations: int
+    completed_generations: int | None
+    total_generations: int | None
     evaluated_count: int
     requested_budget: int
-    achievable_evaluations: int
-    best_cost: float
+    achievable_evaluations: int | None
+    best_cost: float | None
+    stage_id: str = "main"
+    strategy: Literal["cmaes", "lbfgsb"] = "cmaes"
+    committed_generations: int | None = None
+    completed_iterations: int | None = None
+    total_iterations: int | None = None
+    committed_iterations: int | None = None
 
 
 _OMITTED_TRANSFORM = object()
@@ -912,25 +941,311 @@ class CMAESSpec:
         return {"type": "cma_es", "seed": self.seed, "max_evaluations": self.max_evaluations, "population_size": self.population_size, "initial_sigma": self.initial_sigma}
 
 
+def _sensitivity_physical_record(value: object) -> object:
+    """Lossless new declaration encoding; native request codecs stay unchanged."""
+    from .canonical import derived_quantity_envelope, float64_hex
+    if isinstance(value, Quantity):
+        magnitude = np.asarray(value.magnitude)
+        if magnitude.ndim == 0:
+            return derived_quantity_envelope(value, registry=units.registry)
+        return {"type": "quantity_array", "shape": tuple(magnitude.shape), "values": tuple(derived_quantity_envelope(units.registry.Quantity(item, value.units), registry=units.registry) for item in magnitude.flat)}
+    if isinstance(value, Mapping):
+        return {key: _sensitivity_physical_record(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return tuple(_sensitivity_physical_record(item) for item in value)
+    if isinstance(value, float):
+        return float64_hex(value)
+    return value
+
+
+def _sensitivity_quantity_record(quantity: object) -> Mapping[str, object]:
+    if isinstance(quantity, QuantitySelector):
+        view = quantity._view
+        if view is None:
+            raise TypeError("Sensitivity quantities require an explicitly bound View")
+        return {"type": quantity.type, "projection": quantity.projection,
+                "spec": _sensitivity_physical_record(quantity.spec._canonical_record()),
+                "view": _sensitivity_physical_record({"type": "network_view", "plan_sha256": view._run._plan_sha256, "ptc": view._lineage["ptc"], "transforms": view._lineage["transforms"], "retain": view._lineage["retain"]})}
+    if isinstance(quantity, QuantitySum):
+        return {"type": "quantity_sum", "terms": tuple(_sensitivity_quantity_record(term) for term in quantity.terms)}
+    if isinstance(quantity, QuantityDifference):
+        return {"type": "quantity_difference", "left": _sensitivity_quantity_record(quantity.left), "right": _sensitivity_quantity_record(quantity.right)}
+    if isinstance(quantity, QuantityAbsolute):
+        return {"type": "quantity_absolute", "operand": _sensitivity_quantity_record(quantity.operand)}
+    raise TypeError("Sensitivity quantity must be a bound physical expression")
+
+
+def _quantity_mapping(values: Mapping, *, key_type: type, name: str) -> Mapping:
+    if not isinstance(values, Mapping):
+        raise TypeError(f"{name} must be a mapping")
+    if any(not isinstance(key, key_type) for key in values):
+        raise TypeError(f"{name} keys must be {key_type.__name__}")
+    if any(not isinstance(value, Quantity) or value._REGISTRY is not units.registry for value in values.values()):
+        raise TypeError(f"{name} values must use scnsim.units")
+    return MappingProxyType({key: immutable_quantity(value) for key, value in values.items()})
+
+
+def _public_quantities(values: Mapping) -> Mapping:
+    return MappingProxyType({key: quantity_view(value) for key, value in values.items()})
+
+
+@dataclass(frozen=True, slots=True)
+class OutputCoordinate:
+    """One explicit real coordinate of an ordered physical output."""
+
+    quantity_label: str
+    component: Literal["real", "imag"] = "real"
+    index: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "quantity_label", _identifier(self.quantity_label, field="quantity label"))
+        if self.component not in ("real", "imag"):
+            raise ValueError("component must be real or imag")
+        object.__setattr__(self, "index", _nonnegative_int_tuple(tuple(self.index), name="output index"))
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"quantity_label": self.quantity_label, "component": self.component, "index": self.index}
+
+
+@dataclass(frozen=True, slots=True)
+class Jacobian:
+    """Request the stored full physical real-coordinate Jacobian."""
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "jacobian"}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class JVP:
+    _direction: Mapping[ParameterRef, Quantity]
+    _source_direction: Mapping[ParameterRef, Quantity]
+
+    def __init__(self, *, direction: Mapping[ParameterRef, Quantity]) -> None:
+        values = _quantity_mapping(direction, key_type=ParameterRef, name="direction")
+        object.__setattr__(self, "_source_direction", values)
+        object.__setattr__(self, "_direction", MappingProxyType({ref: immutable_quantity(value.to(ref.spec.si_unit)) for ref, value in values.items()}))
+
+    @property
+    def direction(self) -> Mapping[ParameterRef, Quantity]:
+        return _public_quantities(self._direction)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "jvp", "direction": tuple({"parameter": key._key_record(), "value": _sensitivity_physical_record(quantity_view(value))} for key, value in self._direction.items())}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class VJP:
+    _weights: Mapping[OutputCoordinate, Quantity]
+
+    def __init__(self, *, weights: Mapping[OutputCoordinate, Quantity]) -> None:
+        object.__setattr__(self, "_weights", _quantity_mapping(weights, key_type=OutputCoordinate, name="weights"))
+
+    @property
+    def weights(self) -> Mapping[OutputCoordinate, Quantity]:
+        return _public_quantities(self._weights)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "vjp", "weights": tuple({"output": key._canonical_record(), "value": _sensitivity_physical_record(quantity_view(value))} for key, value in self._weights.items())}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class SensitivityScales:
+    _inputs: Mapping[ParameterRef, Quantity]
+    _outputs: Mapping[OutputCoordinate, Quantity]
+
+    def __init__(self, *, inputs: Mapping[ParameterRef, Quantity], outputs: Mapping[OutputCoordinate, Quantity]) -> None:
+        object.__setattr__(self, "_inputs", _quantity_mapping(inputs, key_type=ParameterRef, name="inputs"))
+        object.__setattr__(self, "_outputs", _quantity_mapping(outputs, key_type=OutputCoordinate, name="outputs"))
+
+    @property
+    def inputs(self) -> Mapping[ParameterRef, Quantity]:
+        return _public_quantities(self._inputs)
+
+    @property
+    def outputs(self) -> Mapping[OutputCoordinate, Quantity]:
+        return _public_quantities(self._outputs)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"inputs": JVP(direction=self.inputs)._canonical_record()["direction"], "outputs": VJP(weights=self.outputs)._canonical_record()["weights"]}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class FixedMeshSpec:
+    """One planning declaration; resolved section counts are compilation-owned."""
+
+    resolution: ElectricalResolution | None
+    sections: Mapping[tuple[str, ...], int] | None
+
+    def __init__(self, *, resolution: ElectricalResolution | None = None, sections: Mapping[tuple[str, ...], int] | None = None) -> None:
+        if (resolution is None) == (sections is None):
+            raise ValueError("exactly one of resolution and sections is required")
+        if resolution is not None and not isinstance(resolution, ElectricalResolution):
+            raise TypeError("resolution must be ElectricalResolution")
+        counts = None
+        if sections is not None:
+            counts = {}
+            for path, count in sections.items():
+                if not isinstance(path, tuple) or not path or not all(isinstance(part, str) and part for part in path):
+                    raise TypeError("sections keys must be occurrence path tuples")
+                if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+                    raise ValueError("section counts must be positive integers")
+                counts[path] = count
+            counts = MappingProxyType(counts)
+        object.__setattr__(self, "resolution", resolution)
+        object.__setattr__(self, "sections", counts)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "fixed_mesh", "resolution": None if self.resolution is None else _sensitivity_physical_record(self.resolution._record()), "sections": None if self.sections is None else tuple({"path": path, "count": count} for path, count in sorted(self.sections.items()))}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class SensitivitySpec:
+    quantities: Mapping[str, object]
+    wrt: tuple[ParameterRef, ...]
+    derivative: Jacobian | JVP | VJP
+    discretization: FixedMeshSpec | None
+    scales: SensitivityScales | None
+
+    def __init__(self, *, quantities: Mapping[str, object], wrt: Sequence[ParameterRef], derivative: Jacobian | JVP | VJP, discretization: FixedMeshSpec | None = None, scales: SensitivityScales | None = None) -> None:
+        if not isinstance(quantities, Mapping) or not quantities:
+            raise TypeError("quantities must be a nonempty ordered mapping")
+        normalized_quantities = {}
+        for label, quantity in quantities.items():
+            label = _identifier(label, field="quantity label")
+            if label in normalized_quantities:
+                raise ValueError("quantity labels collide after normalization")
+            normalized_quantities[label] = quantity
+            if not isinstance(quantity, (QuantitySelector, QuantitySum, QuantityDifference, QuantityAbsolute)):
+                raise TypeError("quantities must contain bound physical quantity selectors")
+        parameters = tuple(wrt)
+        if not parameters or any(not isinstance(ref, ParameterRef) or not isinstance(ref.spec, ParameterSpec) for ref in parameters):
+            raise TypeError("wrt must contain scalar ParameterRefs")
+        if len({_parameter_key(ref) for ref in parameters}) != len(parameters):
+            raise ValueError("wrt parameters must be unique")
+        if not isinstance(derivative, (Jacobian, JVP, VJP)):
+            raise TypeError("derivative must be Jacobian, JVP or VJP")
+        if discretization is not None and not isinstance(discretization, FixedMeshSpec):
+            raise TypeError("discretization must be FixedMeshSpec")
+        if scales is not None and not isinstance(scales, SensitivityScales):
+            raise TypeError("scales must be SensitivityScales")
+        object.__setattr__(self, "quantities", MappingProxyType(normalized_quantities))
+        object.__setattr__(self, "wrt", parameters)
+        object.__setattr__(self, "derivative", derivative)
+        object.__setattr__(self, "discretization", discretization)
+        object.__setattr__(self, "scales", scales)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "sensitivity", "quantities": tuple({"id": label, "quantity": _sensitivity_quantity_record(quantity)} for label, quantity in self.quantities.items()), "wrt": tuple(ref._key_record() for ref in self.wrt), "derivative": self.derivative._canonical_record(), "discretization": None if self.discretization is None else self.discretization._canonical_record(), "scales": None if self.scales is None else self.scales._canonical_record()}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LBFGSBSpec:
+    """Explicit local-controller controls, distinct from design acceptance."""
+
+    max_evaluations: int
+    max_iterations: int
+    ftol: float
+    gtol: float
+    max_line_search: int
+    commit_every_iterations: int
+    coordinate_scales: Mapping[ParameterRef, Quantity] | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("max_evaluations", "max_iterations", "max_line_search", "commit_every_iterations"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise InvalidOptimizationSpec(f"{name} must be positive integer", stage="spec_validation")
+        for name in ("ftol", "gtol"):
+            if getattr(self, name) < 0:
+                raise InvalidOptimizationSpec(f"{name} must be nonnegative", stage="spec_validation")
+        if self.coordinate_scales is not None:
+            object.__setattr__(self, "coordinate_scales", _quantity_mapping(self.coordinate_scales, key_type=ParameterRef, name="coordinate_scales"))
+
+    def __getattribute__(self, name: str) -> object:
+        value = object.__getattribute__(self, name)
+        return _public_quantities(value) if name == "coordinate_scales" and value is not None else value
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "lbfgsb", "max_evaluations": self.max_evaluations, "max_iterations": self.max_iterations, "ftol": _sensitivity_physical_record(float(self.ftol)), "gtol": _sensitivity_physical_record(float(self.gtol)), "max_line_search": self.max_line_search, "commit_every_iterations": self.commit_every_iterations, "coordinate_scales": None if self.coordinate_scales is None else JVP(direction=self.coordinate_scales)._canonical_record()["direction"]}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OptimizationStage:
+    id: str
+    optimizer: CMAESSpec | LBFGSBSpec
+    discretization: FixedMeshSpec | None = None
+    seed: ParameterSet | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "id", _identifier(self.id, field="optimization stage id"))
+        if not isinstance(self.optimizer, (CMAESSpec, LBFGSBSpec)):
+            raise TypeError("stage optimizer must be CMAESSpec or LBFGSBSpec")
+        if self.discretization is not None and not isinstance(self.discretization, FixedMeshSpec):
+            raise TypeError("stage discretization must be FixedMeshSpec")
+        if self.seed is not None and not isinstance(self.seed, ParameterSet):
+            raise TypeError("stage seed must be ParameterSet")
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"id": self.id, "optimizer": self.optimizer._canonical_record(), "discretization": None if self.discretization is None else self.discretization._canonical_record(), "seed": None if self.seed is None else self.seed._record()}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class HybridSpec:
+    stages: tuple[OptimizationStage, ...]
+    comparison_stage_id: str
+
+    def __post_init__(self) -> None:
+        stages = tuple(self.stages)
+        if not stages or any(not isinstance(stage, OptimizationStage) for stage in stages):
+            raise TypeError("stages must contain OptimizationStage values")
+        object.__setattr__(self, "comparison_stage_id", _identifier(self.comparison_stage_id, field="comparison stage id"))
+        ids = tuple(stage.id for stage in stages)
+        if len(set(ids)) != len(ids) or self.comparison_stage_id not in ids:
+            raise ValueError("stage ids must be unique and bind comparison_stage_id")
+        object.__setattr__(self, "stages", stages)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "hybrid", "stages": tuple(stage._canonical_record() for stage in self.stages), "comparison_stage_id": self.comparison_stage_id}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AcceptedIterateSelection:
+    """Exact committed point for a fresh declared stage sequence, not resume."""
+
+    attempt_id: str
+    stage_id: str
+    accepted_iterate_id: str
+
+    def __post_init__(self) -> None:
+        for name in ("attempt_id", "stage_id", "accepted_iterate_id"):
+            if not isinstance(getattr(self, name), str) or not getattr(self, name):
+                raise TypeError(f"{name} must be a nonempty identity")
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"attempt_id": self.attempt_id, "stage_id": self.stage_id, "accepted_iterate_id": self.accepted_iterate_id}
+
+
 @dataclass(frozen=True, slots=True)
 class OptimizationSpec:
-    """One immutable Direct-only multi-variable CMA-ES request declaration."""
+    """One immutable physical objective request with an explicit optimizer strategy."""
 
     variables: tuple[OptimizationVariable, ...]
     objectives: tuple[CostObjective, ...]
-    optimizer: CMAESSpec
+    optimizer: CMAESSpec | LBFGSBSpec | HybridSpec
     allow_extrapolation: tuple[ParameterRef, ...] = ()
+    discretization: FixedMeshSpec | None = None
 
-    def __init__(self, *, variables: Sequence[OptimizationVariable], objectives: Sequence[CostObjective], optimizer: CMAESSpec) -> None:
-        self._initialize(variables=variables, objectives=objectives, optimizer=optimizer, allow_extrapolation=())
+    def __init__(self, *, variables: Sequence[OptimizationVariable], objectives: Sequence[CostObjective], optimizer: CMAESSpec | LBFGSBSpec | HybridSpec, discretization: FixedMeshSpec | None = None) -> None:
+        self._initialize(variables=variables, objectives=objectives, optimizer=optimizer, allow_extrapolation=(), discretization=discretization)
 
     def _initialize(
         self,
         *,
         variables: Sequence[OptimizationVariable],
         objectives: Sequence[CostObjective],
-        optimizer: CMAESSpec,
+        optimizer: CMAESSpec | LBFGSBSpec | HybridSpec,
         allow_extrapolation: Sequence[ParameterRef],
+        discretization: FixedMeshSpec | None,
     ) -> None:
         checked_variables = tuple(variables)
         checked_objectives = tuple(objectives)
@@ -938,8 +1253,8 @@ class OptimizationSpec:
             raise InvalidOptimizationSpec("variables must be nonempty OptimizationVariable values", stage="spec_validation")
         if not checked_objectives or not all(isinstance(item, CostObjective) for item in checked_objectives):
             raise InvalidOptimizationSpec("objectives must be nonempty CostObjective values", stage="spec_validation")
-        if not isinstance(optimizer, CMAESSpec):
-            raise InvalidOptimizationSpec("optimizer must be CMAESSpec", stage="spec_validation")
+        if not isinstance(optimizer, (CMAESSpec, LBFGSBSpec, HybridSpec)):
+            raise InvalidOptimizationSpec("optimizer must be CMAESSpec, LBFGSBSpec or HybridSpec", stage="spec_validation")
         variable_keys = tuple(_parameter_key(item.parameter) for item in checked_variables)
         if len(set(variable_keys)) != len(variable_keys):
             raise InvalidOptimizationSpec("optimization parameters must be unique", stage="spec_validation")
@@ -953,6 +1268,9 @@ class OptimizationSpec:
             or any(active_parameters[_parameter_key(item)] is not item for item in auth)
         ):
             raise InvalidOptimizationSpec("allow_extrapolation must contain unique active parameters", stage="spec_validation")
+        if discretization is not None and not isinstance(discretization, FixedMeshSpec):
+            raise TypeError("discretization must be FixedMeshSpec")
+        object.__setattr__(self, "discretization", discretization)
         object.__setattr__(self, "variables", checked_variables)
         object.__setattr__(self, "objectives", checked_objectives)
         object.__setattr__(self, "optimizer", optimizer)
@@ -999,6 +1317,7 @@ class OptimizationSpec:
             objectives=self.objectives,
             optimizer=self.optimizer,
             allow_extrapolation=allow_extrapolation,
+            discretization=self.discretization,
         )
         return instance
 
@@ -1034,10 +1353,7 @@ class OptimizationSpec:
             "</li>"
             for objective in self.objectives
         )
-        controls = (
-            f"seed={self.optimizer.seed}; max_evaluations={self.optimizer.max_evaluations}; "
-            f"population_size={self.optimizer.population_size}; initial_sigma={self.optimizer.initial_sigma}"
-        )
+        controls = str(self.optimizer._canonical_record())
         return HtmlPresentation(
             "<table><thead><tr><th>parameter</th><th>model default</th><th>consumer override</th><th>resolved bounds / domain</th><th>transform</th><th>mapping scale</th></tr></thead>"
             f"<tbody>{rows}</tbody></table><h3>objectives</h3><ul>{objectives}</ul><h3>optimizer</h3><p>{escape(controls)}</p>"
@@ -1048,6 +1364,7 @@ class OptimizationSpec:
             "type": "optimization", "variables": tuple(item._canonical_record() for item in self.variables),
             "objectives": tuple(item._canonical_record() for item in self.objectives),
             "optimizer": self.optimizer._canonical_record(), "allow_extrapolation": self.allow_extrapolation,
+            "discretization": None if self.discretization is None else self.discretization._canonical_record(),
         }
 
 

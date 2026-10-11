@@ -83,3 +83,96 @@ class LazyCandidateDiscretizationSequence(Sequence[object]):
         record = self._reader.read_candidate_discretization(index)
         return _freeze(self._decode(record))
 
+
+class LazyOptimizationStageHistory(Sequence[Mapping[str, object]]):
+    """Compact history for one fixed stage, projected only when selected."""
+
+    __slots__ = ("_reader", "_stage_id", "_model_identity")
+
+    def __init__(self, reader: object, stage_id: str, model_identity: Mapping[str, object]):
+        object.__setattr__(self, "_reader", reader)
+        object.__setattr__(self, "_stage_id", stage_id)
+        object.__setattr__(self, "_model_identity", _freeze(model_identity))
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("optimization stage histories are immutable")
+
+    def _matches_model_identity(self, value: object) -> bool:
+        """Compare the same JSON identity after immutable Result freezing."""
+        return isinstance(value, Mapping) and _freeze(value) == self._model_identity
+
+    def _rows(self) -> Sequence[Mapping[str, object]]:
+        selected = self._reader.project("stage_history", self._stage_id)
+        if (not isinstance(selected, Mapping)
+                or selected.get("stage_id") != self._stage_id
+                or not self._matches_model_identity(selected.get("model_identity"))):
+            from ..errors import EvidenceIntegrityError
+
+            raise EvidenceIntegrityError(
+                "Optimization stage history differs from its fixed stage identity",
+                stage="result_decode",
+                evidence={"stage_id": self._stage_id},
+            )
+        rows = selected.get("rows")
+        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
+            from ..errors import EvidenceIntegrityError
+
+            raise EvidenceIntegrityError(
+                "Optimization stage history projection is malformed",
+                stage="result_decode",
+                evidence={"stage_id": self._stage_id},
+            )
+        return rows
+
+    def __len__(self) -> int:
+        return len(self._rows())
+
+    def __iter__(self):
+        rows = self._rows()
+        detached = []
+        for index, row in enumerate(rows):
+            if (not isinstance(row, Mapping)
+                    or row.get("stage_id") != self._stage_id
+                    or not self._matches_model_identity(row.get("model_identity"))):
+                from ..errors import EvidenceIntegrityError
+
+                raise EvidenceIntegrityError(
+                    "Optimization history row belongs to another stage or model",
+                    stage="result_decode",
+                    evidence={"stage_id": self._stage_id, "index": index},
+                )
+            detached.append(_freeze(row))
+        return iter(tuple(detached))
+
+    def __getitem__(self, selected: int | slice) -> Mapping[str, object] | tuple[Mapping[str, object], ...]:
+        rows = self._rows()
+        index = _sequence_index(selected, len(rows))
+        if isinstance(index, range):
+            selected_rows = []
+            for item in index:
+                row = rows[item]
+                if (not isinstance(row, Mapping)
+                        or row.get("stage_id") != self._stage_id
+                        or not self._matches_model_identity(row.get("model_identity"))):
+                    from ..errors import EvidenceIntegrityError
+
+                    raise EvidenceIntegrityError(
+                        "Optimization history row belongs to another stage or model",
+                        stage="result_decode",
+                        evidence={"stage_id": self._stage_id, "index": item},
+                    )
+                selected_rows.append(_freeze(row))
+            return tuple(selected_rows)
+        row = rows[index]
+        if (not isinstance(row, Mapping)
+                or row.get("stage_id") != self._stage_id
+                or not self._matches_model_identity(row.get("model_identity"))):
+            from ..errors import EvidenceIntegrityError
+
+            raise EvidenceIntegrityError(
+                "Optimization history row belongs to another stage or model",
+                stage="result_decode",
+                evidence={"stage_id": self._stage_id, "index": index},
+            )
+        return _freeze(row)
+

@@ -104,3 +104,61 @@ def scalar_show(
         f"<h2>{escape(presentation.title)}</h2>{sections}</article>"
     )
     return HtmlPresentation(html)
+
+
+def sensitivity_summary(result: object, *, theme: Theme = Theme.AUTO) -> HtmlPresentation:
+    """Display saved Sensitivity layout/status without reading numerical blocks."""
+
+    from ..results.base import HtmlPresentation
+
+    selected_theme = _require_theme(theme)
+    color_scheme = {
+        Theme.AUTO: "light dark",
+        Theme.LIGHT: "light",
+        Theme.DARK: "dark",
+    }[selected_theme]
+    rows = []
+    for quantity in result.quantities:
+        physical_axes = tuple(axis for axis in quantity.axes if axis.id != "component")
+        shape = " × ".join(str(len(axis.coordinates)) for axis in physical_axes) or "scalar"
+        axes = "; ".join(
+            f"{axis.label}: {len(axis.coordinates)} coordinates"
+            for axis in quantity.axes
+        ) or "scalar output"
+        rows.append(
+            "<tr>"
+            f"<td>{escape(quantity.label)} <code>{escape(quantity.id)}</code></td>"
+            f"<td>{escape(quantity.unit)}</td>"
+            f"<td>{escape(shape)}</td>"
+            f"<td>{escape(axes)}</td>"
+            "</tr>"
+        )
+    operations = "".join(
+        f"<li><code>{escape(kind)}</code>: {escape(operation.status)}</li>"
+        for kind, operation in result.operations.items()
+    )
+    root_class = f"{_ROOT_CLASS}-sensitivity-{selected_theme.value}"
+    selector = f".{root_class}"
+    css = _theme_css(selected_theme, selector=selector)
+    html = (
+        "<style>"
+        f"{css}"
+        f"{selector}{{box-sizing:border-box;color:var(--scnsim-fg);"
+        "background:var(--scnsim-bg);font:14px/1.45 system-ui,-apple-system,"
+        "BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:100%;"
+        f"color-scheme:{color_scheme};user-select:text}}"
+        f"{selector} table{{border-collapse:collapse;width:100%;"
+        "table-layout:auto;font:inherit;color:inherit}"
+        f"{selector} th,{selector} td{{border:1px solid var(--scnsim-grid);"
+        "padding:.42rem .6rem;text-align:left;vertical-align:top;"
+        "overflow-wrap:anywhere}"
+        f"{selector} code{{font-size:.9em}}"
+        "</style>"
+        f"<article class=\"{root_class}\" data-status=\"{escape(result.status)}\">"
+        f"<h2>Sensitivity ({escape(result.status)})</h2>"
+        f"<ul>{operations}</ul>"
+        "<table><thead><tr><th>Quantity</th><th>Unit</th><th>Shape</th>"
+        f"<th>Output coordinates</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        "</article>"
+    )
+    return HtmlPresentation(html)

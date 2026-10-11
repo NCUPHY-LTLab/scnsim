@@ -253,9 +253,9 @@ missing results and unaligned native clocks remain explicit.
 
 The old public comparison executor and its arm declarations are superseded.
 Historical files retain their original wheel/backend/precision/clock identities;
-current readers reject older operation Workspaces. Create a new v6 Workspace and
+current readers reject older operation Workspaces. Create a new v7 Workspace and
 recompute for current readback. Historical files are neither migrated nor deleted.
-Read-only opening applies to the explicit current v6 operation-store locator:
+Read-only opening applies to the explicit current v7 operation-store locator:
 
 ```python
 from scnsim import BenchmarkResult

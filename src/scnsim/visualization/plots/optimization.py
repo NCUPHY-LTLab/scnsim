@@ -28,8 +28,45 @@ def _complex_quantity_text(value: object) -> str:
     return f"{real_value:.12g} {imag_value:+.12g}j {escape(unit)}"
 
 
-def _optimization_term_rows(result: Any) -> tuple[list[object], ...]:
+def _plain_metadata(value: object) -> object:
+    """Convert detached result metadata to Plotly's plain JSON containers."""
+
+    if isinstance(value, Mapping):
+        return {key: _plain_metadata(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_plain_metadata(item) for item in value]
+    return value
+
+
+def _optimization_term_rows(
+    result: Any, *, stage_id: str | None = None
+) -> tuple[list[object], ...]:
     from ...canonical import float64_from_hex
+
+    if result.stages:
+        stage = result.stage(stage_id)
+        rows = []
+        for candidate in stage.history:
+            cost = candidate.get("cost_f64")
+            cost_text = f"{float64_from_hex(cost):.12g}" if isinstance(cost, str) else "—"
+            parameters = "; ".join(
+                f"{binding['parameter']['definitions_id']}.{binding['parameter']['parameter_id']} = "
+                f"{_quantity_text(binding['value'])}"
+                for binding in candidate["parameters"]["bindings"]
+            )
+            components = "; ".join(
+                f"{component.get('objective_id', 'objective')}: "
+                + (f"{float64_from_hex(component['weighted_cost_f64']):.12g}"
+                   if isinstance(component.get("weighted_cost_f64"), str)
+                   else str(component.get("status", "unavailable")))
+                for component in candidate.get("components", ())
+            )
+            rows.append((
+                candidate["evaluation_ordinal"], candidate.get("generation", "—"),
+                escape(str(candidate.get("status", "unavailable"))), cost_text,
+                parameters, components,
+            ))
+        return tuple(list(column) for column in zip(*rows, strict=True)) if rows else tuple([] for _ in range(6))
 
     objectives = result._presentation["objectives"]
     objective_units = {
@@ -134,14 +171,36 @@ def optimization_plot(
     kind: Literal["history", "objective", "residual", "parameter", "table", "comparison"] = "history",
     objective: str | None = None,
     parameter: Any | None = None,
+    stage_id: str | None = None,
     theme: Theme = Theme.AUTO,
 ) -> Any:
     go, _, _ = _plotly()
-    candidate_count = len(result.candidate_discretization)
-    saved = f"saved best cost {result.best.cost:.12g}"
+    selected_stage = result.stage(stage_id) if result.stages and kind != "comparison" else None
+    if kind == "comparison" and stage_id is not None:
+        raise ValueError("stage_id is invalid for the comparison-model projection")
+    if not result.stages and stage_id is not None:
+        raise ValueError("stage_id is unavailable for this Optimization Result")
+    display_candidate = (
+        selected_stage.observed_best if selected_stage is not None else result.best
+    )
+    candidate_count = (
+        selected_stage.evaluation_count
+        if selected_stage is not None
+        else None if result.stages
+        else len(result.candidate_discretization)
+    )
+    saved = (
+        "stage observed best cost unavailable" if display_candidate is None
+        else (
+            f"stage observed best cost {display_candidate.cost:.12g}"
+            if selected_stage is not None
+            else f"saved best cost {display_candidate.cost:.12g}"
+        )
+    )
     if kind in {"history", "objective", "residual", "parameter"}:
         ordinals, values, statuses, label, unit, details = _optimization_series(
-            result, kind=kind, objective=objective, parameter=parameter
+            result, kind=kind, objective=objective, parameter=parameter,
+            stage_id=stage_id,
         )
         figure = go.Figure(data=[go.Scatter(
             x=ordinals,
@@ -174,7 +233,7 @@ def optimization_plot(
     elif kind == "table":
         if objective is not None or parameter is not None:
             raise ValueError("objective and parameter are invalid for the ledger table")
-        columns = _optimization_term_rows(result)
+        columns = _optimization_term_rows(result, stage_id=stage_id)
         rows = list(zip(*columns, strict=True)) if columns and columns[0] else []
         table, table_height = _comparison_table(
             go,
@@ -231,26 +290,42 @@ def optimization_plot(
         )
     else:
         raise ValueError("kind must be 'history', 'objective', 'residual', 'parameter', 'table', or 'comparison'")
-    winner_parameters = {
+    winner_parameters = None if result.best is None else {
         f"{parameter.definitions_id}.{parameter.id}": str(value)
         for parameter, value in result.best.parameters.values.items()
     }
     figure.update_layout(meta={"scnsim": {
         "kind": "optimization",
         "candidate_count": candidate_count,
-        "winner_cost": result.best.cost,
+        "winner_cost": None if result.best is None else result.best.cost,
         "winner_parameters": winner_parameters,
+        "comparison_model_identity": _plain_metadata(result.comparison_model_identity),
+        "stage_id": None if selected_stage is None else selected_stage.stage_id,
+        "stage_status": None if selected_stage is None else selected_stage.status,
+        "stage_model_identity": (
+            None if selected_stage is None else _plain_metadata(selected_stage.model_identity)
+        ),
     }})
     if kind != "comparison":
-        best_bindings = "; ".join(
-            f"{escape(parameter.definitions_id)}.{escape(parameter.id)} = {escape(str(value))}"
-            for parameter, value in result.best.parameters.values.items()
-        )
+        annotation_parts = [saved]
+        if display_candidate is not None:
+            bindings = "; ".join(
+                f"{escape(parameter.definitions_id)}.{escape(parameter.id)} = {escape(str(value))}"
+                for parameter, value in display_candidate.parameters.values.items()
+            )
+            if bindings:
+                annotation_parts.append(bindings)
+        if selected_stage is not None and selected_stage.accepted_iterate is not None:
+            accepted = selected_stage.accepted_iterate
+            annotation_parts.append(f"accepted iterate cost {accepted.cost:.12g}")
         figure.add_annotation(
-            text=f"{saved}; {best_bindings}", x=0, y=1.12,
+            text="; ".join(annotation_parts), x=0, y=1.12,
             xref="paper", yref="paper", xanchor="left", showarrow=False,
         )
-    styled = _style(figure, theme, title=f"Completed optimization {kind}")
+    title = f"Optimization {kind}"
+    if selected_stage is not None:
+        title += f" — {selected_stage.stage_id} ({selected_stage.status})"
+    styled = _style(figure, theme, title=title)
     if kind == "comparison":
         margins = styled.layout.margin
         top_margin = int(margins.t or 0)
@@ -282,6 +357,7 @@ def optimization_add_to(
     kind: Literal["history", "objective", "residual", "parameter", "table", "comparison"],
     objective: str | None = None,
     parameter: Any | None = None,
+    stage_id: str | None = None,
 ) -> Any:
     go, _, _ = _plotly()
     if not isinstance(figure, go.Figure):
@@ -290,8 +366,8 @@ def optimization_add_to(
     if _subplot_type(figure, row, col) != expected:
         raise ValueError(f"optimization {kind} requires a compatible {expected} subplot")
     if kind == "comparison":
-        if objective is not None or parameter is not None:
-            raise ValueError("objective and parameter are invalid for the comparison")
+        if objective is not None or parameter is not None or stage_id is not None:
+            raise ValueError("objective, parameter, and stage_id are invalid for the comparison")
         settings, comparison = optimization_comparison_dataset(result)
         rows = [
             ("settings", field, value, "", "")
@@ -307,7 +383,8 @@ def optimization_add_to(
         ), row=row, col=col)
         return figure
     source = optimization_plot(
-        result, kind=kind, objective=objective, parameter=parameter
+        result, kind=kind, objective=objective, parameter=parameter,
+        stage_id=stage_id,
     )
     if kind not in {"table", "comparison"}:
         trace = source.data[0]
@@ -438,21 +515,24 @@ def optimization_comparison_dataset(
 
     presentation = result._presentation
     initial = presentation.get("initial_candidate")
-    best = presentation.get("best_candidate")
+    best_record = presentation.get("best_candidate")
     ordinal = presentation.get("best_evaluation_ordinal")
     objectives = presentation.get("objectives")
     variables = presentation.get("variables")
     if (
-        not isinstance(initial, Mapping)
-        or not isinstance(best, Mapping)
-        or not isinstance(ordinal, int)
+        (initial is not None and not isinstance(initial, Mapping))
+        or (best_record is not None and not isinstance(best_record, Mapping))
+        or (ordinal is not None and not isinstance(ordinal, int))
         or not isinstance(objectives, Sequence)
         or not isinstance(variables, Sequence)
     ):
-        raise ValueError("Optimization comparison presentation is incomplete")
-    initial_outcome, best_outcome = initial.get("outcome"), best.get("outcome")
-    if not isinstance(initial_outcome, Mapping) or not isinstance(best_outcome, Mapping):
-        raise ValueError("Optimization comparison candidates have no outcome")
+        raise ValueError("Optimization comparison projection is malformed")
+    initial_outcome = None if initial is None else initial.get("outcome")
+    best_outcome = None if best_record is None else best_record.get("outcome")
+    if initial_outcome is not None and not isinstance(initial_outcome, Mapping):
+        raise ValueError("Optimization baseline has no saved outcome")
+    if best_outcome is not None and not isinstance(best_outcome, Mapping):
+        raise ValueError("Optimization winner has no saved outcome")
 
     settings: list[tuple[str, str]] = []
     comparison: list[tuple[str, str, str]] = []
@@ -488,65 +568,115 @@ def optimization_comparison_dataset(
         ))
 
     initial_parameters = presentation.get("initial_parameters")
-    if initial_parameters is None:
-        raise ValueError("Optimization initial ParameterSet is absent")
-    parameter_keys = list(result.best.parameters.values)
-    initial_by_key = {
+    initial_by_key = {} if initial_parameters is None else {
         (item.definitions_id, item.id): value
         for item, value in initial_parameters.values.items()
     }
-    for parameter in parameter_keys:
-        key = (parameter.definitions_id, parameter.id)
-        if key not in initial_by_key:
-            raise ValueError("Optimization initial ParameterSet lacks a best-point parameter")
-        initial_parameter = initial_by_key[key]
-        best_parameter = result.best.parameters.values[parameter]
+    best_by_key = {} if result.best is None else {
+        (item.definitions_id, item.id): value
+        for item, value in result.best.parameters.values.items()
+    }
+    for variable in variables:
+        ref_record = variable.get("parameter")
+        if not isinstance(ref_record, Mapping):
+            raise ValueError("Optimization variable identity is malformed")
+        key = (ref_record.get("definitions_id"), ref_record.get("parameter_id"))
+        initial_parameter = initial_by_key.get(key)
+        best_parameter = best_by_key.get(key)
+        initial_text = "—" if initial_parameter is None else str(initial_parameter)
+        best_text = "—" if best_parameter is None else str(best_parameter)
+        state = (
+            "unavailable" if initial_parameter is None or best_parameter is None
+            else "unchanged" if initial_text == best_text else "physical value changed"
+        )
         comparison.append((
-            f"{parameter.definitions_id}.{parameter.id} ({'unchanged' if str(initial_parameter) == str(best_parameter) else 'physical value changed'})",
-            str(initial_parameter),
-            str(best_parameter),
+            f"{key[0]}.{key[1]} ({state})", initial_text, best_text,
         ))
     comparison.append((
         "evaluation ordinal",
-        str(initial.get("evaluation_ordinal")),
-        str(ordinal),
+        "—" if initial is None else str(initial.get("evaluation_ordinal", "—")),
+        "—" if ordinal is None else str(ordinal),
     ))
+    initial_cost_token = None if initial_outcome is None else initial_outcome.get("cost_f64")
+    initial_cost = float64_from_hex(initial_cost_token) if isinstance(initial_cost_token, str) else None
+    best_cost = None if result.best is None else result.best.cost
     comparison.append((
         "total cost",
-        f"{float64_from_hex(initial_outcome['cost_f64']):.12g}",
-        f"{result.best.cost:.12g}",
+        "—" if initial_cost is None else f"{initial_cost:.12g}",
+        "—" if best_cost is None else f"{best_cost:.12g}",
     ))
     comparison.append((
         "total cost delta (best - initial)",
         "—",
-        f"{result.best.cost - float64_from_hex(initial_outcome['cost_f64']):.12g}",
+        "—" if initial_cost is None or best_cost is None else f"{best_cost - initial_cost:.12g}",
     ))
-    initial_components = initial_outcome.get("objective_components")
-    best_components = best_outcome.get("objective_components")
+    initial_components = (
+        () if initial_outcome is None else initial_outcome.get("objective_components", ())
+    )
+    best_components = (
+        () if best_outcome is None else best_outcome.get("objective_components", ())
+    )
     if not isinstance(initial_components, Sequence) or not isinstance(best_components, Sequence):
-        raise ValueError("Optimization objective comparison evidence is absent")
-    for objective, left, right in zip(objectives, initial_components, best_components, strict=True):
-        if not isinstance(left, Mapping) or not isinstance(right, Mapping):
-            raise ValueError("Optimization objective comparison evidence is malformed")
+        raise ValueError("Optimization objective comparison evidence is malformed")
+    initial_by_id = {
+        item.get("objective_id"): item for item in initial_components
+        if isinstance(item, Mapping)
+    }
+    best_by_id = {
+        item.get("objective_id"): item for item in best_components
+        if isinstance(item, Mapping)
+    }
+    for objective in objectives:
+        if not isinstance(objective, Mapping):
+            raise ValueError("Optimization objective declaration is malformed")
         name = str(objective.get("id"))
-        initial_value = float64_from_hex(left["value"]["si_value_f64"])
-        best_value = float64_from_hex(right["value"]["si_value_f64"])
-        target_value = float64_from_hex(objective["target"]["si_value_f64"])
-        initial_cost = float64_from_hex(left["weighted_cost_f64"])
-        best_cost = float64_from_hex(right["weighted_cost_f64"])
+        left = initial_by_id.get(name)
+        right = best_by_id.get(name)
+        if left is None and right is None:
+            continue
+        left_value = None if left is None else left.get("value")
+        right_value = None if right is None else right.get("value")
+        left_residual = None if left is None else left.get("normalized_residual_f64")
+        right_residual = None if right is None else right.get("normalized_residual_f64")
+        left_cost = None if left is None else left.get("weighted_cost_f64")
+        right_cost = None if right is None else right.get("weighted_cost_f64")
+        initial_value = (
+            float64_from_hex(left_value["si_value_f64"])
+            if isinstance(left_value, Mapping) and isinstance(left_value.get("si_value_f64"), str)
+            else None
+        )
+        best_value = (
+            float64_from_hex(right_value["si_value_f64"])
+            if isinstance(right_value, Mapping) and isinstance(right_value.get("si_value_f64"), str)
+            else None
+        )
+        initial_weighted = float64_from_hex(left_cost) if isinstance(left_cost, str) else None
+        best_weighted = float64_from_hex(right_cost) if isinstance(right_cost, str) else None
         comparison.extend((
-            (f"{name} value", _quantity_text(left.get("value")), _quantity_text(right.get("value"))),
-            (f"{name} normalized residual", f"{float64_from_hex(left['normalized_residual_f64']):.12g}", f"{float64_from_hex(right['normalized_residual_f64']):.12g}"),
-            (f"{name} weighted cost", f"{initial_cost:.12g}", f"{best_cost:.12g}"),
-            (f"{name} weighted-cost delta (best - initial)", "—", f"{best_cost - initial_cost:.12g}"),
+            (f"{name} value", "—" if left_value is None else _quantity_text(left_value),
+             "—" if right_value is None else _quantity_text(right_value)),
+            (f"{name} normalized residual", "—" if not isinstance(left_residual, str) else f"{float64_from_hex(left_residual):.12g}",
+             "—" if not isinstance(right_residual, str) else f"{float64_from_hex(right_residual):.12g}"),
+            (f"{name} weighted cost", "—" if initial_weighted is None else f"{initial_weighted:.12g}",
+             "—" if best_weighted is None else f"{best_weighted:.12g}"),
+            (f"{name} weighted-cost delta (best - initial)", "—",
+             "—" if initial_weighted is None or best_weighted is None else f"{best_weighted - initial_weighted:.12g}"),
         ))
-        left_terms, right_terms = left.get("terms"), right.get("terms")
+        left_terms = () if left is None else left.get("terms", ())
+        right_terms = () if right is None else right.get("terms", ())
         if isinstance(left_terms, Sequence) and isinstance(right_terms, Sequence):
-            for left_term, right_term in zip(left_terms, right_terms, strict=True):
-                if not isinstance(left_term, Mapping) or not isinstance(right_term, Mapping):
+            right_terms_by_ordinal = {
+                item.get("term_ordinal"): item for item in right_terms
+                if isinstance(item, Mapping)
+            }
+            for left_term in left_terms:
+                if not isinstance(left_term, Mapping):
                     raise ValueError("Optimization term comparison evidence is malformed")
                 selector = left_term.get("selector")
                 if not isinstance(selector, Mapping) or selector.get("type") != "residue_coupling_projection":
+                    continue
+                right_term = right_terms_by_ordinal.get(left_term.get("term_ordinal"))
+                if not isinstance(right_term, Mapping):
                     continue
                 left_evidence = left_term.get("residue_coupling_evidence")
                 right_evidence = right_term.get("residue_coupling_evidence")
@@ -578,10 +708,19 @@ def optimization_comparison_dataset(
                         f"{label} {title}", projected(left_evidence), projected(right_evidence)
                     ))
         if objective.get("comparison") == "at_least":
+            target_record = objective.get("target")
+            target_value = (
+                float64_from_hex(target_record["si_value_f64"])
+                if isinstance(target_record, Mapping)
+                and isinstance(target_record.get("si_value_f64"), str)
+                else None
+            )
             comparison.append((
                 f"{name} at-least condition",
-                "met" if initial_value >= target_value else "below target",
-                "met" if best_value >= target_value else "below target",
+                "—" if initial_value is None or target_value is None
+                else "met" if initial_value >= target_value else "below target",
+                "—" if best_value is None or target_value is None
+                else "met" if best_value >= target_value else "below target",
             ))
     return settings, comparison
 

@@ -8,14 +8,193 @@ The reader-facing [Simulation conventions](concepts/simulation-conventions.qmd)
 connect these version-bound rules to the canonical phasor, wave-reference, and
 linewidth definitions without adding a second runtime contract.
 
-## Package ownership and lifecycle target (dev24) {#package-lifecycle}
+## Differentiable physical program target (dev26) {#physical-program-target}
 
-This section is the current **CONVERGING implementation target**, for
-`1.0.0.dev24` and SQLite operation evidence v6. It supersedes the dev23 ownership
-and eager-history target, without changing physical equations, numerical
-algorithms, dtype, Newton/CMA rules, candidate order or numerical conditions.
+This is the **CONVERGING dev26 source candidate**. Its interfaces are implemented;
+source implementation does not establish native coverage, accuracy or Human acceptance. One physical program maps ordered
+real scalar parameter coordinates to physical quantities. Direct evaluation,
+sweeps, dependency queries, Sensitivity and Optimization consume that same
+program, including parameter-dependent View weights, loads and reference
+impedances. Existing units, phasor signs, physical equations, ordinary transpose
+and numerical certification conditions remain in force. Schematic work remains
+incomplete and deferred.
+
+| Surface | Current responsibility |
+|---|---|
+| `run.dependencies(quantities=...)` | Declared direct and indirect physical dependencies; no execution or proof of globally nonzero derivatives |
+| `run.sensitivity(SensitivitySpec(...), parameters=...)` | Ordered primal values and requested `Jacobian`, `JVP` or `VJP`, with separate primal and derivative status |
+| `run.optimize(OptimizationSpec(...))` | Existing CMA-ES, bounded local L-BFGS-B and ordered Hybrid stages share the quantity/objective evaluator |
+| `run.resolve(..., attempt={'attempt_id': recorded_attempt_id})` | Explicit readonly terminal partial Sensitivity selection; partial evidence is excluded from complete-success caches and default resolution |
+
+Complex outputs have explicit real/imaginary coordinates. Jacobian entry
+$(i,j)$ has units $q_i/\theta_j$, with ordered input/output axes. Explicit scales
+and optimizer coordinate chain rules are recorded separately from physical
+derivatives. Only the requested derivative mode is stored; reading JVP/VJP
+never executes a missing full Jacobian.
+
+### Fixed discretization and derivative boundaries
+
+A Sensitivity point or any optimization stage, including CMA-ES, binds realized sections, sparse pattern, matrix shapes,
+coordinate order and retained/eliminated partition. Finite declared length
+bounds may support conservative section planning where actual material
+dependence permits it. Missing finite bounds warn, without an invented maximum
+range, adequacy claim or new eligibility condition. Stages freeze realized
+section counts; at fixed $N$, $\Delta x=\ell/N$ remains parameter dependent.
+ElectricalResolution retains its lossless planning domain; an explicitly fixed-count
+lossy model is separate. Active L/C dependencies require a justified bound;
+otherwise planning warns and fixes the starting realized mesh without claiming
+adequacy. Dynamic coarse exploration is limited to non-Optimization requests.
+These are derivatives of a discrete physical model, not continuum or global
+optimum guarantees. Remeshing requires a new explicit stage/request,
+reevaluation and empty local curvature history, not a line-search shape change.
+
+Scalar/affine physical mappings remain traced through lowering. An identically
+zero resistance specialization requires a structurally zero declared dependency;
+an active resistance currently equal to zero retains its derivative. Explicit
+scalar-to-fixed-shape RLGC mappings are separate from whole-RLGC values, with
+no implicit promotion of matrix entries to independent parameters.
+
+Sparse derivatives follow $A\,dx=db-dA\,x$. Physical ordinary transpose differs
+from the adjoint of explicit real coordinates. Root derivatives follow the
+same certified primal branch, including vector, gauge, slope, residue and mixed
+frequency/parameter dependencies. Degeneracy, gauge singularity and nonsmoothness
+report derivative unavailability, not invented zero gradients or automatic
+finite-difference fallbacks. A derivative failure does not relabel a successful
+primal value. No new tolerance, precision fallback or mean-root policy is added.
+
+### Optimizer, evidence and resource ownership
+
+CMA-ES retains complete post-tell state and exact resume responsibility.
+`commit_every_generations` applies only to CMA stages. Each `LBFGSBSpec`
+requires `commit_every_iterations` for committed accepted iterates; trial or
+tangent evaluations do not become recovery checkpoints or durable callbacks.
+Local accepted-iterate evidence supports a fresh restart, not a CMA/RNG or
+curvature checkpoint.
+L-BFGS-B uses explicit scaled physical coordinates and bounds; restart begins a
+new stage from a committed accepted iterate with empty curvature history, not
+exact solver resume. `LBFGSBSpec` requires explicit `max_evaluations`,
+`max_iterations`, `ftol`, `gtol`, `max_line_search` and
+`commit_every_iterations`. Supplied coordinate scales bind every local variable
+in its physical unit. For a linear mapping, explicit scale takes precedence over
+the declared domain scale: $\theta=\theta_0+s x$. If neither exists, the
+controller coordinate is the raw SI-number $x=\theta$, with its SI-unit metadata;
+no guessed dimensionless scale is introduced. A declared log mapping uses
+$\theta=\theta_0\exp(a x)$, where $a=s/|\theta_0|$ for an explicit physical
+scale and $a=1$ otherwise. The actual nonzero starting reference retains the
+sign for signed log domains; finite log bounds retain their declared positive
+physical bounds. The chain rule is $d\theta/dx=s$ for affine coordinates,
+$1$ for raw SI coordinates and $a\theta$ for log coordinates. Each map records
+reference, scale/source, exponent scale, units and native transformed bounds;
+there is no CMA folding, clipping, invented open-domain interval or epsilon.
+Bounds/domain/transform and full effective initial parameters remain recorded
+separately. Trial points are not accepted checkpoints. Hybrid stages
+record observed winner, accepted iterate, termination, budget, seed, mesh and
+transition. Each encoded stage owns resolved controller settings, the effective
+seed declaration and its explicit mesh override or shared planning declaration.
+A null first-stage seed uses the operation's effective starting point. A null
+later-stage seed consumes the recorded selected physical point and reevaluates
+it under the target model before that stage starts. An explicit seed override
+records the full merged effective point. Future selected points and their CMA
+coordinates are not fabricated in the initial request.
+Top-level best is absent until a full cost is actually evaluated
+under the final comparison model; stage winners remain separate. A transition records the actual source candidate/model, seed selection, target
+model and target reevaluation locator. These references are bound atomically
+with the first target-stage batch; there is no standalone transition commit. A partial terminal attempt
+remains partial even when it records an observed best point.
+A derivative-unavailable local stage stops there and seals a PARTIAL Hybrid
+terminal; later declared stages remain unentered. There is no automatic bypass
+or strategy fallback. Preserved accepted/observed physical points may seed an
+explicit new stage/restart. Final-comparison best remains nullable when the
+comparison stage has not been entered. That comparison's baseline is the
+original operation effective point, actually reevaluated under the declared
+comparison model; a later stage's selected-point seed is not this baseline.
+Comparison preparation evaluations/counts/cost are recorded separately from
+the optimizer controller search budget and SciPy `nfev`.
+
+`checkpoint="off"` suppresses physical recovery checkpoints/pointers and
+dedicated CMA/RNG/anchor restore state; it preserves numerical stage and
+accepted-point facts. An explicit local restart from a committed accepted point
+starts a new stage with cleared curvature, distinct from exact CMA resume.
+A later CMA stage constructs its mean from the actual selected physical seed
+using the same declared unit-box/domain map; it does not mutate deferred seed
+coordinates in the sealed operation request.
+
+`OptimizationProgress` records `stage_id` and `strategy` (`cmaes` or `lbfgsb`).
+CMA uses completed/total/committed generation counters; local stages use
+completed/total/committed iteration counters. Nonapplicable or unavailable
+counters are `None`, and best cost may be absent before the final comparison.
+The phase vocabulary includes `iteration`, `stage_transition` and `partial`
+in addition to existing initial/resume/generation/complete/result-reuse phases.
+Durable callbacks follow actual ACK, without publishing trial evaluations.
+Budget and evaluation fields describe the named current stage:
+`requested_budget` is its declared `max_evaluations`. CMA's
+`achievable_evaluations` retains its baseline plus complete-population count;
+local adaptive stages record `None`. `evaluated_count` is the stage's controller
+observation, not a count of physical cache misses or a substitute for recorded
+SciPy evaluation/iteration counters. Hybrid does not invent a summed achievable
+budget from these fields.
+
+SQLite operation evidence advances to **v7**; native Julia body formats remain
+independent and unchanged. Fixed readers select verified stored blocks and
+minimum metadata without retaining Run, AD tape, factor or live connection,
+and without recomputing missing derivatives. Old operation Workspaces require
+recomputation, with no compatibility reader.
+
+JAX is primary. Existing Julia code is frozen legacy/reference capability,
+not an automatic derivative fallback. Pure callbacks have fixed-shape
+value/status handoffs and no Workspace, progress or mutable global factor/cache
+side effects. Operation-local owners retain primal, tangent and adjoint work
+until it returns and synchronizes before lease release or native-limit
+restoration. Explicit Run warm holders, fixed-stage programs and call-local numerical work
+have separate ownership.
+Factor reuse describes actual controlled calls, not a factor-once promise.
+Timing, sampled memory, source and execution identity are distinct evidence;
+Checked derivative entry points support explicit JVP/VJP and required frequency
+jets; arbitrary raw `jax.grad` through host branch selection is not promised.
+AD gives no speed, memory, bitwise or achieved-accuracy bound.
+
+The public declarations are `SensitivitySpec`, `Jacobian`, `JVP`, `VJP`,
+`OutputCoordinate`, `SensitivityScales`, `FixedMeshSpec`, `LBFGSBSpec`,
+`OptimizationStage`, `HybridSpec` and `AcceptedIterateSelection`. Matrix quantities
+use `DirectSolveSpec.S`, `.Y`, `.Z` or `OperatorSpec.matrix`, with `.on(view)` on
+each leaf, including mixed-View expressions. Sensitivity requires explicit
+leaf `.on(view)` bindings from the same Run and has no public default View.
+`run.optimize(view, spec)` supplies the default only to unbound objective leaves;
+explicit leaf Views retain their own identity. `run.optimize(spec)` requires
+all leaves to be bound. The compiler's `default_view` argument is that explicit
+lowering handoff, not an automatic original-View selection.
+`normalized_jacobian` is a stored
+Result projection using request-recorded scales, not a second differentiation
+call. JVP directions have each parameter's physical unit and a dimensionless
+path coordinate. VJP weights times output coordinates share a declared scalar
+functional unit; input cotangents have functional-unit/parameter-unit dimensions.
+Zero weights still carry explicit units. `OutputCoordinate.index` contains only
+physical array-axis ordinals, with `()` for a scalar; `component` is separate.
+Rows flatten physical axes in C order with real/imag components last and
+fastest; real outputs have only the real component. Algorithm termination controls and
+reasons are not design acceptance conditions.
+
+`ScalarRLGCMap(base, terms=...)` uses `RLGCScalarTerm(source, resistance=...,
+inductance=..., conductance=..., capacitance=...)`; source is a scalar
+`ParameterRef` or `AffineMap`. Each basis matrix has the per-length field unit
+divided by the source's physical unit. Individual bases need not be passive or
+positive definite; the realized total uses the existing RLGC physical validator
+at every point, retaining conductor order, reference and base provenance.
+
+The [parameter contract](contracts/parameter-system.qmd#parameterized-rlgc-scope),
+[architecture](implementation/system-architecture.qmd) and
+[backend guide](implementation/benchmark-and-backends.qmd) and
+[Sensitivity usage guide](guides/sensitivity.qmd) retain their own
+implementation responsibilities without a parallel physical-program contract.
+
+## Package ownership and lifecycle {#package-lifecycle}
+
+The dev26 **CONVERGING source candidate** retains the ownership and lazy
+Result boundary established in dev24 and uses SQLite operation evidence v7.
+The physical-program section above owns the new derivative and optimizer
+semantics; this section owns lifecycle and storage responsibilities.
 Historical observations retain their original version and scope; they are not
-observations of this target. Schematic completion remains incomplete and deferred.
+observations of this candidate. Schematic completion remains incomplete and deferred.
 
 ### Run and operation ownership
 
@@ -29,9 +208,10 @@ Views are immutable handoffs independent of a Workspace.
 |---|---|---|
 | Process | PJRT initialization and runtime resource configuration | Process exit; closing a Run does not reset them |
 | Plan | Authoring capture and sealing | Plan lifetime; Run close does not unseal |
-| Run | Fixed binding, necessary lookup and explicitly warmed executables | Optional close or disappearance of its references |
+| Run | Fixed binding, necessary lookup and explicitly admitted static physical programs/prepared executables | Optional close or disappearance of its references |
 | Operation | Backend, workers, resource authorization, spool and diagnostics | Success, failure or interruption after necessary cleanup |
-| Candidate/generation | Prepared state, dependencies and necessary reuse | Consumption of the corresponding work |
+| Optimization stage | Fixed-model physical program and prepared variants | Stage/operation completion and cleanup; no implicit Run admission |
+| Candidate/ready wave | Call-local inputs, frames, factors, outcomes and prepared packets; cache retains lightweight spool references | Ordered consumption and required publication; no full numerical history retained |
 | Continuation step | Temporary compiler, material, View, pattern, factor and executable references | Synchronized evaluation and observation, before recursion |
 | Result | Fixed evidence root, minimum immutable metadata and delivered values | Caller ownership; no Run or execution-resource capture |
 | Workspace | Committed bodies, occurrences, checkpoints and diagnostics | Explicit data management, never Run close |
@@ -65,10 +245,11 @@ released for child work. It is distinct from root/operation activity leases.
 For native work, the supervisor additionally retains its descriptor through actual drain; this is not
 a new public concurrency mode or a change to native numerical bodies.
 
-SQLite operation evidence v6 retains one canonical scientific body, separate task-local occurrences and
+SQLite operation evidence v7 retains one canonical scientific body, separate task-local occurrences and
 restore state. Numerical evidence and required indexes become visible at the
-same atomic publication boundary. Only complete post-tell generations are
-resumable; baseline is not generation zero. Durable callbacks follow ACK;
+same atomic publication boundary. Only complete CMA post-tell generations support exact controller resume;
+local committed accepted iterates support fresh restart. Baseline is not
+generation zero. Durable callbacks follow ACK;
 uncertain commits use transaction-identity reconciliation, not blind resubmission.
 Timing and instant progress remain separate from numerical success/checkpoints.
 
@@ -92,7 +273,7 @@ leaf. Fixing this root does not preload every candidate reference.
 `ResultIdentity.attempt_sha256` continues to name the canonical completed
 terminal attempt document, not the initial running-attempt allocation. The
 SQLite completion seal includes `terminal_attempt_ref` so this identity can be
-verified without replaying task history. SQLite v6 does not renumber the Plan,
+verified without replaying task history. SQLite v7 does not renumber the Plan,
 request, Julia result-body or native artifact schemas.
 
 `OptimizationResult.ledger` is a readonly generation Sequence; indexing and
@@ -939,9 +1120,13 @@ G: conductance
 D(omega) = K - omega^2 C - i omega G
 ```
 
-Direct optimization recompiles every candidate ParameterSet and replays the
-complete PTC and view lineage. It never optimizes a nominal matrix that still
-contains the artificial loss channel.
+Current JAX Direct optimization refreshes each candidate's physical coefficients
+and View-dependent operands through the shared fixed-stage program, including
+the declared PTC and View lineage. It does not recompile that program merely
+because runtime parameter values change. The frozen explicit Julia reference
+path retains candidate recompilation and lineage replay. Both paths evaluate
+the declared loading boundary rather than a nominal matrix retaining an
+artificial loss channel removed by that declaration.
 
 ### Automatic paired-node coordinates are a shared view step
 
@@ -1891,23 +2076,41 @@ evidenced.
 
 ## Optimization and numerical scaling
 
-The dev24 CONVERGING preparation/display boundary is documented in
-[Execution backends](implementation/benchmark-and-backends.qmd#warm-preparation-progress-and-evidence-residency-dev24).
+The dev26 CONVERGING preparation/display and generation-owner boundary is documented in
+[Execution backends](implementation/benchmark-and-backends.qmd#warm-preparation-progress-and-evidence-residency).
 `CircuitRun.warmup(view, spec, *, parameters=None)` prepares JAX signatures and
 returns immutable preparation facts without numerical execution or stored
-success. `optimize(progress=True)` adds a transient observer distinct from the
+success. Its real preparation-only path obtains exact pure assembly callables
+and shape/dtype descriptors, then lowers/compiles them without calling assembly,
+sparse solve, Newton or a trial optimizer evaluation. Sparse and implicit AD
+signatures remain lazy; prepared arithmetic is not an all-operation warmness
+or performance claim. The explicit warm holder is scoped by actual device and
+canonical program identity, including dtype. Only warmup admits static
+transformable programs and prepared assembly handles. Later matching numerical
+operations may borrow them; unmatched candidate/stage programs remain
+operation-owned and are not automatically added to the Run. Prepared binaries
+serve primal assembly while AD transforms the original callable, not an AOT
+executable. Point operands, tapes, factors and Results are not warm entries. `optimize(progress=True)` adds a transient observer distinct from the
 durable callback; it cannot change numeric request identity or commit policy.
 Display failures warn and disable display, while durable callback failures keep
 their existing error contract. Private uncommitted-generation scratch is not a
-checkpoint or a compatibility reader; current Workspace schema is v6.
+checkpoint or a compatibility reader; current Workspace schema is v7.
 Intermediate continuation-step preparation and executable references end after
-the synchronized result is observed, before recursion; endpoint/generation state
-and Run warm holders retain their existing scope. Weak indexing does not own
-their lifetime, and reference release is not an immediate RSS-return guarantee.
+the synchronized result is observed, before recursion. The current stage owns
+its fixed-model physical program and prepared variants; call-local frames,
+factors, outcomes and ready-batch packets end after ordered consumption.
+Candidate caches keep lightweight spool references rather than numerical
+frames or full histories. Only explicit warmup retains admitted static programs
+and prepared handles on the Run; unmatched operation programs remain
+operation-owned. Static shape changes between declared models may incur
+recompilation. Native allocator or mapped-memory retention differs from live
+owner references; releasing references does not guarantee immediate RSS return.
+API wall time, inclusive phase/CPU costs and owner-held bytes retain their
+separate measurement meanings, with no RSS or speed Gate.
 The transient `population_evaluating` phase precedes ask and is not a durable
 generation notification.
 
-### Quantity objectives and one Julia execution
+### Quantity objectives and backend execution ownership
 
 V1 optimization evaluates Direct objectives only. It accepts any number of
 same-Plan bound `NetworkViewRef` leaves, optimization variables, and scalar
@@ -1927,17 +2130,18 @@ Notebook consumer
   inspect the default + provide a Design Target + optional immutable override
 ```
 
-Runtime slices change which already-declared selectors are executable, not the
-View model or optimizer. `1.0.0.dev3` evaluates
+The following dev3/dev5 restrictions describe historical slices, not the current
+physical-program capability boundary. Those slices changed executable selectors,
+not the View model. `1.0.0.dev3` evaluated
 `DiagonalRootSpec.frequency` and `.linewidth` on a supported retained quantity
 View. Its original one-Port/no-trace restriction belongs only to that slice's
 `solve_direct` response surface. `1.0.0.dev5` reuses the same CMA replay,
 ledger, cache, retry, and winner contract while enabling
 `HybridizedPoleSpec.frequency`/`.linewidth`, `TransferZeroSpec.frequency`,
 `ResidueNormalizedCouplingSpec.real`/`.imag`/`.magnitude`, and
-`ResponseElementSpec.magnitude`/`.real`/`.imag`. Before its owning slice, each
-selector fails fast with `ScaffoldUnavailableError`; it is not excluded from
-full V1. Closed scalar expressions remain legal only inside a `CostObjective`.
+`ResponseElementSpec.magnitude`/`.real`/`.imag`. Before its historical owning slice, each selector failed fast with
+`ScaffoldUnavailableError`. Current checked Quantity expressions are shared by
+Sensitivity and CostObjective declarations under the physical-program contract.
 
 `ParameterSpec` never owns optimization bounds. A circuit-model package may
 instead expose one clearly named model default:
@@ -2144,8 +2348,11 @@ The original winner values remain immutable; candidate and winner
 `ParameterSet.allow_extrapolation` are empty. The new request records its own
 authorization instead of inheriting the optimizer's approval.
 
-The public `run.evaluate()` contract does not force candidate work back through
-Python. One optimization attempt launches one Julia process. Parameter binding,
+Current JAX optimization uses the shared physical program and Python stage
+controllers, with ordered ready waves and coordinator-owned publication. It
+does not launch Julia or use the native replay implementation as a fallback.
+The following process boundary applies only to the frozen explicit Julia
+reference CMA path: one optimization attempt launches one Julia process. Parameter binding,
 candidate compilation, Ref-lineage replay, quantity evaluation, shared
 factorization/root work, objective aggregation, and CMA-ES remain inside that
 process. Python submits the sealed request and receives process-local progress
@@ -2154,10 +2361,11 @@ daemon. Repeated quantity identities share dependency nodes within a candidate.
 
 The Julia process emits validated optimization progress, exposed by the optional
 `on_progress: Callable[[OptimizationProgress], object]` keyword on both
-`run.optimize()` forms. An immutable event has `phase` (`initial`, `resume`,
-`generation`, `complete`, or `result_reuse`), `reused`,
-`completed_generations`, `total_generations`, `evaluated_count`,
-`requested_budget`, `achievable_evaluations`, and finite `best_cost` fields.
+`run.optimize()` forms. The existing native CMA events use `initial`, `resume`,
+`generation`, `complete` or `result_reuse`, with stage `main` and strategy
+`cmaes`. They retain generation and evaluation telemetry; local iteration
+counters are `None`. The shared immutable model's additional stage/local fields
+are defined in the physical-program contract above, not invented native events.
 The callback return is ignored. Its exception terminates the child and is
 reported as callback failure, without discarding already-published evidence;
 `KeyboardInterrupt` remains interruption. Progress is process-local telemetry,
@@ -2370,14 +2578,13 @@ state. No failed or uncertain required batch is resent; the original error stays
 primary. Baseline failure remains terminal and creates no checkpoint. Result
 readback still includes the baseline and complete ordered numerical ledger.
 
-A valid budget can contain zero complete populations:
-`complete_generations=(max_evaluations-1)//population_size` may be zero. A
-successful baseline-only optimization then saves the necessary baseline
-numerical evidence atomically with the final result. It saves no checkpoint or
-restore anchors and emits no generation-0 barrier or generation notification;
-the final complete callback remains. Failure before any complete generation
-creates no baseline-only protective flush. This does not add a budget Gate or
-change candidate/CMA ordering.
+The existing CMA request boundary requires a budget that fits the baseline
+and at least one complete population. A budget too small for that population
+is rejected; it is not a normal successful baseline-only optimization.
+Interruption or failure before the first complete generation can retain actual
+baseline evidence in its terminal record, without a generation-0 checkpoint,
+restore anchors, barrier or generation notification. Failure handling does not
+add a baseline-only protective flush or change candidate/CMA ordering.
 
 Native Julia retains its existing baseline/checkpoint protocol below. The
 mandatory successful optimization baseline is durably checkpointed before
@@ -2535,7 +2742,7 @@ read-derived. Incomplete intervals have no zero duration. Inclusive/nested
 sums are not API wall time. Aggregates cannot reconstruct a detailed Timeline;
 detailed mode stores actual diagnostic intervals only.
 
-Operation SQLite evidence is version6, with DELETE journal mode and EXTRA
+Operation SQLite evidence is version7, with DELETE journal mode and EXTRA
 synchronization. Verified object reuse is scoped to one transaction or readonly
 snapshot, including hash/role/length bindings; a reopen or relock revalidates.
 Manifest and operation start publish atomically; task/request/attempt/running
@@ -2608,7 +2815,7 @@ History, objective and parameter plots use bound summaries; comparison selects
 baseline and exact best. Full iteration or slicing is caller-requested
 materialization. The [lifecycle boundary](#package-lifecycle) owns the detailed
 reader lifetime and missing/corrupt/replaced-evidence failure rules. Historical
-files retain their execution identities; current v6 readers reject older
+files retain their execution identities; current v7 readers reject older
 operation Workspaces, without migration or automatic destructive rebuilding.
 Read-only Benchmark and checkpoint readers
 retain their distinct responsibilities. Diagnostic batches advance their

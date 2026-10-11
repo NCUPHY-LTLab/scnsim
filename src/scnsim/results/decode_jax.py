@@ -28,7 +28,6 @@ from ..specs import QuantitySelector
 from .base import LineDiscretization, MatrixFamilyResult, MatrixView, ParameterPointIdentity, ResultIdentity
 from .derived import TraceResult
 from .factory import _verified_result
-from .lazy_optimization import LazyCandidateDiscretizationSequence, LazyGenerationSequence
 from .matrix import (
     DiagonalRootResult,
     DirectQuantityResult,
@@ -38,7 +37,7 @@ from .matrix import (
     OperatorResult,
     ScatteringMatrixResult,
 )
-from .optimization import OptimizationBest, OptimizationResult
+from .optimization_projection import decode_staged_optimization
 from .sweep import _parameter_sweep_result, _point_accessor, _point_outcome
 
 
@@ -140,7 +139,7 @@ def _coupling_branch_evidence(record, dependencies):
             "binding": branch["binding"],
             "root": _numeric_quantity(body, "root_omega_rad_s", "radian / second"),
             "slope": _numeric_quantity(body, "root_slope", "siemens"),
-            "certificates": body["evidence"]["certificates"],
+            "certificates": body["evidence"],
         }
         if "null_vector" in body:
             detail["null_vector"] = _numeric_quantity(body, "null_vector", "dimensionless")
@@ -314,15 +313,28 @@ def _candidate_dependencies(record):
 
     Successful objective terms point at canonical quantity bodies by content
     id. Residue-coupling bodies in turn retain their ordered branch references
-    to the same candidate-level map, so the ledger does not duplicate bodies or
-    turn those references into synthetic result identities.
+    to the same candidate-level map. Public term evidence is reconstructed
+    from these authoritative bodies instead of being duplicated in the ledger.
     """
     dependencies = dict(record.get("dependencies", {}))
     for objective in record["objectives"]:
         for term in objective["terms"]:
-            if term.get("status") != "success" or "body_id" not in term:
+            if term.get("status") != "success":
                 continue
-            body = dependencies[term["body_id"]]
+            body_id = term.get("body_id")
+            if not isinstance(body_id, str) or body_id not in dependencies:
+                raise EvidenceIntegrityError(
+                    "Successful optimization term references an absent quantity body",
+                    stage="result_decode",
+                    evidence={"body_id": body_id},
+                )
+            body = dependencies[body_id]
+            if not isinstance(body, Mapping) or not isinstance(body.get("evidence"), Mapping):
+                raise EvidenceIntegrityError(
+                    "Successful optimization term quantity body has no canonical evidence",
+                    stage="result_decode",
+                    evidence={"body_id": body_id},
+                )
             for branch in body.get("evidence", {}).get("branches", ()):
                 dependencies[branch["body_id"]]
     return dependencies
@@ -341,6 +353,8 @@ def _candidate(record, spec):
         terms = []
         for term in objective["terms"]:
             adapted = dict(term)
+            if term.get("status") == "success" and "body_id" in term:
+                adapted["evidence"] = dependencies[term["body_id"]]["evidence"]
             if "value_f64" in term:
                 unit, dimensionality = _term_unit(term["selector"])
                 adapted["value"] = {"type": "quantity_f64", "si_unit": unit,
@@ -370,40 +384,12 @@ def _optimization(decoder, identity, request, fixed_reader):
             "JAX Optimization decoding requires its fixed result reader",
             stage="result_decode",
         )
-    selected = fixed_reader.selection
-    comparison = fixed_reader.project("comparison")
-    baseline_record = dict(comparison["baseline"])
-    baseline_record.setdefault("evaluation_ordinal", 0)
-    baseline_record.setdefault("generation", 0)
-    initial_candidate = _candidate(baseline_record, request["spec"])
-    best_ordinal = selected.best_locator["ordinal"]
-    best_record = baseline_record if best_ordinal == 0 else dict(comparison["best"])
-    best_candidate = initial_candidate if best_ordinal == 0 else _candidate(best_record, request["spec"])
-    generation_count = selected.generation_count
-    candidate_count = selected.candidate_count
-    ledger = LazyGenerationSequence(
+    return decode_staged_optimization(
+        decoder,
+        identity,
         fixed_reader,
-        generation_count,
-        lambda record: _candidate(record, request["spec"]),
-    )
-    candidate_discretization = LazyCandidateDiscretizationSequence(
-        fixed_reader,
-        candidate_count,
-        lambda record: _discretization(record),
-    )
-    return _verified_result(
-        OptimizationResult, identity=identity, discretization=_discretization(best_candidate.get("discretization")),
-        best=_verified_result(OptimizationBest, parameters=decoder._decode_parameter_set(best_candidate["parameters"]),
-                              cost=float64_from_hex(best_candidate["cost_f64"]),
-                              discretization=_discretization(best_candidate.get("discretization"))),
-        _fixed_reader=fixed_reader,
-        ledger=ledger, candidate_discretization=candidate_discretization,
-        _presentation={"initial_parameters": decoder._decode_parameter_set(baseline_record["parameters"]),
-                       "initial_candidate": initial_candidate,
-                       "best_candidate": best_candidate,
-                       "objectives": tuple(request["spec"]["objectives"]),
-                       "variables": tuple(request["spec"]["variables"]),
-                       "best_evaluation_ordinal": best_ordinal},
+        decode_discretization=_discretization,
+        adapt_candidate=lambda record: _candidate(record, request["spec"]),
     )
 
 
@@ -463,6 +449,18 @@ def decode_jax_operation(decoder, *, projection, request, plan_sha256, request_s
     del bound_spec  # Exact encoded request owns selector and output identities.
     identity = _verified_result(ResultIdentity, plan_sha256=plan_sha256, request_sha256=request_sha256,
                                 attempt_sha256=attempt_sha256, result_sha256=result_sha256)
+    if request["operation"] == "sensitivity":
+        if fixed_reader is None:
+            raise EvidenceIntegrityError(
+                "Sensitivity decoding requires its exact fixed terminal reader",
+                stage="result_decode",
+            )
+        return decoder._decode_sensitivity(
+            identity,
+            request,
+            projection,
+            fixed_reader=fixed_reader,
+        )
     if request["operation"] == "optimize_direct":
         return _optimization(decoder, identity, request, fixed_reader)
     records = projection["evaluations"]

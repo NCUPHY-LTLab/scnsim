@@ -394,7 +394,17 @@ cannot converge elsewhere.
 ## Locate one transfer zero
 
 `TransferZeroSpec` binds one ordered scalar $T_{ij}$ from the selected S/Y/Z
-family. It solves the analytic equation $T_{ij}(\omega)=0$ with
+family. The dev26 checked local derivative for the Y family records
+`reduced_Y_entry_local_implicit`: it differentiates the selected reduced Y entry
+on the same View, loading, fixed mesh and requested dtype. At its certified
+primal root, $d\omega_*/d\theta=-(\partial_\theta T_{ij})/(\partial_\omega T_{ij})$
+requires a nonzero denominator. The primal Newton procedure and certificates
+remain unchanged. This is a physical local root derivative, not differentiation
+of a finite Newton step, a bitwise algorithm trajectory or a forward-accuracy
+guarantee. Its actual derivative availability remains separately recorded;
+source implementation is not an executed AD observation.
+
+It solves the analytic equation $T_{ij}(\omega)=0$ with
 
 $$
 \omega_{k+1}=\omega_k-

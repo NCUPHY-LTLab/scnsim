@@ -26,7 +26,7 @@ I/O, never numerical execution.
 `AnalysisResult` is the receipt-backed terminal subset and exposes immutable
 `ResultIdentity(plan_sha256, request_sha256, attempt_sha256, result_sha256)`.
 The attempt digest remains the canonical completed terminal attempt document;
-SQLite v6 binds it through `terminal_attempt_ref`, not a running allocation.
+SQLite v7 binds it through `terminal_attempt_ref`, not a running allocation.
 `DirectSolveResult`, `DiagonalRootResult`, `OptimizationResult`, and
 `HBBatchResult` derive from it. Each HB batch contains one `HBCaseOutcome` for
 every declared case. The outcome is a derived view of its parent receipt: a

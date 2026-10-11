@@ -281,6 +281,25 @@ class VerifiedResultDecoder:
             self, identity, result, request, directory, native_reader=native_reader
         )
 
+    def _decode_sensitivity(
+        self,
+        identity,
+        request: Mapping[str, object],
+        projection: Mapping[str, object],
+        *,
+        fixed_reader: object,
+    ):
+        """Decode one fixed Sensitivity selection after Workspace verification."""
+        from .decode_sensitivity import decode_sensitivity_operation
+
+        return decode_sensitivity_operation(
+            self,
+            identity=identity,
+            request=request,
+            projection=projection,
+            fixed_reader=fixed_reader,
+        )
+
     def _decode_parameter_sweep(
         self,
         identity: ResultIdentity,

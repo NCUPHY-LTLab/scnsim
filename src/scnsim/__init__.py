@@ -2,7 +2,7 @@
 
 Numerical execution remains separately accepted where documented.  Structured
 authoring, parameter closure, and semantic diagram capture are an actively
-converging V1 candidate. The dev24 Run lifecycle and fixed lazy Result boundary
+converging V1 candidate. The dev26 physical-program and derivative boundary
 remain CONVERGING; public facades reexport one responsibility-owned implementation.
 
 Start with :class:`CircuitPlan` if you develop reusable circuit models.  Start
@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING
 from . import units
 from .authoring import (
     RLGC,
+    RLGCScalarTerm,
+    ScalarRLGCMap,
     AffineMap,
     ElectricalResolution,
     CircuitPlan,
@@ -85,6 +87,7 @@ from .results import (
     BiasState,
     DiagonalRootResult,
     OperatorElementRootResult,
+    SensitivityResult,
     DirectQuantityResult,
     DirectSolveResult,
     ExplanationResult,
@@ -116,6 +119,17 @@ from .results import (
 from .execution.config import RuntimeConfiguration, configure_runtime
 from .runtime import CircuitRun, NetworkViewRef, ReductionPipeline
 from .specs import (
+    SensitivitySpec,
+    Jacobian,
+    JVP,
+    VJP,
+    OutputCoordinate,
+    SensitivityScales,
+    FixedMeshSpec,
+    LBFGSBSpec,
+    OptimizationStage,
+    HybridSpec,
+    AcceptedIterateSelection,
     CMAESSpec,
     CostObjective,
     CurrentDrive,
@@ -195,6 +209,19 @@ def __getattr__(name: str) -> object:
 __version__ = metadata_version("scnsim")
 
 __all__ = [
+    "RLGCScalarTerm",
+    "ScalarRLGCMap",
+    'SensitivitySpec',
+    'Jacobian',
+    'JVP',
+    'VJP',
+    'OutputCoordinate',
+    'SensitivityScales',
+    'FixedMeshSpec',
+    'LBFGSBSpec',
+    'OptimizationStage',
+    'HybridSpec',
+    'AcceptedIterateSelection',
     "BenchmarkResult",
     "RLGC",
     "AffineMap",
@@ -223,6 +250,7 @@ __all__ = [
     "DiagonalRootSpec",
     "OperatorElementRootResult",
     "OperatorElementRootSpec",
+    "SensitivityResult",
     "DirectQuantityResult",
     "DirectResponseFormationError",
     "DirectSolveResult",

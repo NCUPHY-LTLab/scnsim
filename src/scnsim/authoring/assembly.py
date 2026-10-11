@@ -915,7 +915,7 @@ class CompositePlan(_Scope):
         def consumes(scope):
             for component in scope.components.values():
                 if any(
-                    ref is parameter for _, _, ref, _, _, _ in component.fields.values()
+                    (any(item is parameter for item in ref) if isinstance(ref, tuple) else ref is parameter) for _, _, ref, _, _, _ in component.fields.values()
                 ):
                     return True
                 if component.body and consumes(component.body):

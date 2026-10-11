@@ -1,15 +1,15 @@
 """Current operation-domain writer and verified SQLite projections.
 
 The core owns native transactions and byte objects; this adapter owns task,
-occurrence, checkpoint and selected-result meanings. Completed generation groups
-publish atomically. Only their latest CMA/RNG state is retained; an unfinished
-population can be archived diagnostically but never enters resumable evidence.
+occurrence, checkpoint and selected-result meanings. Ordinary analysis task
+events and any root-anchor baseline remain bound to their terminal transaction.
+Physical Optimization stage batches use their dedicated publisher below.
 Older file-journal Workspaces remain untouched and require recomputation.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from contextlib import contextmanager, nullcontext
+from collections.abc import Iterable, Mapping, Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar
 from hashlib import sha256
 from pathlib import Path
@@ -18,7 +18,6 @@ from uuid import uuid4
 
 from ..errors import EvidenceIntegrityError, UnsupportedEvidenceVersionError
 from .operation_store import OperationStore, Snapshot, _VERSION as _OPERATION_STORE_VERSION, _reference
-from ..diagnostics.identity import checkpoint_seal
 from ..numeric_encoding import record_bytes, record_document
 from .operation_scratch import cleanup_inactive_operation_scratch
 
@@ -27,7 +26,7 @@ _MARKER = '$scnsim_benchmark_journal'
 _OCCURRENCE = frozenset({'attempt_id','candidate_key','cache_hit','evaluation_ordinal','generation',
                         'population_column','latent_coordinates','source_index','origin',
                         'continuation_t_f64','numerical_source_id'})
-_DIAGNOSTIC = frozenset({'population_observed','evaluation','progress'})
+_DIAGNOSTIC = frozenset({'evaluation','progress'})
 
 
 def _error(message, **evidence):
@@ -424,12 +423,13 @@ def _attempt_state_pointer(task_id, attempt_id):
     return 'attempt_state/'+task_id+'/'+attempt_id
 
 
-def _task_state_from_snapshot(snapshot, operation):
+def _task_state_from_snapshot(snapshot, operation, store):
     operation_id = operation.get('operation_id')
     pointer = snapshot.read_pointer(_association_pointer(operation_id))
     if pointer is None:
         return {'association':None, 'task_status':None, 'latest_state_reference':None,
-                'latest_state':None, 'checkpoint_reference':None}
+                'latest_state':None, 'checkpoint_reference':None,
+                'checkpoint':None, 'checkpoint_attempt_id':None}
     association = _decode(snapshot, pointer['reference'])
     if (pointer['reference'].get('role') != 'operation_task_association'
             or association.get('schema') != 'scnsim.operation_task_association'
@@ -444,6 +444,8 @@ def _task_state_from_snapshot(snapshot, operation):
     latest_state = None
     task_status = None
     checkpoint_reference = None
+    checkpoint = None
+    checkpoint_attempt_id = None
     if isinstance(task_id, str) and isinstance(attempt_id, str):
         state = snapshot.read_pointer(_attempt_state_pointer(task_id, attempt_id))
         if state is not None:
@@ -457,51 +459,64 @@ def _task_state_from_snapshot(snapshot, operation):
                 task_status = latest_state.get('status')
             if latest_state.get('attempt_id') not in (None, attempt_id):
                 raise _error('Latest task-state pointer belongs to another attempt.', attempt_id=attempt_id)
-        checkpoint = snapshot.read_pointer('checkpoint/'+task_id+'/'+attempt_id)
-        if checkpoint is not None:
-            checkpoint_reference = checkpoint['reference']
+
+        request_sha256 = operation.get('request_sha256')
+        if isinstance(request_sha256, str):
+            physical = _physical_checkpoint_from_snapshot(
+                snapshot, store, task_id=task_id, attempt_id=attempt_id,
+                expected_request_sha256=request_sha256,
+            )
+            if physical is not None:
+                checkpoint_reference = physical['checkpoint_ref']
+                checkpoint = physical['resume_from']
+                checkpoint_attempt_id = attempt_id
+
+        # A resumed attempt may not have committed a newer checkpoint yet.
+        # Its allocation names the exact source; expose it only after verifying
+        # that source's immutable checkpoint boundary in this same snapshot.
+        if checkpoint is None:
+            attempt_pointer = snapshot.read_pointer(f'attempt/{task_id}/{attempt_id}')
+            if attempt_pointer is not None:
+                if attempt_pointer.get('reference', {}).get('role') != 'attempt':
+                    raise _error('Attempt pointer has the wrong role.', attempt_id=attempt_id)
+                attempt_record = _decode(snapshot, attempt_pointer['reference'])
+                if attempt_record.get('attempt_id') != attempt_id:
+                    raise _error('Attempt pointer belongs to another attempt.', attempt_id=attempt_id)
+                resume_from = attempt_record.get('resume_from')
+                if resume_from is not None:
+                    if (not isinstance(resume_from, Mapping)
+                            or set(resume_from) != {'task_id', 'attempt_id', 'checkpoint_ref'}
+                            or resume_from.get('task_id') != task_id
+                            or not isinstance(resume_from.get('attempt_id'), str)
+                            or not isinstance(resume_from.get('checkpoint_ref'), Mapping)):
+                        raise _error('Attempt resume source is malformed.', attempt_id=attempt_id)
+                    source_attempt_id = resume_from['attempt_id']
+                    source = _physical_checkpoint_from_snapshot(
+                        snapshot, store, task_id=task_id, attempt_id=source_attempt_id,
+                        expected_request_sha256=request_sha256,
+                        reference=resume_from['checkpoint_ref'],
+                    )
+                    if source is None:
+                        raise _error('Attempt resume source has no committed checkpoint.',
+                                     task_id=task_id, attempt_id=source_attempt_id)
+                    checkpoint_reference = source['checkpoint_ref']
+                    checkpoint = source['resume_from']
+                    checkpoint_attempt_id = source_attempt_id
+
+        legacy_checkpoint = snapshot.read_pointer('checkpoint/'+task_id+'/'+attempt_id)
+        if checkpoint_reference is None and legacy_checkpoint is not None:
+            checkpoint_reference = legacy_checkpoint['reference']
             if checkpoint_reference.get('role') != 'checkpoint_selection':
                 raise _error('Current checkpoint selection has the wrong role.', attempt_id=attempt_id)
             selection = _decode(snapshot, checkpoint_reference)
             if selection.get('attempt_id') != attempt_id or selection.get('task_id') != task_id:
                 raise _error('Current checkpoint selection belongs to another attempt.', attempt_id=attempt_id)
+            checkpoint = dict(checkpoint_reference)
+            checkpoint_attempt_id = attempt_id
     return {'association':association, 'task_status':task_status,
             'latest_state_reference':latest_reference, 'latest_state':latest_state,
-            'checkpoint_reference':checkpoint_reference}
-
-
-def _candidate_summary(value, generation, ordinal):
-    """Build the frozen compact index row without copying scientific bodies."""
-    components = []
-    for objective in value.get('objectives', ()):
-        terms = []
-        for term in objective.get('terms', ()):
-            failure = term.get('failure')
-            if isinstance(failure, Mapping):
-                failure = {key: failure.get(key) for key in ('kind', 'stage', 'detail')}
-            terms.append({
-                'term_ordinal': term.get('term_ordinal'),
-                'status': term.get('status'),
-                'value_f64': term.get('value_f64'),
-                'ref_lineage': term.get('lineage'),
-                'failure': failure,
-            })
-        components.append({
-            'objective_id': objective.get('id'),
-            'status': objective.get('status'),
-            'value_f64': objective.get('value_f64'),
-            'normalized_residual_f64': objective.get('normalized_residual_f64'),
-            'weighted_cost_f64': objective.get('cost_f64'),
-            'terms': terms,
-        })
-    return {
-        'evaluation_ordinal': ordinal,
-        'generation': generation,
-        'status': 'failure' if value.get('failure') is not None else 'success',
-        'cost_f64': value.get('cost_f64'),
-        'parameters': value.get('parameters'),
-        'components': components,
-    }
+            'checkpoint_reference':checkpoint_reference, 'checkpoint':checkpoint,
+            'checkpoint_attempt_id':checkpoint_attempt_id}
 
 
 def _attempt_after_changes(attempt, changes):
@@ -542,97 +557,7 @@ def _attempt_after_changes(attempt, changes):
     return result
 
 
-def _completion_indexes(writer, tip, staged, current_generations, current_candidates):
-    """Resolve the exact committed generation-index chain for one terminal."""
-    if tip is None:
-        return [], []
-    reverse = []
-    reference = tip
-    seen = set()
-    with _snapshot(writer.store) as snapshot:
-        while reference is not None:
-            digest = reference.get('sha256')
-            if not isinstance(digest, str) or digest in seen:
-                raise _error('Optimization generation evidence ancestry is malformed.', task_id=writer.task_id)
-            seen.add(digest)
-            local = staged.get(digest)
-            if local is not None:
-                generation_row, index_document, index_reference, previous_reference, block = local
-            else:
-                raw = snapshot.get_object(reference)
-                block = record_document(raw)
-                if record_bytes(block) != raw:
-                    raise _error('Optimization generation evidence is not canonical.', task_id=writer.task_id)
-                generation_number = block.get('attributes', {}).get('generation')
-                index_pointer = snapshot.read_pointer(
-                    f"generation_index/{writer.task_id}/{block.get('attempt_id')}/{generation_number}"
-                )
-                if index_pointer is None or index_pointer['reference'].get('role') != 'workspace_candidate_index':
-                    raise _error('Committed generation lacks its candidate index.',
-                                 task_id=writer.task_id, generation=generation_number)
-                index_reference = index_pointer['reference']
-                index_raw = snapshot.get_object(index_reference)
-                index_document = record_document(index_raw)
-                if record_bytes(index_document) != index_raw:
-                    raise _error('Candidate index block is not canonical.', generation=generation_number)
-                generation_row = {
-                    'generation': generation_number,
-                    'block_ref': dict(reference),
-                    'first_ordinal': index_document.get('first_ordinal'),
-                    'row_count': index_document.get('row_count'),
-                    'summary_json': index_document.get('summary_json'),
-                    'candidate_index_ref': dict(index_reference),
-                }
-            generation_number = block.get('attributes', {}).get('generation')
-            if (index_document.get('schema') != 'scnsim.workspace_candidate_index'
-                    or index_document.get('schema_version') != 1
-                    or index_document.get('workspace_instance_id') != writer.store.workspace_instance_id
-                    or index_document.get('plan_sha256') != writer.store.plan_sha256
-                    or index_document.get('request_sha256') != writer.descriptor.get('request_sha256')
-                    or index_document.get('task_id') != writer.task_id
-                    or index_document.get('generation') != generation_number
-                    or index_document.get('block_ref') != dict(reference)):
-                raise _error('Candidate index block differs from its generation evidence.',
-                             task_id=writer.task_id, generation=generation_number)
-            candidate_rows = index_document.get('candidates')
-            if not isinstance(candidate_rows, list) or len(candidate_rows) != generation_row['row_count']:
-                raise _error('Candidate index row count differs from its generation.',
-                             task_id=writer.task_id, generation=generation_number)
-            evidence_rows = block.get('rows')
-            if not isinstance(evidence_rows, list) or len(evidence_rows) != len(candidate_rows):
-                raise _error('Generation evidence rows differ from its candidate index.',
-                             task_id=writer.task_id, generation=generation_number)
-            for offset, candidate in enumerate(candidate_rows):
-                evidence_row = evidence_rows[offset]
-                if (candidate.get('row_offset') != offset
-                        or candidate.get('block_ref') != dict(reference)
-                        or candidate.get('value_ref') != evidence_row.get('value')):
-                    raise _error('Candidate index locator differs from generation evidence.',
-                                 task_id=writer.task_id, generation=generation_number,
-                                 row_offset=offset)
-            reverse.append((generation_row, candidate_rows))
-            reference = previous_reference if local is not None else block.get('previous')
-    chronological = list(reversed(reverse))
-    generations = []
-    candidates = []
-    next_ordinal = 1
-    for expected_generation, (generation_row, candidate_rows) in enumerate(chronological, 1):
-        if (generation_row.get('generation') != expected_generation
-                or generation_row.get('first_ordinal') != next_ordinal
-                or generation_row.get('row_count') != len(candidate_rows)):
-            raise _error('Sealed generation index is not contiguous.', task_id=writer.task_id,
-                         generation=generation_row.get('generation'))
-        generations.append(generation_row)
-        for offset, row in enumerate(candidate_rows):
-            if row.get('ordinal') != next_ordinal or row.get('generation') != expected_generation:
-                raise _error('Sealed candidate index order is not contiguous.', task_id=writer.task_id,
-                             evaluation_ordinal=row.get('ordinal'))
-            candidates.append(row)
-            next_ordinal += 1
-    return generations, candidates
-
-
-def _query_operation_snapshot(snapshot, *, operation_ids=None, method=None, backend=None,
+def _query_operation_snapshot(snapshot, *, store, operation_ids=None, method=None, backend=None,
                               precision=None, status=None):
     rows = snapshot.query_operations(operation_ids=operation_ids, method=method, backend=backend,
                                      precision=precision, status=None)
@@ -644,7 +569,10 @@ def _query_operation_snapshot(snapshot, *, operation_ids=None, method=None, back
         if record_bytes(operation) != row['payload']:
             raise _error('Indexed operation row is not canonical.', reference=row['reference'])
         operations.append(operation)
-    task_states = {row['operation_id']:_task_state_from_snapshot(snapshot, row) for row in operations}
+    task_states = {
+        row['operation_id']:_task_state_from_snapshot(snapshot, row, store)
+        for row in operations
+    }
     if status is not None:
         matching_ids = {
             operation['operation_id']
@@ -672,7 +600,7 @@ def query_operation_rows(binding, *, operation_ids=None, method=None, backend=No
     if not store.path.exists() and not store.path.is_symlink():
         return None
     with _snapshot(store) as snapshot:
-        return _query_operation_snapshot(snapshot, operation_ids=operation_ids, method=method,
+        return _query_operation_snapshot(snapshot, store=store, operation_ids=operation_ids, method=method,
                                          backend=backend, precision=precision, status=status)
 
 
@@ -729,7 +657,7 @@ def open_record(workspace):
         raise _error('Operation database is absent.', path=str(root))
     from ..diagnostics.operations import project_indexed_operation_document
     with _snapshot(store) as snapshot:
-        indexed = _query_operation_snapshot(snapshot)
+        indexed = _query_operation_snapshot(snapshot, store=store)
     return project_indexed_operation_document(
         indexed, workspace=root, plan_sha256=store.plan_sha256,
         workspace_instance_id=store.workspace_instance_id
@@ -902,46 +830,33 @@ def store_operation_request(binding, *, request_sha256,request_bytes):
 
 
 class _Objects:
-    """Stage one publication's immutable objects without retaining their bytes."""
-    def __init__(self, spool=None):
-        self.spool=spool
+    """Collect the canonical immutable objects for one task transaction."""
+    def __init__(self):
         self.objects={}
     def put(self,value,role):
         return self.put_bytes(record_bytes(value),role)
     def put_bytes(self,raw,role):
         digest=sha256(raw).hexdigest()
         ref=_reference(digest, role, len(raw))
-        staged=self.spool.put_bytes(raw) if self.spool is not None else bytes(raw)
-        self.objects[(digest,role)]=(staged,role)
+        self.objects[(digest,role)]=(bytes(raw),role)
         return ref
     def publish(self,tx):
-        for staged,role in self.objects.values():
-            raw=self.spool.get_bytes(staged) if self.spool is not None else staged
+        for raw,role in self.objects.values():
             tx.put_object(raw,role=role)
 
 
 class TaskWriter:
-    """One attempt's staged completed prefix and latest exact CMA snapshot."""
-    def __init__(self,root,task_id,attempt_id,*,binding,operation_id,diagnostics,checkpoint_document=None,
-                 phase_scope=None,commit_every_generations=1,spool=None):
+    """Publish ordinary task events and a deferred root-anchor baseline."""
+    def __init__(self,root,task_id,attempt_id,*,binding,operation_id,diagnostics):
         self.root=Path(root); self.task_id=task_id; self.attempt_id=attempt_id
         self.operation_id=operation_id
-        self.store=_writer_store(self.root,binding,phase_scope=phase_scope)
-        self.diagnostics=diagnostics; self.phase_scope=phase_scope
-        self.commit_every_generations=commit_every_generations
-        self.spool=spool
-        self.pending=[]; self.completed=[]; self.generation_rows=[]
-        # The baseline is held in memory until it can join a complete
-        # post-tell generation transaction. It is never a checkpoint by itself.
+        self.store=_writer_store(self.root,binding)
+        self.diagnostics=diagnostics
+        self.pending=[]
+        # Root-analysis baseline evidence joins the terminal transaction; it
+        # is not an independent recovery boundary.
         self.baseline_pending=None
-        self.latest_state=None; self.publication_uncertain=None; self.last_ack=self._empty_ack()
-        links=checkpoint_document.get('_journal_links',{}) if checkpoint_document else {}
-        self.baseline_block=links.get('baseline_evidence'); self.generation_block=links.get('generation_evidence')
-        self.value_refs=dict(links.get('value_refs',{}))
-        self.known_costs={}
-        if checkpoint_document is not None:
-            best=checkpoint_document['best']
-            self.known_costs[best['evaluation_ordinal']]=best['cost_f64']
+        self.publication_uncertain=None; self.last_ack=self._empty_ack()
         with _snapshot(self.store) as snapshot:
             self.descriptor=_descriptor(snapshot,task_id)
             association=_pointer(snapshot,_association_pointer(operation_id))
@@ -963,7 +878,7 @@ class TaskWriter:
 
     @staticmethod
     def _empty_ack():
-        return {'committed':False,'checkpoint':None,'latest_generation':None}
+        return {'committed':False,'checkpoint':None}
 
     def _ensure_publishable(self):
         if self.publication_uncertain is not None:
@@ -971,226 +886,87 @@ class TaskWriter:
                          task_id=self.task_id,publication=self.publication_uncertain)
 
     def _stage(self, value):
-        if self.spool is None:
-            return record_document(record_bytes(value))
-        return self.spool.put_record(value)
-
-    def _load(self, value):
-        if self.spool is not None and hasattr(value, "owner"):
-            return self.spool.get_record(value)
-        return value
+        return record_document(record_bytes(value))
 
     def append_event(self,*,kind,payload,force=False):
         self._ensure_publishable(); self.last_ack=self._empty_ack()
         if kind in {"timing", "operation_span"}:
             raise _error("Timing diagnostics cannot be appended to numerical task history.", kind=kind)
         value=self._stage(payload)
-        if kind=='evaluation' and isinstance(payload.get('generation'),int) and payload['generation']>0:
-            self.generation_rows.append(value)
         self.pending.append((kind,value))
         event={'task_id':self.task_id,'sequence':self.sequence_hint,'kind':kind,
-               'payload':payload if self.spool is not None else value}
+               'payload':value}
         self.sequence_hint+=1
         if kind not in _DIAGNOSTIC or force:
-            # A terminal/error archive may contain the unfinished generation's
-            # diagnostics; it does not publish resumable generation evidence.
             self._publish([],extra_events=list(self.pending))
-            self.pending.clear(); self.generation_rows.clear()
+            self.pending.clear()
         return event
 
     def commit_barrier(self,kind,payload):
         self._ensure_publishable(); self.last_ack=self._empty_ack()
+        if kind != 'baseline_ready':
+            raise _error('Task writer supports only deferred root-anchor baselines.', kind=kind)
         value=dict(payload)
-        state=value.pop('resume_state',None)
-        segment={'kind':kind,'payload':self._stage(value),'events':list(self.pending),
-                 'rows':list(self.generation_rows)}
-        self.pending.clear(); self.generation_rows.clear()
+        value.pop('resume_state',None)
+        segment={'kind':kind,'payload':self._stage(value),'events':list(self.pending)}
+        self.pending.clear()
         event={'task_id':self.task_id,'sequence':self.sequence_hint,'kind':kind,
-               'payload':value if self.spool is None else payload}
+               'payload':value}
         self.sequence_hint+=1
-        if kind=='baseline_ready':
-            if self.baseline_block is not None or self.baseline_pending is not None:
-                raise _error('Task baseline was already staged for this attempt.',
-                             task_id=self.task_id, attempt_id=self.attempt_id)
-            self.baseline_pending=segment
-            self.last_ack={'committed':False,'state':'baseline_sealed','checkpoint':None,
-                           'latest_generation':None}
-            return event,self.last_ack
-
-        self.latest_state=state
-        self.completed.append(segment)
-        if len(self.completed)>=self.commit_every_generations:
-            segments=([self.baseline_pending] if self.baseline_pending is not None else [])+self.completed
-            self._publish(segments)
-            self.completed.clear(); self.latest_state=None
-            self.baseline_pending=None
+        if self.baseline_pending is not None:
+            raise _error('Task baseline was already staged for this attempt.',
+                         task_id=self.task_id, attempt_id=self.attempt_id)
+        self.baseline_pending=segment
+        self.last_ack={'committed':False,'state':'baseline_sealed','checkpoint':None}
         return event,self.last_ack
 
-    def will_commit_barrier(self, kind):
-        """Whether this barrier completes a durable group, without staging it."""
-        if kind == 'baseline_ready':
-            return False
-        return len(self.completed) + 1 >= self.commit_every_generations
-
-    def flush_completed(self,reason):
-        self._ensure_publishable(); self.last_ack=self._empty_ack()
-        if self.completed:
-            segments=([self.baseline_pending] if self.baseline_pending is not None else [])+self.completed
-            self._publish(segments)
-            self.completed.clear(); self.latest_state=None
-            self.baseline_pending=None
-        return self.last_ack
-
-    def flush(self):
-        self.flush_completed('flush')
-        if self.pending:
-            self._publish([],extra_events=list(self.pending))
-            self.pending.clear(); self.generation_rows.clear()
-
-    def _value(self,objects,value,refs):
+    def _value(self,objects,value):
         occurrence={key:value[key] for key in _OCCURRENCE if key in value}
         body={key:item for key,item in value.items() if key not in _OCCURRENCE}
-        key=value.get('candidate_key')
-        if isinstance(key,str) and key in refs:
-            reference=refs[key]
-            if key in self.value_refs:
-                with _snapshot(self.store):
-                    read_value(self.root, reference)
-        else:
-            reference=objects.put(body,'benchmark_value')
-            if isinstance(key,str): refs[key]=reference
+        reference=objects.put(body,'benchmark_value')
         return {'reference':reference,'occurrence':occurrence}
 
     def _publish(self,segments,*,extra_events=(),terminal=None):
         self._ensure_publishable()
-        objects=_Objects(self.spool); refs=dict(self.value_refs); changes=[]
-        costs=dict(self.known_costs)
-        baseline=self.baseline_block; generation=self.generation_block; checkpoint=None
-        staged_generation_indexes = {}
-        generation_index_updates = []
-        completion_generation_rows = []
-        completion_candidate_rows = []
-        all_generation_rows = None
-        all_candidate_rows = None
-        # A completed prefix can be flushed while a new incomplete population
-        # is buffered. Its diagnostic sequence hints must not shift publication.
+        objects=_Objects(); changes=[]
+        baseline=None
         with _snapshot(self.store) as snapshot:
             pointer=snapshot.read_pointer('event_sequence/'+self.task_id)
             sequence=0 if pointer is None else _decode(snapshot,pointer['reference'])['next_sequence']
             revision=snapshot.stream_revision(_stream(self.task_id))
-        latest=None
 
         def event(kind,payload,**additional):
             nonlocal sequence
             value=dict(payload)
             compact=value
             if kind=='evaluation':
-                compact={_MARKER:{'kind':'value',**self._value(objects,value,refs)}}
+                compact={_MARKER:{'kind':'value',**self._value(objects,value)}}
                 if 'attempt_id' in value: compact['attempt_id']=value['attempt_id']
             item={'task_id':self.task_id,'sequence':sequence,'kind':kind,'payload':compact}
             changes.append({'kind':'event','event':item,**additional}); sequence+=1
 
-        for index,segment in enumerate(segments):
-            for kind,payload in segment['events']: event(kind,self._load(payload))
-            kind=segment['kind']; payload=self._load(segment['payload'])
-            for row_value in segment['rows']:
-                row=self._load(row_value)
-                if 'cost_f64' in row: costs[row['evaluation_ordinal']]=row['cost_f64']
-            if kind=='baseline_ready':
-                marker=self._value(objects,payload['baseline'],refs)
-                if 'cost_f64' in payload['baseline']:
-                    costs[payload['baseline'].get('evaluation_ordinal',0)]=payload['baseline']['cost_f64']
-                anchors=None
-                zero_generation_optimization = (
-                    terminal is not None
-                    and terminal.get('type') == 'optimization'
-                    and terminal.get('completed_generations') == 0
-                )
-                if isinstance(payload.get('anchors'),Mapping) and not zero_generation_optimization:
-                    anchors=objects.put({'schema':'scnsim.benchmark_anchor_values','schema_version':3,
-                        'task_id':self.task_id,'anchors':payload['anchors']},'benchmark_anchor_values')
-                attributes={k:v for k,v in payload.items() if k not in {'attempt_id','baseline','anchors'}}
-                block={'schema':'scnsim.benchmark_baseline_evidence','schema_version':3,'task_id':self.task_id,
-                    'attempt_id':self.attempt_id,'baseline':marker['reference'],
-                    'baseline_occurrence':marker['occurrence'],'anchors':anchors,'attributes':attributes}
-                baseline=objects.put(block,'benchmark_baseline_evidence'); generation=None; evidence=baseline
-                cpgen=int(payload['baseline'].get('generation',0))
-                nextordinal=int(payload['baseline'].get('evaluation_ordinal',0))+1
-                bestordinal=int(payload['baseline'].get('evaluation_ordinal',0))
-            else:
-                if baseline is None: raise _error('Generation evidence lacks its committed baseline.')
-                row_values = [self._load(row) for row in segment['rows']]
-                row_markers = [self._value(objects, row, refs) for row in row_values]
-                rows=[{'value':marker['reference'],'occurrence':marker['occurrence']}
-                      for marker in row_markers]
-                block={'schema':'scnsim.benchmark_generation_evidence','schema_version':3,
-                    'task_id':self.task_id,'attempt_id':self.attempt_id,'baseline':baseline,
-                    'previous':generation,'rows':rows,
-                    'attributes':{k:v for k,v in payload.items() if k!='attempt_id'}}
-                generation=objects.put(block,'benchmark_generation_evidence'); evidence=generation
-                cpgen=payload['generation']; nextordinal=payload['next_ordinal']; bestordinal=payload['best_ordinal']
-                latest=dict(payload)
-                first_ordinal = row_values[0]['evaluation_ordinal'] if row_values else nextordinal
-                candidate_rows = []
-                for offset, (row_value, marker) in enumerate(zip(row_values, row_markers)):
-                    candidate_rows.append({
-                        'ordinal': row_value['evaluation_ordinal'],
-                        'generation': cpgen,
-                        'row_offset': offset,
-                        'block_ref': generation,
-                        'value_ref': marker['reference'],
-                        'summary_json': _candidate_summary(row_value, cpgen,
-                                                           row_value['evaluation_ordinal']),
-                    })
-                candidate_index = {
-                    'schema': 'scnsim.workspace_candidate_index', 'schema_version': 1,
-                    'workspace_instance_id': self.store.workspace_instance_id,
-                    'plan_sha256': self.store.plan_sha256,
-                    'request_sha256': self.descriptor['request_sha256'],
-                    'task_id': self.task_id, 'attempt_id': self.attempt_id,
-                    'generation': cpgen, 'block_ref': generation,
-                    'first_ordinal': first_ordinal, 'row_count': len(candidate_rows),
-                    'summary_json': {
-                        'generation': cpgen, 'first_ordinal': first_ordinal,
-                        'row_count': len(candidate_rows), 'next_ordinal': nextordinal,
-                        'best_ordinal': bestordinal,
-                    },
-                    'candidates': candidate_rows,
-                }
-                candidate_index_ref = objects.put(candidate_index, 'workspace_candidate_index')
-                generation_row = {
-                    'generation': cpgen, 'block_ref': generation, 'first_ordinal': first_ordinal,
-                    'row_count': len(candidate_rows), 'summary_json': candidate_index['summary_json'],
-                    'candidate_index_ref': candidate_index_ref,
-                }
-                staged_generation_indexes[generation['sha256']] = (generation_row, candidate_index,
-                                                                     candidate_index_ref, block['previous'], block)
-                generation_index_updates.append((
-                    f'generation_index/{self.task_id}/{self.attempt_id}/{cpgen}', candidate_index_ref
-                ))
-                completion_generation_rows.append(generation_row)
-                completion_candidate_rows.extend(candidate_rows)
-            artifacts=[]
-            if index==len(segments)-1 and isinstance(self.latest_state,Mapping):
-                cp={'schema':'scnsim.benchmark_cma_checkpoint','schema_version':3,'task_id':self.task_id,
-                    'request_sha256':self.descriptor['request_sha256'],'arm':self.descriptor['arm'],
-                    'sample':self.descriptor['sample'],'environment_sha256':self.descriptor['environment']['environment_sha256'],
-                    'attempt_id':self.attempt_id,'generation':cpgen,'next_ordinal':nextordinal,'best_ordinal':bestordinal,
-                    'baseline_evidence':baseline,'generation_evidence':generation,'cma':self.latest_state['cma']}
-                details={'generation':cpgen}
-                with (self.phase_scope('checkpoint_state_publish',details) if self.phase_scope else nullcontext()):
-                    cpref=objects.put(cp,'checkpoint'); details['checkpoint_bytes']=cpref['byte_length']
-                    seal=checkpoint_seal(task_id=self.task_id,request_sha256=cp['request_sha256'],arm=cp['arm'],sample=cp['sample'],
-                        environment_sha256=cp['environment_sha256'],attempt_id=self.attempt_id,
-                        checkpoint_sha256=cpref['sha256'],byte_length=cpref['byte_length'])
-                    sealref=objects.put(seal,'checkpoint_seal')
-                    checkpoint={k:cp[k] for k in ('task_id','request_sha256','arm','sample','environment_sha256','attempt_id')}
-                    checkpoint.update(checkpoint=cpref,seal=sealref,seal_sha256=seal['seal_sha256'])
-                    artifacts=[cpref,sealref]
-            event(kind,{'attempt_id':self.attempt_id,_MARKER:{'kind':'barrier','evidence':evidence,'checkpoint':checkpoint}},
-                  evidence=evidence,checkpoint=checkpoint,artifacts=artifacts)
-        for kind,payload in extra_events: event(kind,self._load(payload))
-        result_ref=None; numerical_evidence=None; completion_ref=None; attempt_reference=None
+        for segment in segments:
+            for kind,payload in segment['events']:
+                event(kind,payload)
+            if segment['kind'] != 'baseline_ready':
+                raise _error('Task writer contains an unsupported barrier.', kind=segment['kind'])
+            payload=segment['payload']
+            marker=self._value(objects,payload['baseline'])
+            anchors=None
+            if isinstance(payload.get('anchors'),Mapping):
+                anchors=objects.put({'schema':'scnsim.benchmark_anchor_values','schema_version':3,
+                    'task_id':self.task_id,'anchors':payload['anchors']},'benchmark_anchor_values')
+            attributes={k:v for k,v in payload.items() if k not in {'attempt_id','baseline','anchors'}}
+            block={'schema':'scnsim.benchmark_baseline_evidence','schema_version':3,'task_id':self.task_id,
+                'attempt_id':self.attempt_id,'baseline':marker['reference'],
+                'baseline_occurrence':marker['occurrence'],'anchors':anchors,'attributes':attributes}
+            baseline=objects.put(block,'benchmark_baseline_evidence')
+            event(segment['kind'],{'attempt_id':self.attempt_id,
+                 _MARKER:{'kind':'barrier','evidence':baseline,'checkpoint':None}},
+                 evidence=baseline,checkpoint=None,artifacts=[])
+        for kind,payload in extra_events:
+            event(kind,payload)
+        result_ref=None; terminal_attempt=None; attempt_reference=None
         if terminal is not None:
             result_ref=objects.put(terminal,'operation_result')
             completion={'attempt_id':self.attempt_id,'result':result_ref}
@@ -1201,73 +977,17 @@ class TaskWriter:
             if result_ref not in terminal_attempt['artifacts']:
                 terminal_attempt['artifacts'].append(result_ref)
             attempt_reference=objects.put(terminal_attempt,'attempt')
-            if terminal.get('type') == 'optimization':
-                all_generation_rows, all_candidate_rows = _completion_indexes(
-                    self, generation, staged_generation_indexes, completion_generation_rows,
-                    completion_candidate_rows,
-                )
-                generation_count = len(all_generation_rows)
-                if generation_count != terminal.get('completed_generations'):
-                    raise _error('Sealed generation index differs from terminal generation count.',
-                                 indexed=generation_count, terminal=terminal.get('completed_generations'))
-                candidate_count = sum(row['row_count'] for row in all_generation_rows)
-                request_ref = next((ref for ref in self.descriptor.get('artifacts', ())
-                                    if ref.get('role') == 'operation_request'), None)
-                if request_ref is None or request_ref.get('sha256') != self.descriptor.get('request_sha256'):
-                    raise _error('Optimization task lacks its canonical request reference.', task_id=self.task_id)
-                index_root = {
-                    'schema': 'scnsim.workspace_completion_index_root', 'schema_version': 1,
-                    'workspace_instance_id': self.store.workspace_instance_id,
-                    'plan_sha256': self.store.plan_sha256,
-                    'request_sha256': self.descriptor['request_sha256'],
-                    'task_id': self.task_id, 'attempt_id': self.attempt_id,
-                    'result_ref': result_ref,
-                    'request_ref': request_ref,
-                    'baseline_ref': baseline,
-                    'generation_ancestry_ref': generation,
-                    'generation_count': generation_count,
-                    'candidate_count': candidate_count,
-                    'best_ordinal': terminal['best_ordinal'],
-                    'generations': all_generation_rows,
-                }
-                index_root_ref = objects.put(index_root, 'workspace_completion_index_root')
-                sealed = {
-                    'schema': 'scnsim.workspace_completion', 'schema_version': 1,
-                    'workspace_instance_id': self.store.workspace_instance_id,
-                    'plan_sha256': self.store.plan_sha256,
-                    'request_sha256': self.descriptor['request_sha256'],
-                    'task_id': self.task_id, 'attempt_id': self.attempt_id,
-                    'result_ref': result_ref,
-                    'terminal_attempt_ref': attempt_reference,
-                    'baseline_ref': baseline,
-                    'generation_ancestry_ref': generation,
-                    'generation_count': generation_count,
-                    'candidate_count': candidate_count,
-                    'best_ordinal': terminal['best_ordinal'],
-                    'index_root_ref': index_root_ref,
-                }
-                completion_ref = objects.put(sealed, 'workspace_completion')
-                numerical_evidence={'baseline_evidence':baseline,'generation_evidence':generation,
-                                    'terminal_event_sequence':sequence,
-                                    'workspace_completion':completion_ref}
-                completion['numerical_evidence']=numerical_evidence
-                completion['workspace_completion'] = completion_ref
             event('completed',completion)
             changes.append({'kind':'attempt_update','attempt_id':self.attempt_id,'status':'success',
                   'failure':None,'interruption':None,'checkpoint':None,'artifacts':[result_ref]})
-        checkpoint_selection=None if checkpoint is None else objects.put(checkpoint,'checkpoint_selection')
-        checkpoint_selection_bytes=None if checkpoint is None else record_bytes(checkpoint)
         success_selection=None
         if result_ref is not None:
             selected={'event':'request_success_selected','request_sha256':self.descriptor['request_sha256'],
                       'task_id':self.task_id,'attempt_id':self.attempt_id,'result_ref':result_ref}
-            if numerical_evidence is not None:
-                selected['numerical_evidence']=numerical_evidence
-                selected['workspace_completion'] = completion_ref
             success_selection=objects.put(selected,'success_selection')
         nextref=objects.put({'next_sequence':sequence},'event_sequence')
         txid=str(uuid4()); store=self.store
-        committed_attempt = terminal_attempt if terminal is not None else _attempt_after_changes(
+        committed_attempt = terminal_attempt if terminal_attempt is not None else _attempt_after_changes(
             self.attempt_document, changes
         )
         if attempt_reference is None and committed_attempt != self.attempt_document:
@@ -1289,8 +1009,6 @@ class TaskWriter:
                 if attempt_reference is not None:
                     tx.set_pointer('attempt/'+self.task_id+'/'+self.attempt_id,attempt_reference)
                     tx.set_pointer('current_attempt/'+self.task_id,attempt_reference)
-                for pointer_name, index_reference in generation_index_updates:
-                    tx.set_pointer(pointer_name, index_reference)
                 for change in changes:
                     raw=record_bytes(change)
                     _, change_reference = tx.append_with_ref(_stream(self.task_id),'task_change',raw)
@@ -1299,34 +1017,25 @@ class TaskWriter:
                     elif change.get('kind') == 'attempt_begin':
                         tx.set_pointer(_attempt_state_pointer(self.task_id, change['attempt']['attempt_id']), change_reference)
                 tx.set_pointer('event_sequence/'+self.task_id,nextref)
-                if checkpoint is not None:
-                    tx.set_pointer('checkpoint/'+self.task_id+'/'+self.attempt_id,checkpoint_selection)
-                    tx.append('checkpoints/'+self.task_id+'/'+self.attempt_id,'checkpoint_selection',checkpoint_selection_bytes)
                 if result_ref is not None:
                     tx.select_first('success/'+self.descriptor['request_sha256'],success_selection)
-                if completion_ref is not None:
-                    tx.index_completion(completion_ref['sha256'], all_generation_rows, all_candidate_rows)
-                    tx.set_pointer('completion/'+self.task_id+'/'+self.attempt_id, completion_ref)
         except BaseException as error:
             self.publication_uncertain=getattr(error,'operation_transaction_outcome',None) or (
                 transaction.outcome if transaction is not None else {'status':'unknown','transaction_id':txid})
             raise
-        self.revision=revision+len(changes); self.value_refs=refs; self.known_costs=costs
+        self.revision=revision+len(changes)
         self.attempt_document=committed_attempt
-        self.baseline_block=baseline; self.generation_block=generation
         self.sequence_hint=sequence+max(0,len(self.pending)-len(extra_events))
-        self.last_ack={'committed':True,'checkpoint':checkpoint,'evidence':generation or baseline,
-                      'latest_generation':None if latest is None else latest['generation'],
-                      'latest_generation_payload':latest,
-                      'best_cost_f64':None if latest is None else costs[latest['best_ordinal']],
+        self.last_ack={'committed':True,'checkpoint':None,'evidence':baseline,
                       'transaction_id':txid}
         return result_ref,self.last_ack
 
 
-def begin_task_writer(workspace,*,binding,operation_id,task_id,attempt_id,diagnostics,checkpoint_document=None,phase_scope=None,commit_every_generations=1,spool=None):
-    return TaskWriter(_root(workspace),task_id,attempt_id,binding=binding,operation_id=operation_id,diagnostics=diagnostics,
-        checkpoint_document=checkpoint_document,phase_scope=phase_scope,commit_every_generations=commit_every_generations,
-        spool=spool)
+def begin_task_writer(workspace,*,binding,operation_id,task_id,attempt_id,diagnostics):
+    return TaskWriter(
+        _root(workspace), task_id, attempt_id, binding=binding,
+        operation_id=operation_id, diagnostics=diagnostics,
+    )
 
 
 def append_event(workspace,*,task_id,kind,payload,writer,force=False):
@@ -1337,27 +1046,1974 @@ def commit_barrier(workspace,*,writer,kind,payload):
     return writer.commit_barrier(kind,payload)
 
 
-def flush_completed(workspace,*,writer,reason):
-    return writer.flush_completed(reason)
-
-
 def complete_operation(binding,*,writer,terminal_bytes):
     if (operation_workspace(binding)!=writer.root or binding.plan_sha256!=writer.store.plan_sha256
             or binding.workspace_instance_id!=writer.store.workspace_instance_id):
         raise _error('Operation completion belongs to another bound Plan leaf.')
-    if writer.completed:
-        raise _error('Completed generation tail must be committed before terminal publication.')
     terminal=record_document(terminal_bytes)
     if record_bytes(terminal)!=terminal_bytes:
         raise _error('Operation terminal bytes are not canonical.')
-    # A valid zero-generation optimization has a baseline and terminal result,
-    # but no population checkpoint. Commit those together rather than creating
-    # a baseline-only recovery boundary.
+    # Root-anchor evidence and terminal task state share one required commit.
     segments=([writer.baseline_pending] if writer.baseline_pending is not None else [])
     result,ack=writer._publish(segments,extra_events=list(writer.pending),terminal=terminal)
-    writer.pending.clear(); writer.generation_rows.clear()
+    writer.pending.clear()
     writer.baseline_pending=None
     return result,ack
+
+
+def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id,
+                                    manifest, result_summary, blocks, outcome):
+    """Publish one complete or explicitly partial Sensitivity terminal atomically.
+
+    Block bodies are serialized and inserted one at a time inside the same
+    SQLite transaction. Only their immutable references and compact summaries
+    remain in the in-memory index. A partial terminal is addressable by its
+    exact attempt, but never becomes the request's complete-success selection.
+    """
+    if outcome not in {"success", "partial"}:
+        raise _error("Sensitivity terminal outcome is unsupported.", outcome=outcome)
+    store = _bound(binding)
+    with _snapshot(store) as snapshot:
+        descriptor = _descriptor(snapshot, task_id)
+        association = _pointer(snapshot, _association_pointer(operation_id))
+        descriptor_pointer = snapshot.read_pointer(f"task/{task_id}")
+        attempt_pointer = snapshot.read_pointer(f"attempt/{task_id}/{attempt_id}")
+        current_pointer = snapshot.read_pointer(f"current_attempt/{task_id}")
+        if (descriptor.get("request_sha256") is None
+                or association is None
+                or association.get("operation_id") != operation_id
+                or association.get("task_id") != task_id
+                or association.get("attempt_id") != attempt_id
+                or attempt_pointer is None
+                or current_pointer is None
+                or current_pointer.get("reference") != attempt_pointer.get("reference")):
+            raise _error("Sensitivity terminal is not bound to the current operation attempt.",
+                         operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
+        attempt = _decode(snapshot, attempt_pointer["reference"])
+        if (attempt.get("attempt_id") != attempt_id
+                or attempt.get("status") not in {"allocated", "running"}):
+            raise _error("Sensitivity attempt is not in a publishable state.",
+                         task_id=task_id, attempt_id=attempt_id)
+        request_ref = next((item for item in descriptor.get("artifacts", ())
+                            if item.get("role") == "operation_request"), None)
+        if (not isinstance(request_ref, Mapping)
+                or request_ref.get("sha256") != descriptor.get("request_sha256")):
+            raise _error("Sensitivity task lacks its canonical request reference.", task_id=task_id)
+        request_raw = snapshot.get_object(request_ref)
+        request = record_document(request_raw)
+        if (not isinstance(request, dict) or record_bytes(request) != request_raw
+                or request.get("operation") != "sensitivity"):
+            raise _error("Sensitivity terminal is bound to another request kind.", task_id=task_id)
+        stream = _stream(task_id)
+        revision = snapshot.stream_revision(stream)
+        sequence_pointer = snapshot.read_pointer("event_sequence/" + task_id)
+        sequence = (0 if sequence_pointer is None else
+                    _decode(snapshot, sequence_pointer["reference"]).get("next_sequence"))
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
+            raise _error("Sensitivity task event sequence is malformed.", task_id=task_id)
+
+    workspace_instance_id = store.workspace_instance_id
+    plan_sha256 = store.plan_sha256
+    request_sha256 = descriptor["request_sha256"]
+    if not isinstance(manifest, Mapping) or set(manifest) != {
+            "program_sha256", "quantity_layout", "derivative_layout"}:
+        raise _error("Sensitivity manifest metadata has an unsupported field set.")
+    if not isinstance(result_summary, Mapping):
+        raise _error("Sensitivity terminal summary is malformed.")
+    from .validation.common import _valid_sha
+    _valid_sha(manifest["program_sha256"])
+    manifest_body = {
+        "schema": "scnsim.sensitivity_manifest", "schema_version": 1,
+        "workspace_instance_id": workspace_instance_id, "plan_sha256": plan_sha256,
+        "request_sha256": request_sha256, "task_id": task_id, "attempt_id": attempt_id,
+        "outcome": outcome, "request_ref": dict(request_ref),
+        "program_sha256": manifest["program_sha256"],
+        "quantity_layout": manifest["quantity_layout"],
+        "derivative_layout": manifest["derivative_layout"],
+    }
+    manifest_raw = record_bytes(manifest_body)
+    transaction_id = str(uuid4())
+    blocks_index = []
+    primal_refs = {}
+    result_ref = manifest_ref = index_root_ref = completion_ref = attempt_ref = None
+    with store.transaction(transaction_id, expected_revisions={_stream(task_id): revision}) as tx:
+        current_association = _pointer(tx, _association_pointer(operation_id))
+        current_attempt = tx.read_pointer(f"attempt/{task_id}/{attempt_id}")
+        current_task = tx.read_pointer(f"task/{task_id}")
+        if (descriptor_pointer is None or current_task is None
+                or current_task.get("reference") != descriptor_pointer.get("reference")
+                or current_association != association
+                or current_attempt is None
+                or current_attempt.get("reference") != attempt_pointer.get("reference")):
+            raise _error("Sensitivity attempt binding changed before terminal publication.",
+                         operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
+        manifest_ref = tx.put_object(manifest_raw, role="sensitivity_manifest")
+        for ordinal, source in enumerate(blocks):
+            if not isinstance(source, Mapping):
+                raise _error("Sensitivity block descriptor is malformed.", ordinal=ordinal)
+            kind = source.get("kind")
+            block_id = source.get("block_id")
+            quantity_id = source.get("quantity_id")
+            output_slice = source.get("output_slice")
+            parameter_slice = source.get("parameter_slice")
+            summary = source.get("summary_json")
+            primal_ids = source.get("primal_blocks")
+            payload = source.get("payload")
+            if (kind not in {"primal", "derivative"}
+                    or not isinstance(block_id, str) or not block_id
+                    or (quantity_id is not None and (not isinstance(quantity_id, str) or not quantity_id))
+                    or (output_slice is not None and not isinstance(output_slice, Mapping))
+                    or (parameter_slice is not None and not isinstance(parameter_slice, Mapping))
+                    or not isinstance(summary, Mapping)
+                    or not isinstance(payload, Mapping)
+                    or not isinstance(primal_ids, list)
+                    or any(not isinstance(value, str) or not value for value in primal_ids)
+                    or len(set(primal_ids)) != len(primal_ids)):
+                raise _error("Sensitivity block descriptor is incomplete.", ordinal=ordinal)
+            primal_blocks = []
+            if kind == "primal":
+                if (primal_ids or quantity_id is None or output_slice is None
+                        or parameter_slice is not None or block_id in primal_refs):
+                    raise _error("Primal Sensitivity block identity or axes are malformed.",
+                                 block_id=block_id)
+            else:
+                if not primal_ids or any(primal_id not in primal_refs for primal_id in primal_ids):
+                    raise _error("Derivative Sensitivity block lacks its prior primal blocks.",
+                                 block_id=block_id, primal_blocks=primal_ids)
+                if quantity_id is None and output_slice is not None:
+                    raise _error("Aggregate Sensitivity derivative cannot select one output slice.",
+                                 block_id=block_id)
+                primal_blocks = [
+                    {"block_id": primal_id, "block_ref": primal_refs[primal_id]}
+                    for primal_id in primal_ids
+                ]
+            block_body = {
+                "schema": "scnsim.sensitivity_block", "schema_version": 1,
+                "workspace_instance_id": workspace_instance_id, "plan_sha256": plan_sha256,
+                "request_sha256": request_sha256, "task_id": task_id, "attempt_id": attempt_id,
+                "block_id": block_id, "kind": kind, "quantity_id": quantity_id,
+                "output_slice": None if output_slice is None else dict(output_slice),
+                "parameter_slice": None if parameter_slice is None else dict(parameter_slice),
+                "primal_blocks": primal_blocks,
+                "primal_status": source.get("primal_status"),
+                "derivative_status": source.get("derivative_status"), "payload": dict(payload),
+            }
+            block_ref = tx.put_object(record_bytes(block_body), role="sensitivity_block")
+            if kind == "primal":
+                primal_refs[block_id] = block_ref
+            blocks_index.append({
+                "ordinal": ordinal, "block_id": block_id, "kind": kind,
+                "block_ref": block_ref, "quantity_id": quantity_id,
+                "output_slice": None if output_slice is None else dict(output_slice),
+                "parameter_slice": None if parameter_slice is None else dict(parameter_slice),
+                "primal_blocks": primal_blocks,
+                "primal_status": source.get("primal_status"),
+                "derivative_status": source.get("derivative_status"),
+                "summary_json": dict(summary),
+            })
+
+        result_body = {
+            "schema": "scnsim.sensitivity_result", "schema_version": 1,
+            "outcome": outcome, "workspace_instance_id": workspace_instance_id,
+            "plan_sha256": plan_sha256, "request_sha256": request_sha256,
+            "task_id": task_id, "attempt_id": attempt_id,
+            "manifest_ref": manifest_ref, "block_count": len(blocks_index),
+            "summary": dict(result_summary),
+        }
+        result_ref = tx.put_object(record_bytes(result_body), role="operation_result")
+        index_root = {
+            "schema": "scnsim.sensitivity_index_root", "schema_version": 1,
+            "workspace_instance_id": workspace_instance_id, "plan_sha256": plan_sha256,
+            "request_sha256": request_sha256, "task_id": task_id, "attempt_id": attempt_id,
+            "outcome": outcome, "result_ref": result_ref, "manifest_ref": manifest_ref,
+            "request_ref": dict(request_ref), "block_count": len(blocks_index),
+            "blocks": blocks_index,
+        }
+        index_root_ref = tx.put_object(record_bytes(index_root), role="sensitivity_index_root")
+        terminal_attempt = dict(attempt)
+        terminal_artifacts = list(attempt.get("artifacts", ()))
+        for artifact in (result_ref, manifest_ref, index_root_ref):
+            if artifact not in terminal_artifacts:
+                terminal_artifacts.append(artifact)
+        terminal_attempt.update(status=outcome, failure=None, interruption=None,
+                                artifacts=terminal_artifacts)
+        attempt_ref = tx.put_object(record_bytes(terminal_attempt), role="attempt")
+        completion = {
+            "schema": "scnsim.sensitivity_completion", "schema_version": 1,
+            "workspace_instance_id": workspace_instance_id, "plan_sha256": plan_sha256,
+            "request_sha256": request_sha256, "task_id": task_id, "attempt_id": attempt_id,
+            "outcome": outcome, "result_ref": result_ref, "manifest_ref": manifest_ref,
+            "index_root_ref": index_root_ref, "terminal_attempt_ref": attempt_ref,
+            "block_count": len(blocks_index),
+        }
+        completion_ref = tx.put_object(record_bytes(completion), role="sensitivity_completion")
+        event_payload = {
+            "attempt_id": attempt_id, "outcome": outcome, "result": result_ref,
+            "sensitivity_completion": completion_ref,
+        }
+        task_event = {"task_id": task_id, "sequence": sequence,
+                      "kind": "sensitivity_terminal", "payload": event_payload}
+        tx.append_with_ref(_stream(task_id), "task_change",
+                           record_bytes({"kind": "event", "event": task_event,
+                                         "artifacts": [result_ref, completion_ref]}))
+        attempt_change = {"kind": "attempt_update", "attempt_id": attempt_id,
+                          "status": outcome, "failure": None, "interruption": None,
+                          "checkpoint": None, "artifacts": [result_ref, manifest_ref,
+                                                                 index_root_ref, completion_ref]}
+        _, state_ref = tx.append_with_ref(_stream(task_id), "task_change", record_bytes(attempt_change))
+        tx.set_pointer(f"attempt/{task_id}/{attempt_id}", attempt_ref)
+        tx.set_pointer(f"current_attempt/{task_id}", attempt_ref)
+        tx.set_pointer(_attempt_state_pointer(task_id, attempt_id), state_ref)
+        tx.set_pointer(f"sensitivity_completion/{task_id}/{attempt_id}", completion_ref)
+        next_ref = tx.put_object(record_bytes({"next_sequence": sequence + 1}), role="event_sequence")
+        tx.set_pointer("event_sequence/" + task_id, next_ref)
+        if outcome == "success":
+            selection = {
+                "event": "request_success_selected", "request_sha256": request_sha256,
+                "task_id": task_id, "attempt_id": attempt_id, "result_ref": result_ref,
+                "sensitivity_completion": completion_ref,
+            }
+            selection_ref = tx.put_object(record_bytes(selection), role="success_selection")
+            tx.select_first("success/" + request_sha256, selection_ref)
+        tx.index_sensitivity_blocks(completion_ref["sha256"], blocks_index)
+    return {
+        "result_ref": result_ref, "manifest_ref": manifest_ref,
+        "index_root_ref": index_root_ref, "completion_ref": completion_ref,
+        "attempt_ref": attempt_ref,
+        "ack": {"committed": True, "transaction_id": transaction_id,
+                "outcome": outcome, "block_count": len(blocks_index)},
+    }
+
+
+def _physical_stage_stream(task_id, attempt_id):
+    return f"physical-optimization/{task_id}/{attempt_id}"
+
+
+def _physical_checkpoint_pointer(task_id, attempt_id):
+    return f"physical_optimization_checkpoint/{task_id}/{attempt_id}"
+
+
+def _physical_checkpoint_boundary_pointer(task_id, attempt_id):
+    return f"physical_optimization_checkpoint_boundary/{task_id}/{attempt_id}"
+
+
+def _physical_stage_key(stage_id):
+    return sha256(stage_id.encode("utf-8")).hexdigest()
+
+
+def _physical_stage_state_pointer(task_id, attempt_id, stage_id):
+    return (f"physical_optimization_stage_state/{task_id}/{attempt_id}/"
+            f"{_physical_stage_key(stage_id)}")
+
+
+def _physical_candidate_pointer(task_id, attempt_id, stage_id, evaluation_ordinal):
+    return (f"physical_optimization_candidate/{task_id}/{attempt_id}/"
+            f"{_physical_stage_key(stage_id)}/{evaluation_ordinal}")
+
+
+def _physical_accepted_pointer(task_id, attempt_id, stage_id, candidate_sha256):
+    return (f"physical_optimization_accepted/{task_id}/{attempt_id}/"
+            f"{_physical_stage_key(stage_id)}/{candidate_sha256}")
+
+
+def _physical_baseline_pointer(task_id, attempt_id):
+    return f"physical_optimization_baseline/{task_id}/{attempt_id}"
+
+
+def _physical_identity(store, request_sha256, task_id, attempt_id):
+    return {
+        "workspace_instance_id": store.workspace_instance_id,
+        "plan_sha256": store.plan_sha256,
+        "request_sha256": request_sha256,
+        "task_id": task_id,
+        "attempt_id": attempt_id,
+    }
+
+
+def _physical_locator_identity(locator, *, default_task_id, default_attempt_id):
+    if not isinstance(locator, Mapping) or not isinstance(locator.get("candidate_ref"), Mapping):
+        return None
+    kind = locator.get("kind", "evaluation")
+    if not set(locator).issubset({"kind", "stage_id", "evaluation_ordinal", "candidate_ref",
+                                  "cost_f64", "source_task_id", "source_attempt_id"}):
+        return None
+    if ("source_task_id" in locator) != ("source_attempt_id" in locator):
+        return None
+    if kind == "baseline":
+        stage_id = locator.get("stage_id")
+        evaluation_ordinal = locator.get("evaluation_ordinal")
+    elif kind == "evaluation":
+        stage_id = locator.get("stage_id")
+        evaluation_ordinal = locator.get("evaluation_ordinal")
+        if (not isinstance(stage_id, str) or not stage_id
+                or not isinstance(evaluation_ordinal, int)
+                or isinstance(evaluation_ordinal, bool) or evaluation_ordinal < 0):
+            return None
+    else:
+        return None
+    source_task_id = locator.get("source_task_id", default_task_id)
+    source_attempt_id = locator.get("source_attempt_id", default_attempt_id)
+    if (not isinstance(source_task_id, str) or not source_task_id
+            or not isinstance(source_attempt_id, str) or not source_attempt_id):
+        return None
+    return (source_task_id, source_attempt_id, kind, stage_id, evaluation_ordinal,
+            record_bytes(dict(locator["candidate_ref"])))
+
+
+def _physical_candidate_locators(value, *, default_task_id, default_attempt_id):
+    if isinstance(value, Mapping):
+        identity = _physical_locator_identity(
+            value, default_task_id=default_task_id, default_attempt_id=default_attempt_id,
+        )
+        if identity is not None:
+            yield identity
+        for item in value.values():
+            yield from _physical_candidate_locators(
+                item, default_task_id=default_task_id,
+                default_attempt_id=default_attempt_id,
+            )
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _physical_candidate_locators(
+                item, default_task_id=default_task_id,
+                default_attempt_id=default_attempt_id,
+            )
+
+
+def _physical_dependency_references(tx, dependencies):
+    if not isinstance(dependencies, Mapping):
+        raise _error("Physical Optimization candidate dependencies are malformed.")
+    references = {}
+    for body_id, body in dependencies.items():
+        if not isinstance(body_id, str) or not isinstance(body, Mapping):
+            raise _error("Physical Optimization dependency body is malformed.")
+        raw = record_bytes(dict(body))
+        digest = sha256(raw).hexdigest()
+        if digest != body_id:
+            raise _error("Physical Optimization dependency body identity changed.",
+                         body_id=body_id, actual_sha256=digest)
+        references[body_id] = tx.put_object(raw, role="benchmark_value")
+    return references
+
+
+def _physical_hydrate_dependencies(snapshot, candidate):
+    dependencies = candidate.get("dependencies")
+    if not isinstance(dependencies, Mapping):
+        raise _error("Physical Optimization candidate dependencies are malformed.",
+                     task_id=candidate.get("task_id"), attempt_id=candidate.get("attempt_id"))
+    hydrated = {}
+    for body_id, reference in dependencies.items():
+        if (not isinstance(body_id, str) or not isinstance(reference, Mapping)
+                or reference.get("role") != "benchmark_value"):
+            raise _error("Physical Optimization dependency reference is malformed.",
+                         body_id=body_id)
+        raw = snapshot.get_object(reference)
+        body = record_document(raw)
+        if (not isinstance(body, dict) or record_bytes(body) != raw
+                or sha256(raw).hexdigest() != body_id):
+            raise _error("Physical Optimization dependency body differs from its content identity.",
+                         body_id=body_id)
+        hydrated[body_id] = body
+    candidate["dependencies"] = hydrated
+    return candidate
+
+
+def _physical_resume_authority(snapshot, store, resume_from, *, expected_request_sha256):
+    """Return the exact checkpoint-bound candidate locators for one resume.
+
+    This follows only the checkpoint explicitly named by the attempt. It does
+    not search task history or infer ancestry from a latest pointer.
+    """
+    if not isinstance(resume_from, Mapping):
+        return None
+    task_id = resume_from.get("task_id")
+    attempt_id = resume_from.get("attempt_id")
+    selected_ref = resume_from.get("checkpoint_ref")
+    if (set(resume_from) != {"task_id", "attempt_id", "checkpoint_ref"}
+            or not isinstance(task_id, str) or not task_id
+            or not isinstance(attempt_id, str) or not attempt_id
+            or not isinstance(selected_ref, Mapping)
+            or selected_ref.get("role") != "optimization_checkpoint"):
+        raise _error("Physical Optimization resume ancestry is malformed.",
+                     task_id=task_id, attempt_id=attempt_id)
+    descriptor_pointer = snapshot.read_pointer(f"task/{task_id}")
+    attempt_pointer = snapshot.read_pointer(f"attempt/{task_id}/{attempt_id}")
+    checkpoint_pointer = snapshot.read_pointer(_physical_checkpoint_pointer(task_id, attempt_id))
+    # A later failure/interruption update may replace the latest attempt-state
+    # artifacts without changing the checkpoint the caller explicitly named.
+    # Resume authority therefore follows the checkpoint's immutable publishing
+    # state change, not the mutable latest-state selector.
+    state_pointer = snapshot.read_pointer(
+        _physical_checkpoint_boundary_pointer(task_id, attempt_id)
+    )
+    if (descriptor_pointer is None or attempt_pointer is None
+            or checkpoint_pointer is None or state_pointer is None
+            or descriptor_pointer.get("reference", {}).get("role") != "task_descriptor"
+            or attempt_pointer.get("reference", {}).get("role") != "attempt"
+            or checkpoint_pointer.get("reference") != dict(selected_ref)
+            or state_pointer.get("reference", {}).get("role") != "task_change"):
+        raise _error("Physical Optimization resume checkpoint is no longer the selected source.",
+                     task_id=task_id, attempt_id=attempt_id)
+    descriptor = _decode(snapshot, descriptor_pointer["reference"])
+    request_sha256, _, _ = _physical_request(
+        snapshot, store, descriptor, task_id=task_id, attempt_id=attempt_id,
+    )
+    if request_sha256 != expected_request_sha256:
+        raise _error("Physical Optimization resume source belongs to another request.",
+                     task_id=task_id, attempt_id=attempt_id)
+    attempt = _decode(snapshot, attempt_pointer["reference"])
+    state_change = _decode(snapshot, state_pointer["reference"])
+    checkpoint_state = state_change.get("checkpoint")
+    if (attempt.get("attempt_id") != attempt_id
+            or state_change.get("kind") != "attempt_update"
+            or state_change.get("attempt_id") != attempt_id
+            or not isinstance(checkpoint_state, Mapping)
+            or checkpoint_state.get("reference") != dict(selected_ref)):
+        raise _error("Physical Optimization resume source state differs from its checkpoint.",
+                     task_id=task_id, attempt_id=attempt_id)
+    raw = snapshot.get_object(selected_ref)
+    checkpoint = record_document(raw)
+    if (not isinstance(checkpoint, dict) or record_bytes(checkpoint) != raw
+            or checkpoint.get("schema") != "scnsim.optimization_checkpoint"
+            or checkpoint.get("schema_version") != 1
+            or checkpoint.get("workspace_instance_id") != store.workspace_instance_id
+            or checkpoint.get("plan_sha256") != store.plan_sha256
+            or checkpoint.get("request_sha256") != expected_request_sha256
+            or checkpoint.get("task_id") != task_id
+            or checkpoint.get("attempt_id") != attempt_id
+            or not isinstance(checkpoint.get("state"), Mapping)):
+        raise _error("Physical Optimization resume checkpoint body is misbound.",
+                     task_id=task_id, attempt_id=attempt_id)
+    allowed = frozenset(_physical_candidate_locators(
+        checkpoint["state"], default_task_id=task_id, default_attempt_id=attempt_id,
+    ))
+    return {"task_id": task_id, "attempt_id": attempt_id,
+            "checkpoint_ref": dict(selected_ref), "allowed_locators": allowed}
+
+
+def _physical_checkpoint_prefix(snapshot, store, resume_from, *, expected_request_sha256,
+                                seen=()):
+    """Read the exact committed stage-batch prefix ending at one checkpoint.
+
+    The source attempt's task-state artifacts name the batch that published
+    the selected checkpoint. Following that reference in the attempt's own
+    stage stream gives a bounded, immutable prefix; later attempts or a latest
+    task selector never contribute rows.
+    """
+    authority = _physical_resume_authority(
+        snapshot, store, resume_from, expected_request_sha256=expected_request_sha256,
+    )
+    if authority is None:
+        return {"sources": [], "rows": []}
+    task_id = authority["task_id"]
+    attempt_id = authority["attempt_id"]
+    checkpoint_ref = authority["checkpoint_ref"]
+    identity = (task_id, attempt_id, checkpoint_ref["sha256"])
+    if identity in seen:
+        raise _error("Physical Optimization checkpoint ancestry contains a cycle.",
+                     task_id=task_id, attempt_id=attempt_id)
+
+    checkpoint_raw = snapshot.get_object(checkpoint_ref)
+    checkpoint = record_document(checkpoint_raw)
+    attempt_pointer = snapshot.read_pointer(f"attempt/{task_id}/{attempt_id}")
+    state_pointer = snapshot.read_pointer(
+        _physical_checkpoint_boundary_pointer(task_id, attempt_id)
+    )
+    if (not isinstance(checkpoint, dict) or record_bytes(checkpoint) != checkpoint_raw
+            or checkpoint.get("schema") != "scnsim.optimization_checkpoint"
+            or checkpoint.get("schema_version") != 1
+            or checkpoint.get("task_id") != task_id
+            or checkpoint.get("attempt_id") != attempt_id
+            or not isinstance(attempt_pointer, Mapping)
+            or attempt_pointer.get("reference", {}).get("role") != "attempt"
+            or not isinstance(state_pointer, Mapping)
+            or state_pointer.get("reference", {}).get("role") != "task_change"):
+        raise _error("Physical Optimization checkpoint prefix binding is malformed.",
+                     task_id=task_id, attempt_id=attempt_id)
+    attempt = _decode(snapshot, attempt_pointer["reference"])
+    state_change = _decode(snapshot, state_pointer["reference"])
+    artifacts = state_change.get("artifacts")
+    checkpoint_state = state_change.get("checkpoint")
+    if (state_change.get("kind") != "attempt_update"
+            or state_change.get("attempt_id") != attempt_id
+            or not isinstance(checkpoint_state, Mapping)
+            or checkpoint_state.get("reference") != dict(checkpoint_ref)
+            or not isinstance(artifacts, list)):
+        raise _error("Physical Optimization checkpoint prefix has no terminal batch boundary.",
+                     task_id=task_id, attempt_id=attempt_id)
+    boundary_refs = [item for item in artifacts
+                     if isinstance(item, Mapping)
+                     and item.get("role") == "optimization_stage_batch"]
+    if len(boundary_refs) != 1:
+        raise _error("Physical Optimization checkpoint state does not name one batch boundary.",
+                     task_id=task_id, attempt_id=attempt_id)
+    boundary_ref = dict(boundary_refs[0])
+    stream = snapshot.read_stream(_physical_stage_stream(task_id, attempt_id))
+    prefix_batch_refs = []
+    prefix_rows = []
+    found_boundary = False
+    for entry in stream["entries"]:
+        batch_ref = entry.get("reference")
+        if (entry.get("kind") != "optimization_stage_batch"
+                or not isinstance(batch_ref, Mapping)
+                or batch_ref.get("role") != "optimization_stage_batch"):
+            raise _error("Physical Optimization checkpoint stream has an invalid entry.",
+                         task_id=task_id, attempt_id=attempt_id)
+        batch_raw = snapshot.get_object(batch_ref)
+        batch = record_document(batch_raw)
+        if (not isinstance(batch, dict) or record_bytes(batch) != batch_raw
+                or batch.get("schema") != "scnsim.optimization_stage_batch"
+                or batch.get("schema_version") != 1
+                or any(batch.get(key) != value for key, value in _physical_identity(
+                    store, expected_request_sha256, task_id, attempt_id,
+                ).items())):
+            raise _error("Physical Optimization checkpoint prefix batch is malformed.",
+                         task_id=task_id, attempt_id=attempt_id)
+        prefix_batch_refs.append(dict(batch_ref))
+        stage_id = batch.get("stage_id")
+        model_identity = batch.get("model_identity")
+        rows = batch.get("rows")
+        if (not isinstance(stage_id, str) or not isinstance(model_identity, Mapping)
+                or not isinstance(rows, list)):
+            raise _error("Physical Optimization checkpoint prefix batch rows are malformed.",
+                         task_id=task_id, attempt_id=attempt_id)
+        for row in rows:
+            candidate_ref = row.get("candidate_ref") if isinstance(row, Mapping) else None
+            if (not isinstance(row, Mapping) or not isinstance(candidate_ref, Mapping)
+                    or candidate_ref.get("role") != "optimization_candidate"):
+                raise _error("Physical Optimization checkpoint prefix candidate is malformed.",
+                             task_id=task_id, attempt_id=attempt_id)
+            kind = row.get("kind")
+            evaluation_ordinal = row.get("evaluation_ordinal")
+            if (kind not in {"baseline", "evaluation"}
+                    or not isinstance(evaluation_ordinal, int)
+                    or isinstance(evaluation_ordinal, bool) or evaluation_ordinal < 0):
+                raise _error("Physical Optimization checkpoint prefix candidate identity is malformed.",
+                             task_id=task_id, attempt_id=attempt_id)
+            history_ordinal = row.get("history_ordinal")
+            if kind == "evaluation" and (
+                    not isinstance(history_ordinal, int) or isinstance(history_ordinal, bool)
+                    or history_ordinal < 0):
+                raise _error("Physical Optimization checkpoint prefix history ordinal is malformed.",
+                             task_id=task_id, attempt_id=attempt_id)
+            row_summary = row.get("summary_json", {})
+            if not isinstance(row_summary, Mapping):
+                raise _error("Physical Optimization checkpoint prefix summary is malformed.",
+                             task_id=task_id, attempt_id=attempt_id)
+            candidate_stage = stage_id
+            candidate_model = model_identity
+            source_locator = None
+            if kind == "baseline":
+                # A resumed operation can carry its original baseline into a
+                # stage with a different model. Read that single baseline body
+                # to retain its scientific identity and provenance; evaluation
+                # rows use the sealed stage-batch summaries below.
+                candidate_raw = snapshot.get_object(candidate_ref)
+                candidate = record_document(candidate_raw)
+                if (not isinstance(candidate, dict) or record_bytes(candidate) != candidate_raw
+                        or candidate.get("schema") != "scnsim.optimization_candidate"
+                        or candidate.get("schema_version") != 1
+                        or any(candidate.get(key) != value for key, value in _physical_identity(
+                            store, expected_request_sha256, task_id, attempt_id,
+                        ).items())
+                        or candidate.get("kind") != kind
+                        or candidate.get("evaluation_ordinal") != evaluation_ordinal):
+                    raise _error("Physical Optimization checkpoint prefix baseline is misbound.",
+                                 task_id=task_id, attempt_id=attempt_id)
+                candidate_stage = candidate.get("stage_id")
+                candidate_model = candidate.get("model_identity")
+                source_locator = candidate.get("source_locator")
+            if (not isinstance(candidate_stage, str) or not isinstance(candidate_model, Mapping)
+                    or (kind == "evaluation"
+                        and (candidate_stage != stage_id
+                             or dict(candidate_model) != dict(model_identity)))
+                    or (source_locator is not None and not isinstance(source_locator, Mapping))):
+                raise _error("Physical Optimization checkpoint prefix candidate model is malformed.",
+                             task_id=task_id, attempt_id=attempt_id)
+            prefix_rows.append({
+                "stage_id": candidate_stage, "model_identity": dict(candidate_model),
+                "kind": kind, "evaluation_ordinal": evaluation_ordinal,
+                "history_ordinal": history_ordinal, "candidate_ref": dict(candidate_ref),
+                "summary_json": dict(row_summary),
+                "source_task_id": task_id, "source_attempt_id": attempt_id,
+                "source_batch_ref": dict(batch_ref),
+                **({"source_locator": dict(source_locator)}
+                   if isinstance(source_locator, Mapping) else {}),
+            })
+        if dict(batch_ref) == boundary_ref:
+            if batch.get("checkpoint_ref") != dict(checkpoint_ref):
+                raise _error("Physical Optimization batch boundary differs from its checkpoint.",
+                             task_id=task_id, attempt_id=attempt_id)
+            found_boundary = True
+            break
+    if not found_boundary:
+        raise _error("Physical Optimization checkpoint batch is outside its committed stream prefix.",
+                     task_id=task_id, attempt_id=attempt_id)
+
+    parent_resume = attempt.get("resume_from")
+    if parent_resume is None:
+        parent = {"sources": [], "rows": []}
+    elif isinstance(parent_resume, Mapping):
+        parent = _physical_checkpoint_prefix(
+            snapshot, store, parent_resume,
+            expected_request_sha256=expected_request_sha256,
+            seen=(*seen, identity),
+        )
+    else:
+        raise _error("Physical Optimization source attempt has malformed resume ancestry.",
+                     task_id=task_id, attempt_id=attempt_id)
+    for row in prefix_rows:
+        source_locator = row.get("source_locator")
+        if source_locator is None:
+            continue
+        source_kind = source_locator.get("kind", "evaluation")
+        source_task_id = source_locator.get("source_task_id")
+        source_attempt_id = source_locator.get("source_attempt_id")
+        source_ref = source_locator.get("candidate_ref")
+        if (source_kind != "baseline" or not isinstance(source_task_id, str)
+                or not isinstance(source_attempt_id, str) or not isinstance(source_ref, Mapping)):
+            raise _error("Physical Optimization inherited baseline ancestry is malformed.",
+                         task_id=row["source_task_id"], attempt_id=row["source_attempt_id"])
+        matches = [parent_row for parent_row in parent["rows"]
+                   if parent_row["source_task_id"] == source_task_id
+                   and parent_row["source_attempt_id"] == source_attempt_id
+                   and parent_row["kind"] == source_kind
+                   and parent_row["stage_id"] == source_locator.get("stage_id")
+                   and parent_row["evaluation_ordinal"] == source_locator.get("evaluation_ordinal")
+                   and parent_row["candidate_ref"] == dict(source_ref)
+                   and (source_locator.get("source_batch_ref") is None
+                        or parent_row["source_batch_ref"] == source_locator["source_batch_ref"])]
+        if (len(matches) != 1 or matches[0]["stage_id"] != row["stage_id"]
+                or matches[0]["model_identity"] != row["model_identity"]):
+            raise _error("Physical Optimization inherited baseline changed its source identity.",
+                         task_id=row["source_task_id"], attempt_id=row["source_attempt_id"])
+    source = {"task_id": task_id, "attempt_id": attempt_id,
+              "checkpoint_ref": dict(checkpoint_ref),
+              "batch_refs": prefix_batch_refs}
+    return {"sources": [*parent["sources"], source],
+            "rows": [*parent["rows"], *prefix_rows]}
+
+
+def _resolve_physical_candidate_locator(tx, locator, *, task_id, attempt_id,
+                                       store, current_candidates, current_baseline,
+                                       resume_authority=None):
+    if not isinstance(locator, Mapping):
+        raise _error("Physical Optimization candidate locator is malformed.")
+    if (locator.get("kind", "evaluation") not in {"baseline", "evaluation"}
+            or not set(locator).issubset({"kind", "stage_id", "evaluation_ordinal",
+                                          "candidate_ref", "cost_f64",
+                                          "source_task_id", "source_attempt_id"})):
+        raise _error("Physical Optimization candidate locator fields are malformed.",
+                     task_id=task_id, attempt_id=attempt_id)
+    source_task_id = locator.get("source_task_id")
+    source_attempt_id = locator.get("source_attempt_id")
+    if source_task_id is not None or source_attempt_id is not None:
+        if (not isinstance(source_task_id, str) or not source_task_id
+                or not isinstance(source_attempt_id, str) or not source_attempt_id
+                or resume_authority is None):
+            raise _error("Physical Optimization source locator lacks a verified resume ancestry.",
+                         task_id=task_id, attempt_id=attempt_id)
+        locator_identity = _physical_locator_identity(
+            locator, default_task_id=source_task_id,
+            default_attempt_id=source_attempt_id,
+        )
+        if locator_identity not in resume_authority["allowed_locators"]:
+            raise _error("Physical Optimization source locator is outside the selected checkpoint.",
+                         source_task_id=source_task_id,
+                         source_attempt_id=source_attempt_id)
+        kind = locator.get("kind", "evaluation")
+        stage_id = locator.get("stage_id")
+        evaluation_ordinal = locator.get("evaluation_ordinal")
+        selected_ref, _ = _physical_read_candidate(
+            tx, store, task_id=source_task_id,
+            attempt_id=source_attempt_id, stage_id=stage_id,
+            evaluation_ordinal=evaluation_ordinal,
+            reference=locator.get("candidate_ref"), kind=kind,
+        )
+        return {**dict(locator), "candidate_ref": selected_ref}
+    supplied_ref = locator.get("candidate_ref")
+    if locator.get("kind") == "baseline":
+        selected_ref = current_baseline
+        if selected_ref is None:
+            pointer = tx.read_pointer(_physical_baseline_pointer(task_id, attempt_id))
+            selected_ref = None if pointer is None else pointer["reference"]
+    else:
+        stage_id = locator.get("stage_id")
+        evaluation_ordinal = locator.get("evaluation_ordinal")
+        if (not isinstance(stage_id, str) or not stage_id
+                or not isinstance(evaluation_ordinal, int)
+                or isinstance(evaluation_ordinal, bool) or evaluation_ordinal < 0):
+            raise _error("Physical Optimization candidate locator lacks an exact occurrence.")
+        selected_ref = current_candidates.get((stage_id, evaluation_ordinal))
+        if selected_ref is None:
+            pointer = tx.read_pointer(_physical_candidate_pointer(
+                task_id, attempt_id, stage_id, evaluation_ordinal,
+            ))
+            selected_ref = None if pointer is None else pointer["reference"]
+    if not isinstance(selected_ref, Mapping):
+        raise _error("Physical Optimization candidate locator names no committed occurrence.",
+                     task_id=task_id, attempt_id=attempt_id)
+    if supplied_ref is not None and dict(supplied_ref) != dict(selected_ref):
+        raise _error("Physical Optimization candidate locator reference changed.",
+                     task_id=task_id, attempt_id=attempt_id)
+    return {**dict(locator), "candidate_ref": dict(selected_ref)}
+
+
+def _resolve_physical_locators(value, *, tx, task_id, attempt_id,
+                               store, current_candidates, current_baseline,
+                               resume_authority=None):
+    if isinstance(value, Mapping):
+        locator_keys = {"stage_id", "evaluation_ordinal", "candidate_ref", "cost_f64", "kind",
+                        "source_task_id", "source_attempt_id"}
+        if ("stage_id" in value and "evaluation_ordinal" in value
+                and set(value).issubset(locator_keys)):
+            return _resolve_physical_candidate_locator(
+                tx, value, task_id=task_id, attempt_id=attempt_id,
+                store=store,
+                current_candidates=current_candidates, current_baseline=current_baseline,
+                resume_authority=resume_authority,
+            )
+        if (value.get("kind") == "baseline"
+                and set(value).issubset({"kind", "candidate_ref", "source_task_id",
+                                         "source_attempt_id"})):
+            return _resolve_physical_candidate_locator(
+                tx, value, task_id=task_id, attempt_id=attempt_id,
+                store=store,
+                current_candidates=current_candidates, current_baseline=current_baseline,
+                resume_authority=resume_authority,
+            )
+        return {
+            key: _resolve_physical_locators(
+                item, tx=tx, task_id=task_id, attempt_id=attempt_id,
+                store=store,
+                current_candidates=current_candidates, current_baseline=current_baseline,
+                resume_authority=resume_authority,
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _resolve_physical_locators(
+                item, tx=tx, task_id=task_id, attempt_id=attempt_id,
+                store=store,
+                current_candidates=current_candidates, current_baseline=current_baseline,
+                resume_authority=resume_authority,
+            )
+            for item in value
+        ]
+    if isinstance(value, tuple):
+        return tuple(
+            _resolve_physical_locators(
+                item, tx=tx, task_id=task_id, attempt_id=attempt_id,
+                store=store,
+                current_candidates=current_candidates, current_baseline=current_baseline,
+                resume_authority=resume_authority,
+            )
+            for item in value
+        )
+    return value
+
+
+def commit_physical_stage_batch(binding, *, operation_id, task_id, attempt_id,
+                                stage_id, model_identity, rows, stage_state, checkpoint,
+                                transitions=()):
+    """Atomically publish one completed physical Optimization stage batch.
+
+    Candidate bodies are immutable objects. The batch stream retains only their
+    references and compact summaries; its controller checkpoint is the exact
+    committed post-iteration/post-generation state supplied by the coordinator.
+    """
+    if not isinstance(stage_id, str) or not stage_id or not isinstance(model_identity, Mapping):
+        raise _error("Physical Optimization stage identity is malformed.", stage_id=stage_id)
+    if not isinstance(rows, Iterable) or isinstance(rows, (str, bytes, bytearray)):
+        raise _error("Physical Optimization stage rows are malformed.", stage_id=stage_id)
+    if not isinstance(stage_state, Mapping) or (checkpoint is not None and not isinstance(checkpoint, Mapping)):
+        raise _error("Physical Optimization committed state is malformed.", stage_id=stage_id)
+    if not isinstance(transitions, Sequence) or isinstance(transitions, (str, bytes)):
+        raise _error("Physical Optimization transition rows are malformed.", stage_id=stage_id)
+
+    store = _bound(binding)
+    batch_stream = _physical_stage_stream(task_id, attempt_id)
+    task_stream = _stream(task_id)
+    with _snapshot(store) as snapshot:
+        descriptor = _descriptor(snapshot, task_id)
+        association = _pointer(snapshot, _association_pointer(operation_id))
+        descriptor_pointer = snapshot.read_pointer(f"task/{task_id}")
+        attempt_pointer = snapshot.read_pointer(f"attempt/{task_id}/{attempt_id}")
+        current_attempt_pointer = snapshot.read_pointer(f"current_attempt/{task_id}")
+        if (descriptor.get("request_sha256") is None
+                or association is None
+                or association.get("operation_id") != operation_id
+                or association.get("task_id") != task_id
+                or association.get("attempt_id") != attempt_id
+                or attempt_pointer is None
+                or current_attempt_pointer is None
+                or current_attempt_pointer.get("reference") != attempt_pointer.get("reference")):
+            raise _error("Physical Optimization batch is not bound to the current attempt.",
+                         operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
+        attempt = _decode(snapshot, attempt_pointer["reference"])
+        if attempt.get("status") not in {"allocated", "running"}:
+            raise _error("Physical Optimization attempt is not publishable.",
+                         task_id=task_id, attempt_id=attempt_id)
+        request_ref = next((item for item in descriptor.get("artifacts", ())
+                            if item.get("role") == "operation_request"), None)
+        if not isinstance(request_ref, Mapping) or request_ref.get("sha256") != descriptor.get("request_sha256"):
+            raise _error("Physical Optimization task lacks its bound request.", task_id=task_id)
+        request_raw = snapshot.get_object(request_ref)
+        request = record_document(request_raw)
+        if (not isinstance(request, dict) or record_bytes(request) != request_raw
+                or request.get("operation") != "optimize_direct"
+                or request.get("runtime_semantic", {}).get("backend") != "jax"):
+            raise _error("Physical Optimization batch is bound to another request authority.",
+                         task_id=task_id, attempt_id=attempt_id)
+        task_revision = snapshot.stream_revision(task_stream)
+        batch_revision = snapshot.stream_revision(batch_stream)
+        sequence_pointer = snapshot.read_pointer("event_sequence/" + task_id)
+        sequence = (0 if sequence_pointer is None else
+                    _decode(snapshot, sequence_pointer["reference"]).get("next_sequence"))
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
+            raise _error("Physical Optimization task event sequence is malformed.", task_id=task_id)
+
+    identity = _physical_identity(store, descriptor["request_sha256"], task_id, attempt_id)
+    transaction_id = str(uuid4())
+    batch_rows = []
+    baseline_ref = None
+    candidate_refs = {}
+    accepted_ref = None
+    with store.transaction(transaction_id, expected_revisions={
+            task_stream: task_revision, batch_stream: batch_revision}) as tx:
+        current_association = _pointer(tx, _association_pointer(operation_id))
+        current_task = tx.read_pointer(f"task/{task_id}")
+        current_attempt = tx.read_pointer(f"attempt/{task_id}/{attempt_id}")
+        current_attempt_pointer = tx.read_pointer(f"current_attempt/{task_id}")
+        if (descriptor_pointer is None or current_task is None
+                or current_task.get("reference") != descriptor_pointer.get("reference")
+                or current_association != association
+                or current_attempt is None
+                or current_attempt.get("reference") != attempt_pointer.get("reference")
+                or current_attempt_pointer is None
+                or current_attempt_pointer.get("reference") != attempt_pointer.get("reference")):
+            raise _error("Physical Optimization attempt binding changed before batch publication.",
+                         operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
+        publishing_attempt = _decode(tx, current_attempt["reference"])
+        if publishing_attempt.get("attempt_id") != attempt_id:
+            raise _error("Physical Optimization attempt identity changed before publication.",
+                         task_id=task_id, attempt_id=attempt_id)
+        resume_authority = _physical_resume_authority(
+            tx, store, publishing_attempt.get("resume_from"),
+            expected_request_sha256=descriptor["request_sha256"],
+        )
+        seen_ordinals = set()
+        for position, source in enumerate(rows):
+            if not isinstance(source, Mapping):
+                raise _error("Physical Optimization candidate row is malformed.",
+                             stage_id=stage_id, position=position)
+            candidate = source.get("candidate")
+            summary = source.get("summary_json", {})
+            kind = source.get("kind", "evaluation")
+            history_ordinal = source.get("history_ordinal")
+            if (not isinstance(candidate, Mapping) or not isinstance(summary, Mapping)
+                    or kind not in {"baseline", "evaluation"}
+                    or (kind == "evaluation" and (
+                        not isinstance(history_ordinal, int) or isinstance(history_ordinal, bool)
+                        or history_ordinal < 0 or history_ordinal in seen_ordinals))):
+                raise _error("Physical Optimization candidate row is incomplete.",
+                             stage_id=stage_id, position=position)
+            evaluation_ordinal = candidate.get("evaluation_ordinal")
+            parameters = candidate.get("parameters")
+            if (not isinstance(evaluation_ordinal, int) or isinstance(evaluation_ordinal, bool)
+                    or evaluation_ordinal < 0 or not isinstance(parameters, Mapping)
+                    or not isinstance(candidate.get("cost_f64"), str)
+                    or not isinstance(candidate.get("status"), str)):
+                raise _error("Physical Optimization candidate identity is malformed.",
+                             stage_id=stage_id, position=position)
+            source_locator = source.get("source_locator")
+            candidate_body = {
+                **dict(candidate), "kind": kind,
+                "schema": "scnsim.optimization_candidate", "schema_version": 1,
+                **identity,
+            }
+            if source_locator is not None:
+                if kind != "baseline" or not isinstance(source_locator, Mapping):
+                    raise _error("Physical Optimization source provenance is malformed.",
+                                 stage_id=stage_id, position=position)
+                resolved_source = _resolve_physical_candidate_locator(
+                    tx, source_locator, task_id=task_id, attempt_id=attempt_id,
+                    store=store, current_candidates=candidate_refs,
+                    current_baseline=baseline_ref,
+                    resume_authority=resume_authority,
+                )
+                source_candidate_ref, source_candidate = _physical_read_candidate(
+                    tx, store, task_id=resolved_source["source_task_id"],
+                    attempt_id=resolved_source["source_attempt_id"],
+                    stage_id=resolved_source.get("stage_id"),
+                    evaluation_ordinal=resolved_source.get("evaluation_ordinal"),
+                    reference=resolved_source["candidate_ref"],
+                    kind=resolved_source.get("kind", "evaluation"),
+                )
+                if (candidate.get("stage_id") != source_candidate.get("stage_id")
+                        or candidate.get("model_identity") != source_candidate.get("model_identity")):
+                    raise _error("Physical Optimization inherited baseline changed its scientific identity.",
+                                 stage_id=stage_id, position=position)
+                candidate_body["stage_id"] = source_candidate["stage_id"]
+                candidate_body["model_identity"] = source_candidate["model_identity"]
+                candidate_body["source_locator"] = {
+                    **resolved_source, "candidate_ref": source_candidate_ref,
+                }
+            else:
+                candidate_body["stage_id"] = stage_id
+                candidate_body["model_identity"] = dict(model_identity)
+            candidate_body["dependencies"] = _physical_dependency_references(
+                tx, candidate_body.get("dependencies"),
+            )
+            candidate_ref = tx.put_object(record_bytes(candidate_body), role="optimization_candidate")
+            if kind == "baseline":
+                if baseline_ref is not None:
+                    raise _error("Physical Optimization batch contains more than one baseline.",
+                                 stage_id=stage_id)
+                baseline_ref = candidate_ref
+                prior_baseline = tx.read_pointer(_physical_baseline_pointer(task_id, attempt_id))
+                if prior_baseline is not None and prior_baseline.get("reference") != candidate_ref:
+                    raise _error("Physical Optimization baseline occurrence changed.",
+                                 task_id=task_id, attempt_id=attempt_id)
+                tx.set_pointer(_physical_baseline_pointer(task_id, attempt_id), candidate_ref)
+                batch_rows.append({"kind": "baseline", "evaluation_ordinal": evaluation_ordinal,
+                                   "candidate_ref": candidate_ref})
+            else:
+                candidate_pointer = _physical_candidate_pointer(
+                    task_id, attempt_id, stage_id, evaluation_ordinal,
+                )
+                if tx.read_pointer(candidate_pointer) is not None:
+                    raise _error("Physical Optimization evaluation ordinal is already committed.",
+                                 task_id=task_id, attempt_id=attempt_id, stage_id=stage_id,
+                                 evaluation_ordinal=evaluation_ordinal)
+                tx.set_pointer(candidate_pointer, candidate_ref)
+                candidate_refs[(stage_id, evaluation_ordinal)] = candidate_ref
+                seen_ordinals.add(history_ordinal)
+                batch_rows.append({"kind": "evaluation", "history_ordinal": history_ordinal,
+                                   "evaluation_ordinal": evaluation_ordinal,
+                                   "candidate_ref": candidate_ref, "summary_json": dict(summary)})
+
+        resolved_state = _resolve_physical_locators(
+            dict(stage_state), tx=tx, store=store,
+            task_id=task_id, attempt_id=attempt_id,
+            current_candidates=candidate_refs, current_baseline=baseline_ref,
+            resume_authority=resume_authority,
+        )
+        resolved_checkpoint = (None if checkpoint is None else _resolve_physical_locators(
+            dict(checkpoint), tx=tx, store=store,
+            task_id=task_id, attempt_id=attempt_id,
+            current_candidates=candidate_refs, current_baseline=baseline_ref,
+            resume_authority=resume_authority,
+        ))
+        stage_state_body = {
+            "schema": "scnsim.optimization_stage_state", "schema_version": 1,
+            **identity, "stage_id": stage_id, "model_identity": dict(model_identity),
+            "state": resolved_state,
+        }
+        checkpoint_body = None if resolved_checkpoint is None else {
+            "schema": "scnsim.optimization_checkpoint", "schema_version": 1,
+            **identity, "stage_id": stage_id, "model_identity": dict(model_identity),
+            "state": resolved_checkpoint,
+        }
+        state_ref = tx.put_object(record_bytes(stage_state_body), role="optimization_stage_state")
+        checkpoint_ref = (None if checkpoint_body is None else
+                          tx.put_object(record_bytes(checkpoint_body), role="optimization_checkpoint"))
+
+        transition_refs = []
+        for ordinal, source in enumerate(transitions):
+            if not isinstance(source, Mapping):
+                raise _error("Physical Optimization transition row is malformed.",
+                             stage_id=stage_id, ordinal=ordinal)
+            transition_id = source.get("transition_id")
+            if not isinstance(transition_id, str) or not transition_id:
+                raise _error("Physical Optimization transition identity is malformed.",
+                             stage_id=stage_id, ordinal=ordinal)
+            resolved_transition = _resolve_physical_locators(
+                dict(source), tx=tx, store=store,
+                task_id=task_id, attempt_id=attempt_id,
+                current_candidates=candidate_refs, current_baseline=baseline_ref,
+                resume_authority=resume_authority,
+            )
+            transition_body = {
+                **resolved_transition, "schema": "scnsim.optimization_transition",
+                "schema_version": 1, **identity, "stage_id": stage_id,
+                "model_identity": dict(model_identity),
+            }
+            transition_ref = tx.put_object(
+                record_bytes(transition_body), role="optimization_transition"
+            )
+            transition_refs.append({"transition_id": transition_id,
+                                    "transition_ref": transition_ref})
+
+        batch_body = {
+            "schema": "scnsim.optimization_stage_batch", "schema_version": 1,
+            **identity, "stage_id": stage_id, "model_identity": dict(model_identity),
+            "state_ref": state_ref, "checkpoint_ref": checkpoint_ref,
+            "baseline_ref": baseline_ref, "rows": batch_rows,
+            "transition_refs": transition_refs,
+        }
+        _, batch_ref = tx.append_with_ref(
+            batch_stream, "optimization_stage_batch", record_bytes(batch_body)
+        )
+        tx.set_pointer(_physical_stage_state_pointer(task_id, attempt_id, stage_id), state_ref)
+        accepted = resolved_state.get("accepted_iterate") if isinstance(resolved_state, Mapping) else None
+        if isinstance(accepted, Mapping) and isinstance(accepted.get("candidate_ref"), Mapping):
+            accepted_stage = accepted.get("stage_id")
+            accepted_ordinal = accepted.get("evaluation_ordinal")
+            accepted_ref = accepted["candidate_ref"]
+            if (accepted_stage != stage_id
+                    or not isinstance(accepted_ordinal, int)
+                    or isinstance(accepted_ordinal, bool)
+                    or accepted_ref.get("role") != "optimization_candidate"):
+                raise _error("Physical Optimization accepted iterate is malformed.",
+                             task_id=task_id, attempt_id=attempt_id, stage_id=stage_id)
+            expected_candidate = tx.read_pointer(_physical_candidate_pointer(
+                task_id, attempt_id, accepted_stage, accepted_ordinal,
+            ))
+            if (expected_candidate is None
+                    or expected_candidate.get("reference") != dict(accepted_ref)):
+                raise _error("Physical Optimization accepted iterate was not committed in this attempt.",
+                             task_id=task_id, attempt_id=attempt_id, stage_id=stage_id,
+                             evaluation_ordinal=accepted_ordinal)
+            accepted_body = record_document(tx.get_object(accepted_ref))
+            if (not isinstance(accepted_body, dict)
+                    or accepted_body.get("kind") != "evaluation"
+                    or accepted_body.get("status") != "success"
+                    or accepted_body.get("stage_id") != stage_id
+                    or accepted_body.get("evaluation_ordinal") != accepted_ordinal
+                    or accepted_body.get("model_identity") != dict(model_identity)):
+                raise _error("Physical Optimization accepted iterate differs from its evaluation.",
+                             task_id=task_id, attempt_id=attempt_id, stage_id=stage_id,
+                             evaluation_ordinal=accepted_ordinal)
+            tx.set_pointer(_physical_accepted_pointer(
+                task_id, attempt_id, stage_id, accepted_ref["sha256"],
+            ), batch_ref)
+        change = {
+            "kind": "attempt_update", "attempt_id": attempt_id, "status": "running",
+            "failure": None, "interruption": None,
+            "checkpoint": (None if checkpoint_ref is None else
+                           {"reference": checkpoint_ref, "stage_id": stage_id}),
+            "artifacts": [batch_ref, state_ref,
+                          *([] if checkpoint_ref is None else [checkpoint_ref]),
+                          *(row["candidate_ref"] for row in batch_rows)],
+        }
+        _, state_change_ref = tx.append_with_ref(task_stream, "task_change", record_bytes(change))
+        tx.set_pointer(_attempt_state_pointer(task_id, attempt_id), state_change_ref)
+        if checkpoint_ref is not None:
+            tx.set_pointer(_physical_checkpoint_pointer(task_id, attempt_id), checkpoint_ref)
+            tx.set_pointer(
+                _physical_checkpoint_boundary_pointer(task_id, attempt_id), state_change_ref,
+            )
+    return {
+        "ack": {"committed": True, "transaction_id": transaction_id,
+                "stage_id": stage_id, "row_count": len(batch_rows)},
+        "batch_ref": batch_ref, "checkpoint_ref": checkpoint_ref,
+    }
+
+
+def read_physical_optimization_checkpoint(binding, *, task_id, attempt_id,
+                                           expected_request_sha256, reference=None,
+                                           expected_stage_id=None):
+    """Read the exact currently committed v7 physical Optimization checkpoint.
+
+    The checkpoint pointer and its immutable publishing task-state pointer are
+    read in one snapshot. Later failure/interruption state changes do not erase
+    the committed checkpoint boundary. This does not search task history or
+    infer a checkpoint from a result projection.
+    """
+    store = _bound(binding)
+    with _snapshot(store) as snapshot:
+        return _physical_checkpoint_from_snapshot(
+            snapshot, store, task_id=task_id, attempt_id=attempt_id,
+            expected_request_sha256=expected_request_sha256, reference=reference,
+            expected_stage_id=expected_stage_id,
+        )
+
+
+def _physical_checkpoint_from_snapshot(snapshot, store, *, task_id, attempt_id,
+                                       expected_request_sha256, reference=None,
+                                       expected_stage_id=None):
+    """Verify a v7 checkpoint using only its pointer and immutable batch boundary."""
+    checkpoint_pointer = snapshot.read_pointer(_physical_checkpoint_pointer(task_id, attempt_id))
+    boundary_pointer = snapshot.read_pointer(_physical_checkpoint_boundary_pointer(task_id, attempt_id))
+    if checkpoint_pointer is None and boundary_pointer is None:
+        return None
+    if (checkpoint_pointer is None or boundary_pointer is None
+            or boundary_pointer.get("reference", {}).get("role") != "task_change"):
+        raise _error("Physical Optimization checkpoint pointer pair is incomplete.",
+                     task_id=task_id, attempt_id=attempt_id)
+
+    descriptor_pointer = snapshot.read_pointer(f"task/{task_id}")
+    attempt_pointer = snapshot.read_pointer(f"attempt/{task_id}/{attempt_id}")
+    if (descriptor_pointer is None
+            or descriptor_pointer.get("reference", {}).get("role") != "task_descriptor"
+            or attempt_pointer is None
+            or attempt_pointer.get("reference", {}).get("role") != "attempt"):
+        raise _error("Physical Optimization checkpoint identities are absent.",
+                     task_id=task_id, attempt_id=attempt_id)
+    descriptor = _decode(snapshot, descriptor_pointer["reference"])
+    if (descriptor.get("task_id") != task_id
+            or descriptor.get("request_sha256") != expected_request_sha256):
+        raise _error("Physical Optimization checkpoint belongs to another request.",
+                     task_id=task_id, attempt_id=attempt_id)
+    checkpoint_ref = checkpoint_pointer.get("reference")
+    if (not isinstance(checkpoint_ref, Mapping)
+            or checkpoint_ref.get("role") != "optimization_checkpoint"):
+        raise _error("Physical Optimization checkpoint pointer has the wrong role.",
+                     task_id=task_id, attempt_id=attempt_id)
+    if reference is not None and dict(reference) != dict(checkpoint_ref):
+        raise _error("Selected Physical Optimization checkpoint reference changed.",
+                     task_id=task_id, attempt_id=attempt_id)
+
+    state_change = _decode(snapshot, boundary_pointer["reference"])
+    checkpoint_state = state_change.get("checkpoint")
+    if (state_change.get("kind") != "attempt_update"
+            or state_change.get("attempt_id") != attempt_id
+            or not isinstance(checkpoint_state, Mapping)
+            or checkpoint_state.get("reference") != dict(checkpoint_ref)):
+        raise _error("Physical Optimization checkpoint differs from its publishing boundary.",
+                     task_id=task_id, attempt_id=attempt_id)
+    attempt = _decode(snapshot, attempt_pointer["reference"])
+    if attempt.get("attempt_id") != attempt_id:
+        raise _error("Physical Optimization checkpoint attempt identity changed.",
+                     task_id=task_id, attempt_id=attempt_id)
+    raw = snapshot.get_object(checkpoint_ref)
+    checkpoint_body = record_document(raw)
+    if (not isinstance(checkpoint_body, dict) or record_bytes(checkpoint_body) != raw
+            or checkpoint_body.get("schema") != "scnsim.optimization_checkpoint"
+            or checkpoint_body.get("schema_version") != 1
+            or checkpoint_body.get("workspace_instance_id") != store.workspace_instance_id
+            or checkpoint_body.get("plan_sha256") != store.plan_sha256
+            or checkpoint_body.get("request_sha256") != expected_request_sha256
+            or checkpoint_body.get("task_id") != task_id
+            or checkpoint_body.get("attempt_id") != attempt_id
+            or not isinstance(checkpoint_body.get("stage_id"), str)
+            or not isinstance(checkpoint_body.get("model_identity"), Mapping)
+            or not isinstance(checkpoint_body.get("state"), Mapping)):
+        raise _error("Physical Optimization checkpoint body is malformed or misbound.",
+                     task_id=task_id, attempt_id=attempt_id)
+    if (checkpoint_state.get("stage_id") != checkpoint_body["stage_id"]
+            or (expected_stage_id is not None
+                and checkpoint_body.get("stage_id") != expected_stage_id)):
+        raise _error("Physical Optimization checkpoint names another stage.",
+                     task_id=task_id, attempt_id=attempt_id,
+                     expected_stage_id=expected_stage_id,
+                     actual_stage_id=checkpoint_body.get("stage_id"))
+    return {
+        "task_id": task_id,
+        "attempt_id": attempt_id,
+        "request_sha256": expected_request_sha256,
+        "checkpoint_ref": dict(checkpoint_ref),
+        "checkpoint": checkpoint_body,
+        "resume_from": {"task_id": task_id, "attempt_id": attempt_id,
+                        "checkpoint_ref": dict(checkpoint_ref)},
+    }
+
+
+def _physical_request(snapshot, store, descriptor, *, task_id, attempt_id):
+    request_sha256 = descriptor.get("request_sha256")
+    request_ref = next((item for item in descriptor.get("artifacts", ())
+                        if isinstance(item, Mapping) and item.get("role") == "operation_request"), None)
+    if (not isinstance(request_sha256, str) or not isinstance(request_ref, Mapping)
+            or request_ref.get("sha256") != request_sha256):
+        raise _error("Physical Optimization source lacks its bound request.",
+                     task_id=task_id, attempt_id=attempt_id)
+    raw = snapshot.get_object(request_ref)
+    request = record_document(raw)
+    if (not isinstance(request, dict) or record_bytes(request) != raw
+            or request.get("operation") != "optimize_direct"
+            or request.get("plan_sha256") != store.plan_sha256
+            or request.get("runtime_semantic", {}).get("backend") != "jax"):
+        raise _error("Physical Optimization source request is malformed or misbound.",
+                     task_id=task_id, attempt_id=attempt_id)
+    return request_sha256, dict(request_ref), request
+
+
+def _physical_read_candidate(snapshot, store, *, task_id, attempt_id, stage_id,
+                             evaluation_ordinal, reference=None, kind="evaluation"):
+    if kind == "baseline":
+        pointer = snapshot.read_pointer(_physical_baseline_pointer(task_id, attempt_id))
+    else:
+        pointer = snapshot.read_pointer(_physical_candidate_pointer(
+            task_id, attempt_id, stage_id, evaluation_ordinal,
+        ))
+    if pointer is None:
+        raise _error("Physical Optimization candidate occurrence is not committed.",
+                     task_id=task_id, attempt_id=attempt_id, stage_id=stage_id,
+                     evaluation_ordinal=evaluation_ordinal)
+    candidate_ref = pointer.get("reference")
+    if (not isinstance(candidate_ref, Mapping)
+            or candidate_ref.get("role") != "optimization_candidate"
+            or reference is not None and dict(candidate_ref) != dict(reference)):
+        raise _error("Physical Optimization candidate index differs from its selected reference.",
+                     task_id=task_id, attempt_id=attempt_id, stage_id=stage_id,
+                     evaluation_ordinal=evaluation_ordinal)
+    raw = snapshot.get_object(candidate_ref)
+    candidate = record_document(raw)
+    if (not isinstance(candidate, dict) or record_bytes(candidate) != raw
+            or candidate.get("schema") != "scnsim.optimization_candidate"
+            or candidate.get("schema_version") != 1
+            or candidate.get("workspace_instance_id") != store.workspace_instance_id
+            or candidate.get("plan_sha256") != store.plan_sha256
+            or candidate.get("task_id") != task_id
+            or candidate.get("attempt_id") != attempt_id
+            or (stage_id is not None and candidate.get("stage_id") != stage_id)
+            or candidate.get("kind") != kind
+            or (kind != "baseline" and candidate.get("evaluation_ordinal") != evaluation_ordinal)
+            or (kind == "baseline" and evaluation_ordinal is not None
+                and candidate.get("evaluation_ordinal") != evaluation_ordinal)):
+        raise _error("Physical Optimization candidate body differs from its exact index.",
+                     task_id=task_id, attempt_id=attempt_id, stage_id=stage_id,
+                     evaluation_ordinal=evaluation_ordinal)
+    return dict(candidate_ref), candidate
+
+
+def read_physical_optimization_candidate(binding, *, task_id, attempt_id, locator,
+                                          expected_request_sha256=None, resume_from=None):
+    """Read one checkpoint cache candidate by exact committed locator."""
+    if not isinstance(locator, Mapping):
+        raise TypeError("Physical Optimization candidate locator must be a mapping")
+    kind = locator.get("kind", "evaluation")
+    stage_id = locator.get("stage_id")
+    evaluation_ordinal = locator.get("evaluation_ordinal")
+    if (kind not in {"baseline", "evaluation"}
+            or (stage_id is not None and (not isinstance(stage_id, str) or not stage_id))
+            or (evaluation_ordinal is not None and (
+                not isinstance(evaluation_ordinal, int) or isinstance(evaluation_ordinal, bool)
+                or evaluation_ordinal < 0))
+            or (kind == "evaluation" and (stage_id is None or evaluation_ordinal is None))):
+        raise _error("Physical Optimization candidate locator is malformed.",
+                     task_id=task_id, attempt_id=attempt_id)
+    store = _bound(binding)
+    with _snapshot(store) as snapshot:
+        descriptor = _descriptor(snapshot, task_id)
+        request_sha256, _, _ = _physical_request(
+            snapshot, store, descriptor, task_id=task_id, attempt_id=attempt_id,
+        )
+        if expected_request_sha256 is not None and request_sha256 != expected_request_sha256:
+            raise _error("Physical Optimization candidate belongs to another request.",
+                         task_id=task_id, attempt_id=attempt_id)
+        source_task_id = locator.get("source_task_id")
+        source_attempt_id = locator.get("source_attempt_id")
+        if source_task_id is not None or source_attempt_id is not None:
+            if (source_task_id != task_id or source_attempt_id != attempt_id
+                    or not isinstance(resume_from, Mapping)):
+                raise _error("Physical Optimization source candidate lacks its exact resume binding.",
+                             task_id=task_id, attempt_id=attempt_id)
+            authority = _physical_resume_authority(
+                snapshot, store, resume_from,
+                expected_request_sha256=request_sha256,
+            )
+            locator_identity = _physical_locator_identity(
+                locator, default_task_id=source_task_id,
+                default_attempt_id=source_attempt_id,
+            )
+            if locator_identity not in authority["allowed_locators"]:
+                raise _error("Physical Optimization candidate is outside its selected checkpoint.",
+                             task_id=task_id, attempt_id=attempt_id)
+        attempt_pointer = snapshot.read_pointer(f"attempt/{task_id}/{attempt_id}")
+        if attempt_pointer is None or attempt_pointer.get("reference", {}).get("role") != "attempt":
+            raise _error("Physical Optimization candidate source attempt is absent.",
+                         task_id=task_id, attempt_id=attempt_id)
+        candidate_ref, candidate = _physical_read_candidate(
+            snapshot, store, task_id=task_id, attempt_id=attempt_id,
+            stage_id=stage_id, evaluation_ordinal=evaluation_ordinal,
+            reference=locator.get("candidate_ref"), kind=kind,
+        )
+        _physical_hydrate_dependencies(snapshot, candidate)
+        return {"candidate_ref": candidate_ref, "candidate": candidate}
+
+
+def read_physical_accepted_iterate(binding, *, attempt_id, stage_id,
+                                   accepted_iterate_id):
+    """Read an explicitly named committed accepted iterate without history replay."""
+    if (not isinstance(attempt_id, str) or not attempt_id
+            or not isinstance(stage_id, str) or not stage_id
+            or not isinstance(accepted_iterate_id, str) or not accepted_iterate_id):
+        raise TypeError("accepted iterate selection requires exact attempt, stage, and content identities")
+    store = _bound(binding)
+    with _snapshot(store) as snapshot:
+        located = snapshot.find_attempt_pointer(attempt_id)
+        if located is None:
+            return None
+        task_id = located["task_id"]
+        descriptor = _descriptor(snapshot, task_id)
+        request_sha256, request_ref, request = _physical_request(
+            snapshot, store, descriptor, task_id=task_id, attempt_id=attempt_id,
+        )
+        attempt_ref = located["reference"]
+        attempt_pointer = snapshot.read_pointer(f"attempt/{task_id}/{attempt_id}")
+        if (attempt_pointer is None or attempt_pointer.get("reference") != attempt_ref
+                or attempt_pointer.get("reference", {}).get("role") != "attempt"):
+            raise _error("Physical Optimization source attempt pointer changed.",
+                         task_id=task_id, attempt_id=attempt_id)
+        attempt = _decode(snapshot, attempt_ref)
+        if attempt.get("attempt_id") != attempt_id:
+            raise _error("Physical Optimization source attempt identity changed.",
+                         task_id=task_id, attempt_id=attempt_id)
+        proof_pointer = snapshot.read_pointer(_physical_accepted_pointer(
+            task_id, attempt_id, stage_id, accepted_iterate_id,
+        ))
+        if proof_pointer is None or proof_pointer.get("reference", {}).get("role") != "optimization_stage_batch":
+            return None
+        batch_ref = proof_pointer["reference"]
+        batch_raw = snapshot.get_object(batch_ref)
+        batch = record_document(batch_raw)
+        if (not isinstance(batch, dict) or record_bytes(batch) != batch_raw
+                or batch.get("schema") != "scnsim.optimization_stage_batch"
+                or batch.get("schema_version") != 1
+                or batch.get("workspace_instance_id") != store.workspace_instance_id
+                or batch.get("plan_sha256") != store.plan_sha256
+                or batch.get("request_sha256") != request_sha256
+                or batch.get("task_id") != task_id
+                or batch.get("attempt_id") != attempt_id
+                or batch.get("stage_id") != stage_id
+                or not isinstance(batch.get("state_ref"), Mapping)
+                or batch["state_ref"].get("role") != "optimization_stage_state"):
+            raise _error("Physical Optimization accepted-state proof is malformed.",
+                         task_id=task_id, attempt_id=attempt_id, stage_id=stage_id)
+        state_ref = batch["state_ref"]
+        state_raw = snapshot.get_object(state_ref)
+        state_body = record_document(state_raw)
+        if (not isinstance(state_body, dict) or record_bytes(state_body) != state_raw
+                or state_body.get("schema") != "scnsim.optimization_stage_state"
+                or state_body.get("schema_version") != 1
+                or state_body.get("workspace_instance_id") != store.workspace_instance_id
+                or state_body.get("plan_sha256") != store.plan_sha256
+                or state_body.get("request_sha256") != request_sha256
+                or state_body.get("task_id") != task_id
+                or state_body.get("attempt_id") != attempt_id
+                or state_body.get("stage_id") != stage_id
+                or state_body.get("model_identity") != batch.get("model_identity")
+                or not isinstance(state_body.get("state"), Mapping)):
+            raise _error("Physical Optimization accepted stage state is malformed.",
+                         task_id=task_id, attempt_id=attempt_id, stage_id=stage_id)
+        locator = state_body["state"].get("accepted_iterate")
+        if (not isinstance(locator, Mapping) or locator.get("stage_id") != stage_id
+                or not isinstance(locator.get("evaluation_ordinal"), int)
+                or isinstance(locator.get("evaluation_ordinal"), bool)
+                or not isinstance(locator.get("candidate_ref"), Mapping)
+                or locator["candidate_ref"].get("sha256") != accepted_iterate_id):
+            return None
+        evaluation_ordinal = locator["evaluation_ordinal"]
+        candidate_ref, candidate = _physical_read_candidate(
+            snapshot, store, task_id=task_id, attempt_id=attempt_id,
+            stage_id=stage_id, evaluation_ordinal=evaluation_ordinal,
+            reference=locator["candidate_ref"], kind="evaluation",
+        )
+        if (candidate.get("status") != "success"
+                or candidate.get("model_identity") != dict(batch["model_identity"])
+                or candidate_ref["sha256"] != accepted_iterate_id):
+            raise _error("Physical Optimization accepted candidate differs from its state proof.",
+                         task_id=task_id, attempt_id=attempt_id, stage_id=stage_id,
+                         evaluation_ordinal=evaluation_ordinal)
+        return {
+            "task_id": task_id, "attempt_id": attempt_id,
+            "request_sha256": request_sha256, "request_ref": dict(request_ref),
+            "stage_id": stage_id, "evaluation_ordinal": evaluation_ordinal,
+            "accepted_iterate_id": accepted_iterate_id,
+            "candidate_ref": candidate_ref, "candidate": candidate,
+            "model_identity": dict(batch["model_identity"]),
+        }
+
+
+def _physical_candidate_locator(candidate_ref, candidate_body):
+    return {
+        "stage_id": candidate_body["stage_id"],
+        "evaluation_ordinal": candidate_body["evaluation_ordinal"],
+        "candidate_ref": dict(candidate_ref),
+    }
+
+
+def complete_optimization_operation(binding, *, operation_id, task_id, attempt_id,
+                                    result, manifest, stages, transitions, outcome):
+    """Seal physical Optimization result/indexes and terminal task state atomically.
+
+    Committed batch objects contain candidate references, never repeated
+    candidate bodies. The completion transaction seals ordered stage/history
+    manifests, the comparison selectors, the result body, and the terminal
+    attempt pointer as one publication boundary.
+    """
+    if outcome not in {"success", "partial"}:
+        raise _error("Physical Optimization terminal outcome is unsupported.", outcome=outcome)
+    if (not isinstance(result, Mapping) or not isinstance(manifest, Mapping)
+            or not isinstance(stages, Sequence) or isinstance(stages, (str, bytes))
+            or not isinstance(transitions, Sequence) or isinstance(transitions, (str, bytes))):
+        raise _error("Physical Optimization terminal descriptors are malformed.", task_id=task_id)
+
+    store = _bound(binding)
+    batch_stream = _physical_stage_stream(task_id, attempt_id)
+    task_stream = _stream(task_id)
+    with _snapshot(store) as snapshot:
+        descriptor = _descriptor(snapshot, task_id)
+        association = _pointer(snapshot, _association_pointer(operation_id))
+        descriptor_pointer = snapshot.read_pointer(f"task/{task_id}")
+        attempt_pointer = snapshot.read_pointer(f"attempt/{task_id}/{attempt_id}")
+        current_attempt_pointer = snapshot.read_pointer(f"current_attempt/{task_id}")
+        if (descriptor.get("request_sha256") is None
+                or association is None
+                or association.get("operation_id") != operation_id
+                or association.get("task_id") != task_id
+                or association.get("attempt_id") != attempt_id
+                or attempt_pointer is None
+                or current_attempt_pointer is None
+                or current_attempt_pointer.get("reference") != attempt_pointer.get("reference")):
+            raise _error("Physical Optimization terminal is not bound to the current attempt.",
+                         operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
+        attempt = _decode(snapshot, attempt_pointer["reference"])
+        if attempt.get("status") not in {"allocated", "running"}:
+            raise _error("Physical Optimization attempt is not terminally publishable.",
+                         task_id=task_id, attempt_id=attempt_id)
+        request_ref = next((item for item in descriptor.get("artifacts", ())
+                            if item.get("role") == "operation_request"), None)
+        if not isinstance(request_ref, Mapping) or request_ref.get("sha256") != descriptor.get("request_sha256"):
+            raise _error("Physical Optimization task lacks its canonical request.", task_id=task_id)
+        request_raw = snapshot.get_object(request_ref)
+        request = record_document(request_raw)
+        if (not isinstance(request, dict) or record_bytes(request) != request_raw
+                or request.get("operation") != "optimize_direct"
+                or request.get("runtime_semantic", {}).get("backend") != "jax"):
+            raise _error("Physical Optimization terminal is bound to another request authority.",
+                         task_id=task_id, attempt_id=attempt_id)
+        source_prefix = _physical_checkpoint_prefix(
+            snapshot, store, attempt.get("resume_from"),
+            expected_request_sha256=descriptor["request_sha256"],
+        ) if attempt.get("resume_from") is not None else {"sources": [], "rows": []}
+        batch_revision = snapshot.stream_revision(batch_stream)
+        task_revision = snapshot.stream_revision(task_stream)
+        sequence_pointer = snapshot.read_pointer("event_sequence/" + task_id)
+        sequence = (0 if sequence_pointer is None else
+                    _decode(snapshot, sequence_pointer["reference"]).get("next_sequence"))
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
+            raise _error("Physical Optimization task event sequence is malformed.", task_id=task_id)
+        batch_stream_record = snapshot.read_stream(batch_stream)
+        committed_batches = []
+        for entry in batch_stream_record["entries"]:
+            if entry.get("kind") != "optimization_stage_batch":
+                raise _error("Physical Optimization batch stream contains an unknown entry.",
+                             task_id=task_id)
+            batch_raw = snapshot.get_object(entry["reference"])
+            batch = record_document(batch_raw)
+            if (not isinstance(batch, dict) or record_bytes(batch) != batch_raw
+                    or batch.get("schema") != "scnsim.optimization_stage_batch"
+                    or batch.get("schema_version") != 1):
+                raise _error("Physical Optimization committed batch is malformed.",
+                             task_id=task_id)
+            baseline_metadata = {}
+            for row in batch.get("rows", ()):
+                if not isinstance(row, Mapping) or row.get("kind") != "baseline":
+                    continue
+                candidate_ref = row.get("candidate_ref")
+                if (not isinstance(candidate_ref, Mapping)
+                        or candidate_ref.get("role") != "optimization_candidate"):
+                    raise _error("Physical Optimization baseline reference is malformed.",
+                                 task_id=task_id, attempt_id=attempt_id)
+                candidate_raw = snapshot.get_object(candidate_ref)
+                candidate_body = record_document(candidate_raw)
+                if (not isinstance(candidate_body, dict)
+                        or record_bytes(candidate_body) != candidate_raw
+                        or candidate_body.get("schema") != "scnsim.optimization_candidate"
+                        or candidate_body.get("schema_version") != 1
+                        or any(candidate_body.get(key) != value for key, value in _physical_identity(
+                            store, descriptor["request_sha256"], task_id, attempt_id,
+                        ).items())
+                        or candidate_body.get("kind") != "baseline"
+                        or candidate_body.get("evaluation_ordinal") != row.get("evaluation_ordinal")
+                        or not isinstance(candidate_body.get("stage_id"), str)
+                        or not isinstance(candidate_body.get("model_identity"), Mapping)
+                        or (candidate_body.get("source_locator") is not None
+                            and not isinstance(candidate_body.get("source_locator"), Mapping))):
+                    raise _error("Physical Optimization baseline body is malformed.",
+                                 task_id=task_id, attempt_id=attempt_id)
+                baseline_metadata[candidate_ref["sha256"]] = {
+                    "stage_id": candidate_body["stage_id"],
+                    "model_identity": dict(candidate_body["model_identity"]),
+                }
+            committed_batches.append((dict(entry["reference"]), batch, baseline_metadata))
+
+    identity = _physical_identity(store, descriptor["request_sha256"], task_id, attempt_id)
+    transaction_id = str(uuid4())
+    # The terminal stage list is the authority for stages that were actually
+    # entered. A declared stage may have no complete population/iteration yet
+    # (for example, a CMA budget that ends before its first full generation),
+    # so its sealed history is legitimately empty. Batch streams alone cannot
+    # represent that entered stage.
+    stage_order = []
+    for ordinal, source in enumerate(stages):
+        if not isinstance(source, Mapping):
+            raise _error("Physical Optimization stage summary is malformed.", ordinal=ordinal)
+        stage_id = source.get("stage_id")
+        if not isinstance(stage_id, str) or not stage_id or stage_id in stage_order:
+            raise _error("Physical Optimization stage order is malformed.", ordinal=ordinal)
+        stage_order.append(stage_id)
+    last_batch_stage = -1
+    stage_indexes = []
+    candidate_locators = {}
+    candidate_refs_by_stage = {}
+    baseline_refs = []
+    transition_refs = []
+    for batch_ref, batch, baseline_metadata in committed_batches:
+        if any(batch.get(key) != value for key, value in identity.items()):
+            raise _error("Physical Optimization batch belongs to another task or attempt.",
+                         task_id=task_id, attempt_id=attempt_id)
+        stage_id, model_identity = batch.get("stage_id"), batch.get("model_identity")
+        if not isinstance(stage_id, str) or not isinstance(model_identity, Mapping):
+            raise _error("Physical Optimization batch stage identity is malformed.", task_id=task_id)
+        if stage_id not in stage_order:
+            raise _error("Physical Optimization batch names a stage that was not entered.",
+                         stage_id=stage_id)
+        batch_stage = stage_order.index(stage_id)
+        if batch_stage < last_batch_stage:
+            raise _error("Physical Optimization batch order differs from entered stages.",
+                         stage_id=stage_id)
+        last_batch_stage = batch_stage
+        rows = batch.get("rows")
+        if not isinstance(rows, list):
+            raise _error("Physical Optimization batch rows are malformed.", stage_id=stage_id)
+        stage_candidates = candidate_refs_by_stage.setdefault(stage_id, [])
+        for row in rows:
+            if not isinstance(row, Mapping) or not isinstance(row.get("candidate_ref"), Mapping):
+                raise _error("Physical Optimization batch candidate locator is malformed.",
+                             stage_id=stage_id)
+            if row.get("kind") == "baseline":
+                candidate_ref = dict(row["candidate_ref"])
+                original_identity = baseline_metadata.get(candidate_ref.get("sha256"))
+                if not isinstance(original_identity, Mapping):
+                    raise _error("Physical Optimization baseline lacks its stored scientific identity.",
+                                 stage_id=stage_id)
+                baseline_refs.append(candidate_ref)
+                baseline_row = {
+                    "stage_id": original_identity["stage_id"],
+                    "model_identity": dict(original_identity["model_identity"]),
+                    "kind": "baseline", "evaluation_ordinal": row.get("evaluation_ordinal"),
+                    "candidate_ref": candidate_ref,
+                    "summary_json": dict(row.get("summary_json", {})),
+                    "source_task_id": task_id, "source_attempt_id": attempt_id,
+                    "source_batch_ref": dict(batch_ref),
+                }
+                candidate_locators[("baseline", candidate_ref["sha256"])] = baseline_row
+                continue
+            if row.get("kind") != "evaluation":
+                raise _error("Physical Optimization batch row kind is unsupported.", stage_id=stage_id)
+            history_ordinal = row.get("history_ordinal")
+            evaluation_ordinal = row.get("evaluation_ordinal")
+            summary = row.get("summary_json")
+            if (not isinstance(history_ordinal, int) or isinstance(history_ordinal, bool)
+                    or history_ordinal < 0 or not isinstance(evaluation_ordinal, int)
+                    or isinstance(evaluation_ordinal, bool) or evaluation_ordinal < 0
+                    or not isinstance(summary, Mapping)):
+                raise _error("Physical Optimization batch row identity is malformed.", stage_id=stage_id)
+            locator = {"kind": "evaluation", "stage_id": stage_id,
+                       "evaluation_ordinal": evaluation_ordinal,
+                       "candidate_ref": dict(row["candidate_ref"]),
+                       "source_task_id": task_id, "source_attempt_id": attempt_id,
+                       "source_batch_ref": dict(batch_ref)}
+            stage_candidates.append({"ordinal": history_ordinal, "stage_id": stage_id,
+                                     "candidate_ref": dict(row["candidate_ref"]),
+                                     "summary_json": dict(summary), "model_identity": dict(model_identity),
+                                     "evaluation_ordinal": evaluation_ordinal,
+                                     "source_task_id": task_id, "source_attempt_id": attempt_id,
+                                     "source_batch_ref": dict(batch_ref)})
+            key = (stage_id, evaluation_ordinal)
+            if key in candidate_locators:
+                raise _error("Physical Optimization stage repeats an evaluation ordinal.",
+                             stage_id=stage_id, evaluation_ordinal=evaluation_ordinal)
+            candidate_locators[key] = locator
+        for transition_ref in batch.get("transition_refs", ()):
+            if not isinstance(transition_ref, Mapping):
+                raise _error("Physical Optimization transition reference is malformed.", stage_id=stage_id)
+            transition_refs.append(dict(transition_ref))
+
+    ancestry_batches = {
+        (source["task_id"], source["attempt_id"], record_bytes(dict(batch_ref)))
+        for source in source_prefix["sources"] for batch_ref in source["batch_refs"]
+    }
+    source_rows_by_identity = {}
+    source_rows_by_ref = {}
+    for row in source_prefix["rows"]:
+        identity_key = (row["source_task_id"], row["source_attempt_id"],
+                        row["kind"], row["stage_id"], row["evaluation_ordinal"],
+                        record_bytes(row["candidate_ref"]))
+        source_rows_by_identity[identity_key] = row
+        source_rows_by_ref[(row["source_task_id"], row["source_attempt_id"],
+                            row["kind"], record_bytes(row["candidate_ref"]))] = row
+        if row["kind"] == "baseline":
+            candidate_locators[("baseline", row["candidate_ref"]["sha256"])] = row
+            continue
+        stage_candidates = candidate_refs_by_stage.setdefault(row["stage_id"], [])
+        stage_candidates.append({
+            "ordinal": row["history_ordinal"], "stage_id": row["stage_id"],
+            "candidate_ref": dict(row["candidate_ref"]),
+            "summary_json": dict(row["summary_json"]), "model_identity": dict(row["model_identity"]),
+            "evaluation_ordinal": row["evaluation_ordinal"],
+            "source_task_id": row["source_task_id"],
+            "source_attempt_id": row["source_attempt_id"],
+            "source_batch_ref": dict(row["source_batch_ref"]),
+        })
+        key = (row["stage_id"], row["evaluation_ordinal"])
+        prior = candidate_locators.get(key)
+        if prior is not None and dict(prior["candidate_ref"]) != dict(row["candidate_ref"]):
+            raise _error("Physical Optimization source prefix repeats an evaluation ordinal.",
+                         stage_id=row["stage_id"], evaluation_ordinal=row["evaluation_ordinal"])
+        candidate_locators[key] = {
+            "kind": "evaluation", "stage_id": row["stage_id"],
+            "evaluation_ordinal": row["evaluation_ordinal"],
+            "candidate_ref": dict(row["candidate_ref"]),
+            "source_task_id": row["source_task_id"],
+            "source_attempt_id": row["source_attempt_id"],
+            "source_batch_ref": dict(row["source_batch_ref"]),
+        }
+
+    for stage_id, stage_rows in candidate_refs_by_stage.items():
+        stage_rows.sort(key=lambda row: row["ordinal"])
+
+    if len({reference["sha256"] for reference in baseline_refs}) > 1 or len(baseline_refs) > 1:
+        raise _error("Physical Optimization has conflicting committed baseline occurrences.",
+                     task_id=task_id)
+
+    def candidate_reference(locator, *, label):
+        if locator is None:
+            return None
+        if not isinstance(locator, Mapping):
+            raise _error("Physical Optimization candidate locator is malformed.", field=label)
+        kind = locator.get("kind", "evaluation")
+        supplied_ref = locator.get("candidate_ref")
+        source_task_id = locator.get("source_task_id")
+        source_attempt_id = locator.get("source_attempt_id")
+        if (source_task_id is None) != (source_attempt_id is None):
+            raise _error("Physical Optimization candidate locator has incomplete source identity.",
+                         field=label)
+        if kind == "baseline":
+            if source_task_id is not None:
+                if not isinstance(supplied_ref, Mapping):
+                    raise _error("Physical Optimization source baseline lacks its candidate reference.",
+                                 field=label)
+                selected = source_rows_by_ref.get((source_task_id, source_attempt_id,
+                    "baseline", record_bytes(dict(supplied_ref))))
+                if selected is None:
+                    raise _error("Physical Optimization source baseline is outside the selected checkpoint prefix.",
+                                 field=label, source_task_id=source_task_id,
+                                 source_attempt_id=source_attempt_id)
+            else:
+                if baseline_ref is None:
+                    raise _error("Physical Optimization baseline locator has no committed occurrence.",
+                                 field=label)
+                if supplied_ref is not None and dict(supplied_ref) != baseline_ref:
+                    raise _error("Physical Optimization baseline locator reference changed.", field=label)
+                selected = candidate_locators.get(("baseline", baseline_ref["sha256"]))
+                if selected is None:
+                    raise _error("Physical Optimization baseline has no committed batch source.",
+                                 field=label)
+        else:
+            stage_id = locator.get("stage_id")
+            evaluation_ordinal = locator.get("evaluation_ordinal")
+            if (kind != "evaluation" or not isinstance(stage_id, str) or not stage_id
+                    or not isinstance(evaluation_ordinal, int)
+                    or isinstance(evaluation_ordinal, bool) or evaluation_ordinal < 0):
+                raise _error("Physical Optimization candidate locator lacks stage identity.", field=label)
+            if source_task_id is not None:
+                if not isinstance(supplied_ref, Mapping):
+                    raise _error("Physical Optimization source candidate lacks its candidate reference.",
+                                 field=label)
+                key = (source_task_id, source_attempt_id, kind, stage_id,
+                       evaluation_ordinal, record_bytes(dict(supplied_ref)))
+                selected = source_rows_by_identity.get(key)
+                if selected is None:
+                    raise _error("Physical Optimization source candidate is outside the selected checkpoint prefix.",
+                                 field=label, stage_id=stage_id,
+                                 evaluation_ordinal=evaluation_ordinal)
+            else:
+                selected = candidate_locators.get((stage_id, evaluation_ordinal))
+                if selected is None:
+                    raise _error("Physical Optimization selector does not name a committed occurrence.",
+                                 field=label, stage_id=stage_id,
+                                 evaluation_ordinal=evaluation_ordinal)
+                if supplied_ref is not None and dict(supplied_ref) != dict(selected["candidate_ref"]):
+                    raise _error("Physical Optimization candidate locator reference changed.", field=label)
+        return {
+            "kind": selected["kind"], "stage_id": selected["stage_id"],
+            "evaluation_ordinal": selected.get("evaluation_ordinal"),
+            "candidate_ref": dict(selected["candidate_ref"]),
+            "source_task_id": selected["source_task_id"],
+            "source_attempt_id": selected["source_attempt_id"],
+            "source_batch_ref": dict(selected["source_batch_ref"]),
+        }
+
+    manifest_body = {
+        "schema": "scnsim.optimization_manifest", "schema_version": 1,
+        **identity, "outcome": outcome,
+        "request_ref": dict(request_ref), "declarations": dict(manifest),
+        "stage_ids": list(stage_order),
+    }
+    manifest_ref = result_ref = comparison_ref = index_root_ref = completion_ref = attempt_ref = None
+    stage_root_rows = []
+    sql_stage_rows = []
+    transition_index_rows = []
+    baseline_ref = baseline_refs[0] if baseline_refs else None
+    with store.transaction(transaction_id, expected_revisions={
+            task_stream: task_revision, batch_stream: batch_revision}) as tx:
+        current_association = _pointer(tx, _association_pointer(operation_id))
+        current_task = tx.read_pointer(f"task/{task_id}")
+        current_attempt = tx.read_pointer(f"attempt/{task_id}/{attempt_id}")
+        current_attempt_pointer = tx.read_pointer(f"current_attempt/{task_id}")
+        if (descriptor_pointer is None or current_task is None
+                or current_task.get("reference") != descriptor_pointer.get("reference")
+                or current_association != association
+                or current_attempt is None
+                or current_attempt.get("reference") != attempt_pointer.get("reference")
+                or current_attempt_pointer is None
+                or current_attempt_pointer.get("reference") != attempt_pointer.get("reference")):
+            raise _error("Physical Optimization attempt binding changed before terminal publication.",
+                         operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
+
+        # A zero-evaluation or zero-complete-iteration result still owns the
+        # actual baseline occurrence in its terminal transaction.
+        baseline_body = result.get("baseline")
+        if baseline_ref is None and baseline_body is not None:
+            if not isinstance(baseline_body, Mapping):
+                raise _error("Physical Optimization terminal baseline is malformed.", task_id=task_id)
+            baseline_candidate = dict(baseline_body)
+            stage_id = baseline_candidate.get("stage_id")
+            model_identity = baseline_candidate.get("model_identity")
+            if not isinstance(stage_id, str) or not isinstance(model_identity, Mapping):
+                raise _error("Physical Optimization terminal baseline lacks its model identity.", task_id=task_id)
+            baseline_candidate_body = {
+                **baseline_candidate, "kind": "baseline",
+                "schema": "scnsim.optimization_candidate", "schema_version": 1,
+                **identity,
+            }
+            baseline_ref = tx.put_object(record_bytes(baseline_candidate_body), role="optimization_candidate")
+
+        manifest_ref = tx.put_object(record_bytes(manifest_body), role="optimization_manifest")
+        completed_stage_ids = []
+        for ordinal, source in enumerate(stages):
+            if not isinstance(source, Mapping):
+                raise _error("Physical Optimization stage summary is malformed.", ordinal=ordinal)
+            stage_id = source.get("stage_id")
+            model_identity = source.get("model_identity")
+            strategy = source.get("strategy")
+            objective_ids = source.get("objective_ids")
+            variable_refs = source.get("variable_refs")
+            status = source.get("status")
+            evaluation_count = source.get("evaluation_count")
+            iteration_count = source.get("iteration_count")
+            if (not isinstance(stage_id, str) or stage_id in completed_stage_ids
+                    or not isinstance(model_identity, Mapping) or not isinstance(strategy, str)
+                    or not isinstance(objective_ids, Sequence) or isinstance(objective_ids, (str, bytes))
+                    or not isinstance(variable_refs, Sequence) or isinstance(variable_refs, (str, bytes))
+                    or not isinstance(status, str)
+                    or not isinstance(evaluation_count, int) or isinstance(evaluation_count, bool)
+                    or not isinstance(iteration_count, int) or isinstance(iteration_count, bool)):
+                raise _error("Physical Optimization stage summary fields are malformed.", ordinal=ordinal)
+            completed_stage_ids.append(stage_id)
+            if stage_id not in stage_order and candidate_refs_by_stage.get(stage_id):
+                raise _error("Physical Optimization stage summary has no committed batch.", stage_id=stage_id)
+            stage_rows = sorted(candidate_refs_by_stage.get(stage_id, ()), key=lambda row: row["ordinal"])
+            if len({row["ordinal"] for row in stage_rows}) != len(stage_rows):
+                raise _error("Physical Optimization stage history repeats an ordinal.", stage_id=stage_id)
+            if any(row["model_identity"] != dict(model_identity) for row in stage_rows):
+                raise _error("Physical Optimization stage history uses another model.", stage_id=stage_id)
+            summary = {
+                key: source.get(key) for key in (
+                    "strategy", "objective_ids", "variable_refs", "termination_reason", "status",
+                    "evaluation_count", "iteration_count",
+                )
+            }
+            observed_ref = candidate_reference(source.get("observed_best"), label="observed_best")
+            accepted_ref = candidate_reference(source.get("accepted_iterate"), label="accepted_iterate")
+            summary_body = {
+                "schema": "scnsim.optimization_stage_summary", "schema_version": 1,
+                **identity, "stage_id": stage_id, "model_identity": dict(model_identity),
+                "summary": summary,
+                "observed_best_ref": (None if observed_ref is None else observed_ref["candidate_ref"]),
+                "observed_best_locator": observed_ref,
+                "accepted_iterate_ref": (None if accepted_ref is None else accepted_ref["candidate_ref"]),
+                "accepted_iterate_locator": accepted_ref,
+            }
+            history_body = {
+                "schema": "scnsim.optimization_stage_history", "schema_version": 1,
+                **identity, "stage_id": stage_id, "model_identity": dict(model_identity),
+                "row_count": len(stage_rows),
+                "candidate_refs": [dict(row["candidate_ref"]) for row in stage_rows],
+                "candidate_sources": [
+                    {"task_id": row["source_task_id"],
+                     "attempt_id": row["source_attempt_id"],
+                     "batch_ref": dict(row["source_batch_ref"])}
+                    for row in stage_rows
+                ],
+            }
+            summary_ref = tx.put_object(record_bytes(summary_body), role="optimization_stage_summary")
+            history_ref = tx.put_object(record_bytes(history_body), role="optimization_stage_history")
+            stage_root_rows.append({"stage_id": stage_id, "model_identity": dict(model_identity),
+                                    "summary_ref": summary_ref, "history_ref": history_ref})
+            sql_stage_rows.append({"stage_id": stage_id, "model_identity": dict(model_identity),
+                                   "summary_ref": summary_ref, "history_ref": history_ref,
+                                   "rows": stage_rows})
+
+        if completed_stage_ids != [source.get("stage_id") for source in stages]:
+            raise _error("Physical Optimization stage order is malformed.", task_id=task_id)
+        comparison = result.get("comparison")
+        if not isinstance(comparison, Mapping):
+            raise _error("Physical Optimization comparison declaration is malformed.", task_id=task_id)
+        comparison_model_identity = comparison.get("comparison_model_identity")
+        comparison_stage_id = comparison.get("comparison_stage_id")
+        declarations = comparison.get("declarations")
+        if (comparison_model_identity is not None and not isinstance(comparison_model_identity, Mapping)
+                or comparison_stage_id is not None and not isinstance(comparison_stage_id, str)
+                or not isinstance(declarations, Mapping)):
+            raise _error("Physical Optimization comparison identity is malformed.", task_id=task_id)
+        winner_locator = candidate_reference(comparison.get("winner"), label="comparison.winner")
+        baseline_locator = candidate_reference(comparison.get("baseline"), label="comparison.baseline")
+        winner_ref = None if winner_locator is None else winner_locator["candidate_ref"]
+        selected_baseline_ref = None if baseline_locator is None else baseline_locator["candidate_ref"]
+        if selected_baseline_ref is not None:
+            baseline_ref = selected_baseline_ref
+        comparison_body = {
+            "schema": "scnsim.optimization_comparison", "schema_version": 1,
+            **identity,
+            "comparison_model_identity": (None if comparison_model_identity is None
+                                          else dict(comparison_model_identity)),
+            "comparison_stage_id": comparison_stage_id,
+            "declarations": dict(declarations),
+            "baseline_ref": baseline_ref,
+            "baseline_locator": baseline_locator,
+            "winner_ref": winner_ref,
+            "winner_locator": winner_locator,
+        }
+        comparison_ref = tx.put_object(record_bytes(comparison_body), role="optimization_comparison")
+
+        transition_ids = set()
+        committed_transition_ids = {row["transition_id"] for row in transition_refs}
+        for ordinal, transition in enumerate(transitions):
+            if not isinstance(transition, Mapping):
+                raise _error("Physical Optimization transition is malformed.", ordinal=ordinal)
+            transition_id = transition.get("transition_id")
+            if not isinstance(transition_id, str) or not transition_id or transition_id in transition_ids:
+                raise _error("Physical Optimization transition identity is malformed.", ordinal=ordinal)
+            transition_ids.add(transition_id)
+            already_committed = next((row for row in transition_refs
+                                      if row["transition_id"] == transition_id), None)
+            if already_committed is not None:
+                # The transition body was sealed at the stage boundary. The
+                # terminal index reuses that exact reference.
+                transition_index_rows.append(dict(already_committed))
+                continue
+            transition_body = {
+                **dict(transition), "schema": "scnsim.optimization_transition",
+                "schema_version": 1, **identity,
+            }
+            transition_ref = tx.put_object(record_bytes(transition_body), role="optimization_transition")
+            transition_index_rows.append({"transition_id": transition_id,
+                                          "transition_ref": transition_ref})
+
+        if committed_transition_ids - transition_ids:
+            raise _error("Physical Optimization terminal omits a committed stage transition.",
+                         transition_ids=sorted(committed_transition_ids - transition_ids))
+
+        result_body = {
+            "schema": "scnsim.optimization_result", "schema_version": 1,
+            **identity, "type": "optimization", "outcome": outcome,
+            "manifest_ref": manifest_ref,
+            "summary": dict(result.get("summary", {})),
+        }
+        result_ref = tx.put_object(record_bytes(result_body), role="operation_result")
+        generation_ancestry_ref = None
+        if source_prefix["sources"]:
+            ancestry_body = {
+                "schema": "scnsim.optimization_generation_ancestry",
+                "schema_version": 1, **identity, "outcome": outcome,
+                "sources": source_prefix["sources"],
+            }
+            generation_ancestry_ref = tx.put_object(
+                record_bytes(ancestry_body), role="optimization_generation_ancestry",
+            )
+        index_root = {
+            "schema": "scnsim.optimization_index_root", "schema_version": 1,
+            **identity, "outcome": outcome, "result_ref": result_ref,
+            "manifest_ref": manifest_ref, "comparison_ref": comparison_ref,
+            "stages": stage_root_rows,
+            "transitions": [{"transition_id": row["transition_id"],
+                             "transition_ref": row["transition_ref"]}
+                            for row in transition_index_rows],
+            "baseline_ref": baseline_ref,
+            "generation_ancestry_ref": generation_ancestry_ref,
+        }
+        index_root_ref = tx.put_object(record_bytes(index_root), role="optimization_index_root")
+        completion = {
+            "schema": "scnsim.workspace_completion", "schema_version": 1,
+            **identity, "outcome": outcome, "result_ref": result_ref,
+            "manifest_ref": manifest_ref, "index_root_ref": index_root_ref,
+            "comparison_ref": comparison_ref, "baseline_ref": baseline_ref,
+            "terminal_attempt_ref": None,
+            "stage_count": len(stage_root_rows),
+            "transition_count": len(transition_index_rows),
+            "evaluation_count": sum(source["evaluation_count"] for source in stages),
+            "generation_ancestry_ref": generation_ancestry_ref,
+        }
+        # The attempt document's digest is part of the selected terminal identity.
+        # It contains artifact references only, never copies of candidate bodies.
+        terminal_attempt = dict(attempt)
+        artifacts = list(terminal_attempt.get("artifacts", ()))
+        for reference in (result_ref, manifest_ref, comparison_ref, index_root_ref,
+                          *([] if generation_ancestry_ref is None else [generation_ancestry_ref]),
+                          *(row["summary_ref"] for row in stage_root_rows),
+                          *(row["history_ref"] for row in stage_root_rows),
+                          *(row["transition_ref"] for row in transition_index_rows)):
+            if reference not in artifacts:
+                artifacts.append(reference)
+        terminal_status = "success" if outcome == "success" else "partial"
+        terminal_attempt.update(status=terminal_status, failure=None, interruption=None,
+                                artifacts=artifacts)
+        attempt_ref = tx.put_object(record_bytes(terminal_attempt), role="attempt")
+        completion["terminal_attempt_ref"] = attempt_ref
+        completion_ref = tx.put_object(record_bytes(completion), role="workspace_completion")
+        success_pointer = None
+        if outcome == "success":
+            selection = {
+                "event": "request_success_selected", "request_sha256": descriptor["request_sha256"],
+                "task_id": task_id, "attempt_id": attempt_id, "result_ref": result_ref,
+                "workspace_completion": completion_ref,
+            }
+            selection_ref = tx.put_object(record_bytes(selection), role="success_selection")
+            selected_ref = tx.select_first("success/" + descriptor["request_sha256"], selection_ref)
+            # A named restart is a new exact attempt for the same immutable
+            # request. Preserve the request's first-success selector while
+            # sealing and returning this attempt independently by attempt ID.
+            success_pointer = selected_ref
+        task_event = {
+            "task_id": task_id, "sequence": sequence, "kind": "optimization_terminal",
+            "payload": {"attempt_id": attempt_id, "outcome": outcome,
+                        "result": result_ref, "workspace_completion": completion_ref},
+        }
+        event_ref = tx.append_with_ref(
+            task_stream, "task_change",
+            record_bytes({"kind": "event", "event": task_event,
+                          "artifacts": [result_ref, completion_ref]}),
+        )[1]
+        terminal_change = {
+            "kind": "attempt_update", "attempt_id": attempt_id, "status": terminal_status,
+            "failure": None, "interruption": None,
+            "checkpoint": None,
+            "artifacts": [result_ref, manifest_ref, comparison_ref, index_root_ref, completion_ref],
+        }
+        _, state_ref = tx.append_with_ref(task_stream, "task_change", record_bytes(terminal_change))
+        tx.set_pointer(f"attempt/{task_id}/{attempt_id}", attempt_ref)
+        tx.set_pointer(f"current_attempt/{task_id}", attempt_ref)
+        tx.set_pointer(_attempt_state_pointer(task_id, attempt_id), state_ref)
+        tx.set_pointer(f"completion/{task_id}/{attempt_id}", completion_ref)
+        next_ref = tx.put_object(record_bytes({"next_sequence": sequence + 1}), role="event_sequence")
+        tx.set_pointer("event_sequence/" + task_id, next_ref)
+        tx.index_optimization(completion_ref["sha256"], sql_stage_rows, transition_index_rows)
+    return {
+        "result_ref": result_ref, "manifest_ref": manifest_ref,
+        "comparison_ref": comparison_ref, "index_root_ref": index_root_ref,
+        "completion_ref": completion_ref, "attempt_ref": attempt_ref,
+        "success_selection_ref": success_pointer,
+        "ack": {"committed": True, "transaction_id": transaction_id,
+                "outcome": outcome, "stage_count": len(stage_root_rows),
+                "evaluation_count": completion["evaluation_count"]},
+    }
 
 
 def read_operation_success(binding,task_id,*,attempt_id=None,projection_consumer=None):
@@ -1378,6 +3034,53 @@ def read_operation_success(binding,task_id,*,attempt_id=None,projection_consumer
                                       "workspace_instance_id": binding.workspace_instance_id},
                 )
     raise _error('Operation task identity is not recorded.', task_id=task_id)
+
+
+def read_operation_attempt(binding, attempt_id, *, projection_consumer=None):
+    """Read one exact terminal attempt selected by its immutable attempt ID.
+
+    The pointer lookup and all result verification share one SQLite snapshot;
+    this path does not reconstruct a request from current Plan/runtime state or
+    replay task history to discover the attempt.
+    """
+    store = _bound(binding)
+    if not (store.path.exists() or store.path.is_symlink()):
+        return None
+    with _snapshot(store) as snapshot:
+        located = snapshot.find_attempt_pointer(attempt_id)
+        if located is None:
+            return None
+        task_id = located["task_id"]
+        descriptor = _descriptor(snapshot, task_id)
+        attempt = _decode(snapshot, located["reference"])
+        if (attempt.get("attempt_id") != attempt_id
+                or descriptor.get("task_id") != task_id
+                or not isinstance(descriptor.get("request_sha256"), str)):
+            raise _error("Exact attempt pointer differs from its task descriptor.",
+                         task_id=task_id, attempt_id=attempt_id)
+        from .evidence_reader import read_success
+        return read_success(
+            store.root, snapshot, descriptor, attempt_id=attempt_id, selection=None,
+            projection_consumer=projection_consumer,
+            binding_identity={"root": str(binding.root), "leaf": str(binding.leaf),
+                              "plan_sha256": binding.plan_sha256,
+                              "workspace_instance_id": binding.workspace_instance_id},
+        )
+
+
+def read_sensitivity_result(binding, task_id, *, attempt_id=None, projection_consumer=None):
+    """Read a fixed successful result or an explicitly named Sensitivity attempt."""
+    success = read_operation_success(
+        binding, task_id, attempt_id=attempt_id,
+    )
+    if success is None:
+        return None
+    from .results import SensitivityResultSelection
+    selection = success.get("selection")
+    if not isinstance(selection, SensitivityResultSelection):
+        raise _error("The selected operation is not a Sensitivity result.", task_id=task_id,
+                     attempt_id=attempt_id)
+    return projection_consumer(success) if projection_consumer is not None else success
 
 
 def find_operation_success(binding,request_sha256,*,projection_consumer=None):
@@ -1414,65 +3117,3 @@ def find_operation_success(binding,request_sha256,*,projection_consumer=None):
     return None
 
 
-def read_checkpoint(workspace,reference,*,binding,expected_task_id,expected_request_sha256,expected_arm,expected_sample,expected_environment_sha256,return_selection=False,spool=None):
-    selection_reference = None
-    if reference.get('role') == 'checkpoint_selection':
-        if (reference.get('storage') != 'sqlite'
-                or reference.get('schema_version') != _OPERATION_STORE_VERSION):
-            raise UnsupportedEvidenceVersionError(
-                'Checkpoint evidence uses an older storage format; use a new Workspace and recompute.',
-                stage='checkpoint_read',
-                evidence={'reference_storage':reference.get('storage'),
-                          'action':'use a new Workspace and recompute'},
-            )
-        selection_reference = dict(reference)
-        selection = None
-    elif reference.get('checkpoint',{}).get('storage') == 'sqlite':
-        selection = dict(reference)
-    else:
-        raise UnsupportedEvidenceVersionError(
-            'Checkpoint evidence uses an older storage format; use a new Workspace and recompute.',
-            stage='checkpoint_read',
-            evidence={'reference_storage':reference.get('checkpoint',{}).get('storage'),
-                      'action':'use a new Workspace and recompute'},
-        )
-    root=_root(workspace)
-    expected={'task_id':expected_task_id,'request_sha256':expected_request_sha256,'arm':expected_arm,
-              'sample':expected_sample,'environment_sha256':expected_environment_sha256}
-    if selection is not None and any(selection.get(k)!=v for k,v in expected.items()):
-        raise _error('Checkpoint binding differs from requested task.')
-    with _snapshot(_writer_store(root,binding)) as snapshot:
-        if selection_reference is not None:
-            selection = _decode(snapshot, selection_reference)
-            if not isinstance(selection, dict):
-                raise _error('Checkpoint selection object is malformed.')
-            if any(selection.get(k)!=v for k,v in expected.items()):
-                raise _error('Checkpoint binding differs from requested task.')
-        descriptor=_descriptor(snapshot,expected_task_id)
-        if any(descriptor.get(k)!=v for k,v in expected.items() if k!='environment_sha256') or descriptor['environment']['environment_sha256']!=expected_environment_sha256:
-            raise _error('Checkpoint task/environment identity changed.')
-        selections=snapshot.read_stream('checkpoints/'+expected_task_id+'/'+selection['attempt_id'])
-        if selection_reference is not None:
-            selected = any(row['reference'] == selection_reference for row in selections['entries'])
-        else:
-            selected = any(_decode(snapshot,row['reference']) == selection for row in selections['entries'])
-        if not selected:
-            raise _error('Checkpoint is not the selected committed state for its attempt.')
-        from .task_history import _verify_checkpoint_file, _hydrate_cma_checkpoint
-        cp,_=_verify_checkpoint_file(root, selection, task_binding=descriptor)
-        if any(cp.get(k)!=v for k,v in expected.items()) or cp.get('attempt_id')!=selection['attempt_id']:
-            raise _error('Checkpoint content differs from sealed identity.')
-        hydrated_document = _hydrate_cma_checkpoint(
-            root, expected_task_id, cp, spool=spool
-        )
-        if spool is None:
-            hydrated = record_bytes(hydrated_document)
-        else:
-            # The task history remains the durable complete ledger. The live
-            # coordinator needs only anchor bodies, candidate cache identities,
-            # the best scalar/ordinal and the exact committed CMA/RNG state.
-            from ..execution.operation_spool import prepare_resume_checkpoint
-            hydrated = prepare_resume_checkpoint(hydrated_document, spool)
-        if return_selection:
-            return hydrated, dict(selection)
-        return hydrated

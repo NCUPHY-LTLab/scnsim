@@ -1,7 +1,7 @@
 """Current operation success reads over one verified SQLite snapshot.
 
 Ordinary JAX results still use their existing operation projection. Optimization
-uses the sealed v6 completion index and fixed reader, never task-history replay.
+uses the sealed v7 completion index and fixed reader, never task-history replay.
 """
 from collections.abc import Mapping
 
@@ -25,8 +25,29 @@ def read_success(root, snapshot, descriptor, *, attempt_id=None, selection=None,
     if not isinstance(request, dict) or record_bytes(request) != request_raw:
         raise storage._error("Operation request bytes are not canonical.", task_id=task_id)
 
+    if request.get("operation") == "sensitivity":
+        from ..workspace.results import read_sensitivity_success
+        from ..workspace.validation.common import _integrity
+
+        if selection is not None and attempt_id is not None and selection.get("attempt_id") != attempt_id:
+            selection = None
+        if not isinstance(binding_identity, Mapping):
+            raise _integrity("Fixed Sensitivity reading requires its bound Workspace identity.",
+                             task_id=task_id, attempt_id=attempt_id)
+        success = read_sensitivity_success(
+            snapshot, binding_identity, descriptor=descriptor, attempt_id=attempt_id,
+            selection=selection,
+        )
+        if isinstance(success, dict):
+            # The exact request body was read and hash-bound above in this same
+            # snapshot. Keep it with the fixed reader so attempt-selected
+            # Sensitivity decoding never reconstructs a request from a live
+            # Run, View, or parameter point.
+            success.setdefault("request", request)
+            success.setdefault("request_sha256", descriptor["request_sha256"])
+        return projection_consumer(success) if projection_consumer is not None else success
+
     if request.get("operation") == "optimize_direct":
-        from ..workspace.results import read_optimization_success
         from ..workspace.validation.common import _integrity
 
         if selection is not None and attempt_id is not None and selection.get("attempt_id") != attempt_id:
@@ -52,10 +73,20 @@ def read_success(root, snapshot, descriptor, *, attempt_id=None, selection=None,
         if not isinstance(binding_identity, Mapping):
             raise _integrity("Fixed Optimization reading requires its bound Workspace identity.",
                              task_id=task_id, attempt_id=attempt_id)
-        success = read_optimization_success(
-            snapshot, binding_identity, descriptor=descriptor, attempt_id=attempt_id,
-            completion_ref=completion_ref, result_ref=result_ref, selection=selection,
-        )
+        if request.get("runtime_semantic", {}).get("backend") == "jax":
+            from ..workspace.results import read_physical_optimization_success
+
+            success = read_physical_optimization_success(
+                snapshot, binding_identity, descriptor=descriptor, attempt_id=attempt_id,
+                completion_ref=completion_ref, result_ref=result_ref, selection=selection,
+            )
+        else:
+            from ..workspace.results import read_optimization_success
+
+            success = read_optimization_success(
+                snapshot, binding_identity, descriptor=descriptor, attempt_id=attempt_id,
+                completion_ref=completion_ref, result_ref=result_ref, selection=selection,
+            )
     else:
         task = _materialize_task(root, snapshot, descriptor)
         from .task_history import operation_success_from_task
@@ -63,4 +94,7 @@ def read_success(root, snapshot, descriptor, *, attempt_id=None, selection=None,
         if success is None:
             return None
 
+    if isinstance(success, dict):
+        success.setdefault("request", request)
+        success.setdefault("request_sha256", descriptor["request_sha256"])
     return projection_consumer(success) if projection_consumer is not None else success

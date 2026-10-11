@@ -75,6 +75,7 @@ from .results import (
     OperatorResult,
     OptimizationResult,
     ParameterSweepResult,
+    SensitivityResult,
     ReportResult,
     _is_verified_analysis_result,
     _verified_result,
@@ -87,6 +88,11 @@ from .specs import (
     HybridizedPoleSpec,
     OperatorSpec,
     OptimizationSpec,
+    CMAESSpec,
+    SensitivitySpec,
+    AcceptedIterateSelection,
+    LBFGSBSpec,
+    HybridSpec,
     OptimizationProgress,
     QuantityAbsolute,
     QuantityDifference,
@@ -414,6 +420,10 @@ class CircuitRun:
     @staticmethod
     def _require_backend_spec(backend, precision, spec) -> None:
         if backend == "julia":
+            if isinstance(spec, SensitivitySpec) or isinstance(spec, OptimizationSpec) and (
+                not isinstance(spec.optimizer, CMAESSpec) or spec.discretization is not None
+            ):
+                raise RuntimePreparationError("Sensitivity, fixed-mesh and local/Hybrid optimization declarations require JAX; Julia is legacy/reference only", stage="runtime_prepare")
             if precision != "float64":
                 raise RuntimePreparationError(
                     "The Julia backend requires precision='float64'.", stage="runtime_prepare")
@@ -604,6 +614,89 @@ class CircuitRun:
             return self._execute(prepared, bound_spec=spec, trace=trace, operation_lease=lease,
                                  native_supervisor=native_supervisor)
 
+    def _sensitivity_quantities(self, quantities, *, encoded: bool):
+        """Bind every expression leaf separately without retaining View closures."""
+        from .specs import _sensitivity_quantity_record
+
+        def bind(value):
+            if isinstance(value, QuantitySum):
+                return {"type": "quantity_sum", "terms": tuple(bind(term) for term in value.terms)}
+            if isinstance(value, QuantityDifference):
+                return {"type": "quantity_difference", "left": bind(value.left), "right": bind(value.right)}
+            if isinstance(value, QuantityAbsolute):
+                return {"type": "quantity_absolute", "operand": bind(value.operand)}
+            if not isinstance(value, QuantitySelector):
+                raise TypeError("quantities must contain bound physical selectors")
+            selected = value._view
+            self._require_ref(selected)
+            if not encoded:
+                return _sensitivity_quantity_record(value)
+            selected_spec = value.spec
+            if not isinstance(selected_spec, DirectSolveSpec):
+                self._validate_direct_quantity_spec("sensitivity", selected, selected_spec)
+            spec_record = _encode_spec(
+                selected_spec, self._baseline_point.effective_parameters,
+                coordinate_bindings={_coordinate_binding_key(coordinate): self._view_coordinate_id(selected, coordinate)
+                                     for coordinate in _quantity_coordinates(selected_spec)}
+                if not isinstance(selected_spec, DirectSolveSpec) else {},
+                trace_channels={channel: self._trace_request_channel(selected, channel)
+                                for trace in getattr(selected_spec, "traces", ())
+                                for channel in (trace.input_port, trace.output_port)},
+            )
+            return {"type": value.type, "projection": value.projection, "spec": spec_record,
+                    "view": {**_view_declaration(selected._lineage), "plan_sha256": self._plan_sha256}}
+
+        return tuple({"id": label, "quantity": bind(quantity)} for label, quantity in quantities.items())
+
+    @run_activity
+    def dependencies(self, *, quantities: Mapping[str, object]):
+        """Read declared physical consumers without mesh or device preparation."""
+        from .compilation.dependencies import describe_dependencies
+        declarations = self._sensitivity_quantities(quantities, encoded=False)
+        return describe_dependencies(self._plan_document, declarations,
+                                     self._baseline_point.parameter_record)
+
+    def _encoded_sensitivity_spec(self, spec: SensitivitySpec):
+        if not isinstance(spec, SensitivitySpec):
+            raise TypeError("spec must be SensitivitySpec")
+        for parameter in spec.wrt:
+            self._compatible_parameter(parameter)
+        declaration = dict(spec._canonical_record())
+        declaration["quantities"] = self._sensitivity_quantities(spec.quantities, encoded=True)
+        return declaration
+
+    def _prepare_sensitivity(self, spec: SensitivitySpec, parameters, *, precision):
+        from .execution.sensitivity_request import prepare_sensitivity
+        declaration = self._encoded_sensitivity_spec(spec)
+        point = self._complete_parameters(parameters)
+        return prepare_sensitivity(
+            plan_sha256=self._plan_sha256, encoded_spec=declaration,
+            parameter_record=point.parameter_record, runtime_base=self._runtime_base,
+            precision=precision,
+            source_units=self._source_units(spec, point.effective_parameters, parameter_space=parameters),
+        )
+
+    @run_activity
+    def sensitivity(self, spec: SensitivitySpec, *, parameters: ParameterSet | None = None,
+                    backend: str | None = None, precision: str | None = None,
+                    timing: str | None = None) -> SensitivityResult:
+        """Execute the requested checked derivative of the same physical program."""
+        backend, precision = self._selected_backend(backend, precision)
+        if backend != "jax":
+            raise RuntimePreparationError("Sensitivity requires the JAX backend; Julia is legacy/reference only", stage="runtime_prepare")
+        started_ns = perf_counter_ns()
+        with self._execution_scope("sensitivity", backend, precision, started_ns, timing) as (backend, precision, trace, lease, native_supervisor):
+            with trace.span("preparation"):
+                prepared = self._prepare_sensitivity(spec, parameters, precision=precision)
+            from .execution.jax_operation import execute_sensitivity_operation
+            return execute_sensitivity_operation(
+                binding=self._binding, plan_document=self._plan_document,
+                prepared_analysis=prepared, decoder=self._result_decoder(),
+                bound_spec=spec, trace=trace,
+                precision=precision, backend=backend,
+                program_owner=self._warm_executables,
+            )
+
     @run_activity
     def warmup(
         self,
@@ -661,6 +754,7 @@ class CircuitRun:
         on_progress: Callable[[OptimizationProgress], object] | None = None,
         checkpoint: str = "generation",
         resume_from: Mapping[str, object] | None = None,
+        restart_from: AcceptedIterateSelection | None = None,
         commit_every_generations: int | object = _OMITTED_COMMIT_EVERY_GENERATIONS,
     ) -> OptimizationResult: ...
 
@@ -678,6 +772,7 @@ class CircuitRun:
         on_progress: Callable[[OptimizationProgress], object] | None = None,
         checkpoint: str = "generation",
         resume_from: Mapping[str, object] | None = None,
+        restart_from: AcceptedIterateSelection | None = None,
         commit_every_generations: int | object = _OMITTED_COMMIT_EVERY_GENERATIONS,
     ) -> OptimizationResult: ...
 
@@ -695,12 +790,14 @@ class CircuitRun:
         on_progress: Callable[[OptimizationProgress], object] | None = None,
         checkpoint: str = "generation",
         resume_from: Mapping[str, object] | None = None,
+        restart_from: AcceptedIterateSelection | None = None,
         commit_every_generations: int | object = _OMITTED_COMMIT_EVERY_GENERATIONS,
     ) -> OptimizationResult:
-        """Run one pinned Direct CMA-ES request and return its exact winner."""
+        """Run the declared physical objective strategy with explicit persistence."""
 
         started_ns = perf_counter_ns()
         with self._execution_scope("optimize", backend, precision, started_ns, timing) as (backend, precision, trace, lease, native_supervisor):
+            generation_cadence_supplied = commit_every_generations is not _OMITTED_COMMIT_EVERY_GENERATIONS
             if commit_every_generations is _OMITTED_COMMIT_EVERY_GENERATIONS:
                 commit_every_generations = 10 if backend == "jax" else 1
             if isinstance(commit_every_generations, bool) or not isinstance(commit_every_generations, int):
@@ -720,6 +817,19 @@ class CircuitRun:
             if on_progress is not None and not callable(on_progress):
                 raise TypeError("on_progress must be callable or None")
             default_ref, optimization_spec = self._optimization_arguments(ref_or_spec, spec)
+            has_cma = isinstance(optimization_spec.optimizer, CMAESSpec) or (
+                isinstance(optimization_spec.optimizer, HybridSpec)
+                and any(isinstance(stage.optimizer, CMAESSpec) for stage in optimization_spec.optimizer.stages)
+            )
+            if generation_cadence_supplied and not has_cma:
+                raise TypeError("commit_every_generations applies to CMA stages; local stages use commit_every_iterations")
+            if restart_from is not None:
+                if not isinstance(restart_from, AcceptedIterateSelection):
+                    raise TypeError("restart_from must be AcceptedIterateSelection")
+                if resume_from is not None:
+                    raise ValueError("restart_from and exact resume_from are distinct operations")
+                if backend != "jax" or isinstance(optimization_spec.optimizer, CMAESSpec):
+                    raise RuntimePreparationError("accepted-iterate restart requires local or Hybrid JAX optimization", stage="runtime_prepare")
             ref, selector_views = self._optimization_views(
                 optimization_spec, default_ref=default_ref
             )
@@ -764,6 +874,7 @@ class CircuitRun:
                     prepared, bound_spec=optimization_spec, on_progress=on_progress,
                     progress_observer=display, checkpoint_policy=checkpoint,
                     resume_from=resume_from,
+                    restart_from=None if restart_from is None else restart_from._canonical_record(),
                     commit_every_generations=commit_every_generations, trace=trace,
                     operation_lease=lease,
                     native_supervisor=native_supervisor,
@@ -773,22 +884,22 @@ class CircuitRun:
                     display.close()
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: DirectSolveSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None) -> DirectSolveResult | ParameterSweepResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: DirectSolveSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None, attempt: object | None = None) -> DirectSolveResult | ParameterSweepResult: ...
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: DiagonalRootSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None) -> DiagonalRootResult | ParameterSweepResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: DiagonalRootSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None, attempt: object | None = None) -> DiagonalRootResult | ParameterSweepResult: ...
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: OperatorElementRootSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None) -> OperatorElementRootResult | ParameterSweepResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: OperatorElementRootSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None, attempt: object | None = None) -> OperatorElementRootResult | ParameterSweepResult: ...
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: OptimizationSpec, *, parameters: ParameterSet | None = None, backend: str | None = None, precision: str | None = None) -> OptimizationResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: OptimizationSpec, *, parameters: ParameterSet | None = None, backend: str | None = None, precision: str | None = None, attempt: object | None = None) -> OptimizationResult: ...
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: HBSolveSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None) -> HBBatchResult | ParameterSweepResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: HBSolveSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None, attempt: object | None = None) -> HBBatchResult | ParameterSweepResult: ...
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: OperatorSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None) -> OperatorResult | ParameterSweepResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: OperatorSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None, attempt: object | None = None) -> OperatorResult | ParameterSweepResult: ...
 
     @overload
     def resolve(
@@ -801,10 +912,29 @@ class CircuitRun:
         precision: str | None = None,
     ) -> DirectQuantityResult | ParameterSweepResult: ...
 
+    @staticmethod
+    def _terminal_attempt_id(attempt):
+        if attempt is None:
+            return None
+        if isinstance(attempt, str):
+            identity = attempt
+        elif isinstance(attempt, Mapping):
+            identity = attempt.get("attempt_id")
+        else:
+            identity = getattr(attempt, "attempt_id", None)
+        if not isinstance(identity, str) or not identity:
+            raise TypeError("attempt must supply an exact terminal attempt_id")
+        return identity
+
+    @overload
+    def resolve(self, spec: SensitivitySpec, *, parameters: ParameterSet | None = None,
+                backend: str | None = None, precision: str | None = None,
+                attempt: object | None = None) -> SensitivityResult | None: ...
+
     @run_activity
     def resolve(
         self,
-        ref: NetworkViewRef,
+        ref: NetworkViewRef | SensitivitySpec,
         spec: DirectSolveSpec
         | HBSolveSpec
         | DiagonalRootSpec
@@ -814,11 +944,13 @@ class CircuitRun:
         | ResidueNormalizedCouplingSpec
         | ResponseElementSpec
         | OperatorSpec
-        | OptimizationSpec,
+        | OptimizationSpec
+        | None = None,
         *,
         parameters: ParameterSet | ParameterSpace | None = None,
         backend: str | None = None,
         precision: str | None = None,
+        attempt: object | None = None,
     ) -> (
         DirectSolveResult
         | HBBatchResult
@@ -828,12 +960,37 @@ class CircuitRun:
         | OperatorResult
         | OptimizationResult
         | ParameterSweepResult
+        | SensitivityResult
+        | None
     ):
-        """Verify and load the success for this exact request without retrying."""
+        """Read exact success, or an explicitly selected sealed terminal."""
 
+        requested_backend, requested_precision = backend, precision
         backend, precision = self._selected_backend(backend, precision)
+        attempt_id = self._terminal_attempt_id(attempt)
+        if isinstance(ref, SensitivitySpec):
+            if spec is not None:
+                raise TypeError("resolve received both a SensitivitySpec and a second Spec")
+            from .execution.jax_operation import resolve_jax_operation
+            if attempt_id is not None and parameters is None:
+                from .execution.sensitivity_request import finalize_sensitivity_spec
+                expected_spec = finalize_sensitivity_spec(self._encoded_sensitivity_spec(ref))
+                return resolve_jax_operation(
+                    binding=self._binding, prepared_analysis=None,
+                    decoder=self._result_decoder(), bound_spec=ref, attempt_id=attempt_id,
+                    expected_spec=expected_spec, expected_backend=requested_backend,
+                    expected_precision=requested_precision,
+                )
+            if backend != "jax":
+                raise RuntimePreparationError("Sensitivity resolution requires JAX", stage="runtime_prepare")
+            prepared = self._prepare_sensitivity(ref, parameters, precision=precision)
+            return resolve_jax_operation(binding=self._binding, prepared_analysis=prepared,
+                                         decoder=self._result_decoder(), bound_spec=ref,
+                                         attempt_id=attempt_id)
         self._require_backend_spec(backend, precision, spec)
         self._require_ref(ref)
+        if backend != "jax" and attempt_id is not None:
+            raise RuntimePreparationError("explicit terminal attempt selection requires JAX", stage="runtime_prepare")
         if isinstance(spec, DirectSolveSpec):
             operation = "solve_direct"
         elif isinstance(spec, HBSolveSpec):
@@ -873,7 +1030,7 @@ class CircuitRun:
         if backend == "jax":
             from .execution.jax_operation import resolve_jax_operation
             return resolve_jax_operation(binding=self._binding, prepared_analysis=prepared,
-                                         decoder=self._result_decoder(), bound_spec=spec)
+                                         decoder=self._result_decoder(), bound_spec=spec, attempt_id=attempt_id)
         with self._binding.reader():
             success = self._binding.resolve_success(prepared.request_sha256)
             evidence_lease = _verified_evidence_lease(self._binding, success)
@@ -1374,6 +1531,17 @@ class CircuitRun:
     ) -> BoundOptimization:
         """Bind ordered selector leaves without retaining live View objects."""
 
+        stages = spec.optimizer.stages if isinstance(spec.optimizer, HybridSpec) else ()
+        controls = tuple(stage.optimizer for stage in stages) or (spec.optimizer,)
+        for control in controls:
+            if isinstance(control, LBFGSBSpec) and control.coordinate_scales is not None:
+                for parameter in control.coordinate_scales:
+                    self._compatible_parameter(parameter)
+        for stage in stages:
+            if stage.seed is not None:
+                for parameter in stage.seed.values:
+                    self._compatible_parameter(parameter)
+
         expressions: list[Mapping[str, object]] = []
         leaves: list[BoundOptimizationLeaf] = []
         for objective_ordinal, objective in enumerate(spec.objectives):
@@ -1577,6 +1745,7 @@ class CircuitRun:
         progress_observer: object | None = None,
         checkpoint_policy: str = "generation",
         resume_from: Mapping[str, object] | None = None,
+        restart_from: Mapping[str, object] | None = None,
         commit_every_generations: int = 1,
     ):
         if prepared_analysis.request()["runtime_semantic"].get("backend") == "jax":
@@ -1586,8 +1755,9 @@ class CircuitRun:
                 prepared_analysis=prepared_analysis, decoder=self._result_decoder(),
                 bound_spec=bound_spec, on_progress=on_progress,
                 progress_observer=progress_observer,
-                checkpoint_policy=checkpoint_policy, resume_from=resume_from,
+                checkpoint_policy=checkpoint_policy, resume_from=resume_from, restart_from=restart_from,
                 commit_every_generations=commit_every_generations, trace=trace,
+                program_owner=self._warm_executables,
             )
         from .execution.coordinator import execute_prepared
 

@@ -32,6 +32,9 @@ from ..specs import (
     HybridizedPoleSpec,
     OperatorSpec,
     OptimizationSpec,
+    CMAESSpec,
+    LBFGSBSpec,
+    HybridSpec,
     QuantityAbsolute,
     QuantityDifference,
     QuantitySelector,
@@ -159,13 +162,21 @@ class PreparedAnalysis:
         if runtime_semantic.get("backend") == "jax" and operation == "optimize_direct":
             # Backend identity and transform naming share one canonical owner;
             # the existing host mapping math is unchanged.
-            optimizer = dict(spec["optimizer"])
-            optimizer["box_transform_id"] = (
-                "scnsim-python-cmaes-0.13.1-native-domains.v1"
-                if optimizer["box_transform_id"].endswith("native-domains.v1")
-                else "scnsim-python-cmaes-0.13.1-linquad-unit-box.v1"
-            )
-            spec = {**spec, "optimizer": optimizer}
+            def jax_controls(record):
+                optimizer = dict(record)
+                if optimizer["type"] == "cma_es":
+                    optimizer["box_transform_id"] = (
+                        "scnsim-python-cmaes-0.13.1-native-domains.v1"
+                        if optimizer["box_transform_id"].endswith("native-domains.v1")
+                        else "scnsim-python-cmaes-0.13.1-linquad-unit-box.v1"
+                    )
+                elif optimizer["type"] == "hybrid":
+                    optimizer["stages"] = [
+                        {**stage, "optimizer": jax_controls(stage["optimizer"])}
+                        for stage in optimizer["stages"]
+                    ]
+                return optimizer
+            spec = {**spec, "optimizer": jax_controls(spec["optimizer"])}
         request = canonical_request_document(
             plan_sha256=plan_sha256,
             operation=operation,
@@ -183,6 +194,18 @@ class PreparedAnalysis:
 
     def request(self) -> dict[str, object]:
         return json.loads(self.request_bytes)
+
+    def effective_point(self) -> dict[str, object]:
+        """Detach the encoded single effective point without resolving it again.
+
+        Optimization/single-point consumers borrow this canonical declaration;
+        grids and point sequences remain the ordinary source-expansion owner's
+        responsibility, not an implicit baseline or first-point selection.
+        """
+        source = self.request()['parameter_source']
+        if source['kind'] != 'point':
+            raise TypeError('effective_point requires a single-point parameter source')
+        return source['parameters']
 
     def source_units(self) -> tuple[dict[str, object], ...]:
         return tuple(json.loads(record) for record in self.source_unit_bytes)
@@ -418,6 +441,163 @@ def _encode_direct_quantity(
     raise TypeError("unsupported Direct quantity Spec")
 
 
+def _optimization_variables(declared_variables, parameters):
+    """Resolve the existing physical variable/domain declaration at a seed."""
+    variables: list[dict[str, object]] = []
+    baseline_optimizer_coordinates: list[str] = []
+    for variable in declared_variables:
+        parameter = variable.parameter
+        if isinstance(parameter.spec, RLGCParameterSpec):
+            raise InvalidOptimizationSpec(
+                "RLGC parameters cannot be continuous optimization variables",
+                stage="spec_validation",
+            )
+        parameter_unit = parameter.spec.si_unit
+        baseline_value = float(parameters.values[parameter].to(parameter_unit).magnitude)
+        if variable.domain is not None:
+            domain = variable.domain.value
+            if domain in {"POSITIVE", "NEGATIVE"} and (
+                baseline_value == 0.0 or (baseline_value > 0.0) != (domain == "POSITIVE")
+            ):
+                raise InvalidOptimizationSpec("signed log domain requires a strictly signed initial value", stage="spec_validation")
+            if domain == "NONNEGATIVE" and baseline_value < 0.0 or domain == "NONPOSITIVE" and baseline_value > 0.0:
+                raise InvalidOptimizationSpec("initial value is outside optimization domain", stage="spec_validation")
+            scale = None
+            if variable.scale is not None:
+                try:
+                    scale_value = float(variable.scale.to(parameter_unit).magnitude)
+                except Exception as error:
+                    raise InvalidOptimizationSpec("domain scale must match the parameter unit", stage="spec_validation") from error
+                if not math.isfinite(scale_value) or scale_value <= 0.0 or (
+                    domain != "UNBOUNDED" and not math.isfinite(baseline_value / scale_value)
+                ):
+                    raise InvalidOptimizationSpec("domain scale must be finite, positive, and same-unit", stage="spec_validation")
+                scale = quantity_envelope(variable.scale, si_unit=parameter_unit, registry=units.registry)
+            variables.append({"parameter": parameter._key_record(), "domain": domain,
+                              "transform": variable.transform, "scale": scale})
+            baseline_optimizer_coordinates.append(float64_hex(0.0))
+            continue
+        assert variable.bounds is not None and variable.model_default_bounds is not None
+        lower, upper = variable.bounds
+        low = quantity_envelope(lower, si_unit=parameter_unit, registry=units.registry)
+        high = quantity_envelope(upper, si_unit=parameter_unit, registry=units.registry)
+        low_value = float(lower.to(parameter_unit).magnitude)
+        high_value = float(upper.to(parameter_unit).magnitude)
+        if low_value >= high_value:
+            raise InvalidOptimizationSpec(
+                "optimization lower bound must be below upper bound",
+                stage="spec_validation",
+            )
+        if not low_value <= baseline_value <= high_value:
+            raise InvalidOptimizationSpec(
+                "sealed baseline must lie within resolved variable bounds",
+                stage="spec_validation",
+            )
+        if variable.transform == "log" and low_value <= 0.0:
+            raise InvalidOptimizationSpec(
+                "log optimization bounds must be strictly positive",
+                stage="spec_validation",
+            )
+        coordinate = (
+            (baseline_value - low_value) / (high_value - low_value)
+            if variable.transform == "linear"
+            else math.log(baseline_value / low_value)
+            / math.log(high_value / low_value)
+        )
+        if not math.isfinite(coordinate) or not 0.0 <= coordinate <= 1.0:
+            raise InvalidOptimizationSpec(
+                "sealed baseline has no finite unit-box coordinate",
+                stage="spec_validation",
+            )
+        baseline_optimizer_coordinates.append(float64_hex(coordinate))
+        default = [
+            quantity_envelope(item, si_unit=parameter_unit, registry=units.registry)
+            for item in variable.model_default_bounds
+        ]
+        override = (
+            None
+            if variable.consumer_override_bounds is None
+            else [
+                quantity_envelope(item, si_unit=parameter_unit, registry=units.registry)
+                for item in variable.consumer_override_bounds
+            ]
+        )
+        variables.append(
+            {
+                "parameter": parameter._key_record(),
+                "model_default_bounds": default,
+                "consumer_override_bounds": override,
+                "lower": low,
+                "upper": high,
+                "transform": variable.transform,
+            }
+        )
+    return variables, baseline_optimizer_coordinates
+
+
+def _optimizer_controls(optimizer, declared_variables, parameters, *, discretization, baseline_coordinates):
+    """Encode explicit controller controls; compilation owns realized meshes."""
+    if isinstance(optimizer, CMAESSpec):
+        population = optimizer.population_size or (4 + math.floor(3 * math.log(len(declared_variables))))
+        generations = (optimizer.max_evaluations - 1) // population
+        if generations < 1:
+            raise ValueError("CMA-ES budget must fit the baseline and one complete generation")
+        unused = optimizer.max_evaluations - (1 + generations * population)
+        return {
+            "type": "cma_es", "seed": optimizer.seed,
+            "max_evaluations": optimizer.max_evaluations,
+            "population_size": optimizer.population_size,
+            "resolved_population_size": population,
+            "initial_sigma_f64": float64_hex(optimizer.initial_sigma),
+            "baseline_optimizer_coordinates_f64": baseline_coordinates,
+            "box_transform_id": ("cmaes-jl-0.2.6-native-domains.v1"
+                                 if any(v.domain is not None for v in declared_variables)
+                                 else "cmaes-jl-0.2.6-linquad-unit-box.v1"),
+            "complete_generations": generations, "unused_evaluations": unused,
+            "hidden_stops": "disabled",
+        }
+    if isinstance(optimizer, LBFGSBSpec):
+        scales = optimizer.coordinate_scales
+        scale_rows = None
+        if scales is not None:
+            declared_keys = {(v.parameter.definitions_id, v.parameter.id) for v in declared_variables}
+            supplied_keys = {(p.definitions_id, p.id) for p in scales}
+            if declared_keys != supplied_keys:
+                raise InvalidOptimizationSpec("coordinate_scales must bind every local optimization variable", stage="request_encode")
+            by_key = {(p.definitions_id, p.id): value for p, value in scales.items()}
+            scale_rows = [{"parameter": v.parameter._key_record(),
+                           "value": quantity_envelope(by_key[(v.parameter.definitions_id, v.parameter.id)],
+                                                      si_unit=v.parameter.spec.si_unit,
+                                                      registry=units.registry)}
+                          for v in declared_variables]
+        return {"type": "lbfgsb", "max_evaluations": optimizer.max_evaluations,
+                "max_iterations": optimizer.max_iterations,
+                "ftol_f64": float64_hex(optimizer.ftol), "gtol_f64": float64_hex(optimizer.gtol),
+                "max_line_search": optimizer.max_line_search,
+                "commit_every_iterations": optimizer.commit_every_iterations,
+                "coordinate_scales": scale_rows}
+    if isinstance(optimizer, HybridSpec):
+        stages = []
+        for ordinal, stage in enumerate(optimizer.stages):
+            seed_values = dict(parameters.values)
+            if stage.seed is not None:
+                captured = {(p.definitions_id, p.id): p for p in seed_values}
+                for parameter, value in stage.seed.values.items():
+                    seed_values[captured[(parameter.definitions_id, parameter.id)]] = value
+            seed = ParameterSet(seed_values, allow_extrapolation=parameters.allow_extrapolation)
+            _, stage_coordinates = _optimization_variables(declared_variables, seed)
+            if ordinal > 0 and stage.seed is None:
+                stage_coordinates = None  # Actual selected point is sealed at transition.
+            mesh = stage.discretization if stage.discretization is not None else discretization
+            stages.append({"id": stage.id,
+                           "optimizer": _optimizer_controls(stage.optimizer, declared_variables, seed, discretization=mesh, baseline_coordinates=stage_coordinates),
+                           "discretization": None if mesh is None else mesh._canonical_record(),
+                           "seed": None if stage.seed is None else seed._record()})
+        return {"type": "hybrid", "stages": stages,
+                "comparison_stage_id": optimizer.comparison_stage_id}
+    raise TypeError("optimizer must be CMAESSpec, LBFGSBSpec or HybridSpec")
+
+
 def _encode_spec(
     spec: DirectSolveSpec
     | HBSolveSpec
@@ -524,103 +704,7 @@ def _encode_spec(
             "optimization quantity normalization is incomplete",
             stage="request_encode",
         )
-    variables: list[dict[str, object]] = []
-    baseline_optimizer_coordinates: list[str] = []
-    for variable in spec.variables:
-        parameter = variable.parameter
-        if isinstance(parameter.spec, RLGCParameterSpec):
-            raise InvalidOptimizationSpec(
-                "RLGC parameters cannot be continuous optimization variables",
-                stage="spec_validation",
-            )
-        parameter_unit = parameter.spec.si_unit
-        baseline_value = float(parameters.values[parameter].to(parameter_unit).magnitude)
-        if variable.domain is not None:
-            domain = variable.domain.value
-            if domain in {"POSITIVE", "NEGATIVE"} and (
-                baseline_value == 0.0 or (baseline_value > 0.0) != (domain == "POSITIVE")
-            ):
-                raise InvalidOptimizationSpec("signed log domain requires a strictly signed initial value", stage="spec_validation")
-            if domain == "NONNEGATIVE" and baseline_value < 0.0 or domain == "NONPOSITIVE" and baseline_value > 0.0:
-                raise InvalidOptimizationSpec("initial value is outside optimization domain", stage="spec_validation")
-            scale = None
-            if variable.scale is not None:
-                try:
-                    scale_value = float(variable.scale.to(parameter_unit).magnitude)
-                except Exception as error:
-                    raise InvalidOptimizationSpec("domain scale must match the parameter unit", stage="spec_validation") from error
-                if not math.isfinite(scale_value) or scale_value <= 0.0 or (
-                    domain != "UNBOUNDED" and not math.isfinite(baseline_value / scale_value)
-                ):
-                    raise InvalidOptimizationSpec("domain scale must be finite, positive, and same-unit", stage="spec_validation")
-                scale = quantity_envelope(variable.scale, si_unit=parameter_unit, registry=units.registry)
-            variables.append({"parameter": parameter._key_record(), "domain": domain,
-                              "transform": variable.transform, "scale": scale})
-            baseline_optimizer_coordinates.append(float64_hex(0.0))
-            continue
-        assert variable.bounds is not None and variable.model_default_bounds is not None
-        lower, upper = variable.bounds
-        low = quantity_envelope(lower, si_unit=parameter_unit, registry=units.registry)
-        high = quantity_envelope(upper, si_unit=parameter_unit, registry=units.registry)
-        low_value = float(lower.to(parameter_unit).magnitude)
-        high_value = float(upper.to(parameter_unit).magnitude)
-        if low_value >= high_value:
-            raise InvalidOptimizationSpec(
-                "optimization lower bound must be below upper bound",
-                stage="spec_validation",
-            )
-        if not low_value <= baseline_value <= high_value:
-            raise InvalidOptimizationSpec(
-                "sealed baseline must lie within resolved variable bounds",
-                stage="spec_validation",
-            )
-        if variable.transform == "log" and low_value <= 0.0:
-            raise InvalidOptimizationSpec(
-                "log optimization bounds must be strictly positive",
-                stage="spec_validation",
-            )
-        coordinate = (
-            (baseline_value - low_value) / (high_value - low_value)
-            if variable.transform == "linear"
-            else math.log(baseline_value / low_value)
-            / math.log(high_value / low_value)
-        )
-        if not math.isfinite(coordinate) or not 0.0 <= coordinate <= 1.0:
-            raise InvalidOptimizationSpec(
-                "sealed baseline has no finite unit-box coordinate",
-                stage="spec_validation",
-            )
-        baseline_optimizer_coordinates.append(float64_hex(coordinate))
-        default = [
-            quantity_envelope(item, si_unit=parameter_unit, registry=units.registry)
-            for item in variable.model_default_bounds
-        ]
-        override = (
-            None
-            if variable.consumer_override_bounds is None
-            else [
-                quantity_envelope(item, si_unit=parameter_unit, registry=units.registry)
-                for item in variable.consumer_override_bounds
-            ]
-        )
-        variables.append(
-            {
-                "parameter": parameter._key_record(),
-                "model_default_bounds": default,
-                "consumer_override_bounds": override,
-                "lower": low,
-                "upper": high,
-                "transform": variable.transform,
-            }
-        )
-    n = len(variables)
-    population = spec.optimizer.population_size or (4 + math.floor(3 * math.log(n)))
-    generations = (spec.optimizer.max_evaluations - 1) // population
-    if generations < 1:
-        raise ValueError(
-            "CMA-ES budget must fit the baseline and one complete generation"
-        )
-    unused = spec.optimizer.max_evaluations - (1 + generations * population)
+    variables, baseline_optimizer_coordinates = _optimization_variables(spec.variables, parameters)
     objectives: list[dict[str, object]] = []
     for objective, quantity in zip(spec.objectives, optimization_quantities):
         objective_unit = _expression_unit(objective.quantity)
@@ -672,20 +756,10 @@ def _encode_spec(
         "type": "optimization",
         "variables": variables,
         "objectives": objectives,
-        "optimizer": {
-            "type": "cma_es",
-            "seed": spec.optimizer.seed,
-            "max_evaluations": spec.optimizer.max_evaluations,
-            "population_size": spec.optimizer.population_size,
-            "resolved_population_size": population,
-            "initial_sigma_f64": float64_hex(spec.optimizer.initial_sigma),
-            "baseline_optimizer_coordinates_f64": baseline_optimizer_coordinates,
-            "box_transform_id": ("cmaes-jl-0.2.6-native-domains.v1" if any(v.domain is not None for v in spec.variables)
-                                 else "cmaes-jl-0.2.6-linquad-unit-box.v1"),
-            "complete_generations": generations,
-            "unused_evaluations": unused,
-            "hidden_stops": "disabled",
-        },
+        "optimizer": _optimizer_controls(spec.optimizer, spec.variables, parameters,
+                                          discretization=spec.discretization, baseline_coordinates=baseline_optimizer_coordinates),
+        **({"discretization": None if spec.discretization is None else spec.discretization._canonical_record()}
+           if spec.discretization is not None or not isinstance(spec.optimizer, CMAESSpec) else {}),
         "allow_extrapolation": [
             parameter._key_record() for parameter in spec.allow_extrapolation
         ],

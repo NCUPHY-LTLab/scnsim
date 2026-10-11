@@ -254,18 +254,17 @@ context and body references. Generation checkpoints additionally preserve
 anchor restore state and latest completed CMA/RNG state at generation >=1;
 off omits restore-only state. There is no standalone baseline commit,
 generation-0 checkpoint or initial callback. Required group ACK precedes its
-callback and is independent of optional diagnostics. SQLite v6 readers fix the
+callback and is independent of optional diagnostics. SQLite v7 readers fix the
 completion root and hydrate only selected scientific bodies in short verified
 snapshots, without an old-format fallback or whole-history replay.
 
-A valid budget can contain zero complete populations:
-`complete_generations=(max_evaluations-1)//population_size` may be zero. A
-successful baseline-only optimization then saves the necessary baseline
-numerical evidence atomically with the final result. It saves no checkpoint or
-restore anchors and emits no generation-0 barrier or generation notification;
-the final complete callback remains. Failure before any complete generation
-creates no baseline-only protective flush. This does not add a budget Gate or
-change candidate/CMA ordering.
+The existing CMA request boundary requires a budget that fits the baseline
+and at least one complete population. A budget too small for that population
+is rejected; it is not a normal successful baseline-only optimization.
+Interruption or failure before the first complete generation can retain actual
+baseline evidence in its terminal record, without a generation-0 checkpoint,
+restore anchors, barrier or generation notification. Failure handling does not
+add a baseline-only protective flush or change candidate/CMA ordering.
 
 Native Julia retains the following request-owned baseline publication protocol.
 After a baseline succeeds, but before CMA-ES requests a population, its

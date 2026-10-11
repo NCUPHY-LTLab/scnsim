@@ -14,7 +14,7 @@ from pathlib import Path
 import sqlite3
 from threading import Lock, RLock, local
 from time import perf_counter_ns
-from typing import Iterator, Mapping, Sequence
+from typing import Callable, Iterator, Mapping, Sequence
 from uuid import uuid4
 import warnings
 
@@ -43,12 +43,12 @@ _OPTIONAL_SQLITE_WRITE_ERROR_CODES = frozenset({
 _AGGREGATE_CONTEXT_FIELDS = frozenset({
     "algorithm_id", "arithmetic_precision", "argument_shapes", "backend",
     "batch_size", "cache_condition", "cache_hit", "cpu_threads",
-    "columns", "device", "dimension", "dtype", "executable_cache_hit",
+    "columns", "device", "dimension", "dtype", "equation", "executable_cache_hit",
     "input_bytes", "input_shape", "kernel", "new_shape", "nodes", "nnz",
     "operation", "output_bytes", "output_shape", "precision", "quantity",
     "requested_cpu_threads", "resource", "resource_profile", "role", "shape",
     "stage", "static_pattern_cache_hit", "static_pattern_sha256",
-    "worker_capacity",
+    "transport", "worker_capacity",
 })
 
 
@@ -421,6 +421,27 @@ class OperationRecorder:
             status=status,
             details=details,
         )
+
+    def sparse_runner(
+        self,
+        host_function: Callable[..., object],
+        operands: tuple[object, ...],
+        options: Mapping[str, object],
+    ) -> object:
+        """Run the supplied checked-host equation once with local phase timing.
+
+        The numerical owner supplies the host function, operands, and options.
+        This adapter adds only a per-call observer; it owns no process-global
+        callbacks and retains none of the numerical arguments or outputs.
+        """
+
+        def observe(phase: str, *, equation: str):
+            return self.span(
+                phase,
+                details={"equation": equation, "transport": "python_host"},
+            )
+
+        return host_function(*operands, **options, observer=observe)
 
     def _record_interval(
         self,
@@ -825,6 +846,15 @@ def project_indexed_operation_document(
         if operation_id in source_task_states
         and isinstance(source_task_states[operation_id], Mapping)
     }
+    for operation in selected_roots:
+        state = task_states.get(operation["operation_id"])
+        checkpoint = None if state is None else state.get("checkpoint")
+        if checkpoint is None:
+            continue
+        projected_details = dict(operation["details"])
+        projected_details["checkpoint"] = checkpoint
+        projected_details["checkpoint_attempt_id"] = state["checkpoint_attempt_id"]
+        operation["details"] = projected_details
     clocks: dict[str, dict[str, object]] = {}
     for row in selected_roots:
         clock = row.get("clock")

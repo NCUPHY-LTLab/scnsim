@@ -194,14 +194,28 @@ def _summary(result: AnalysisResult) -> str:
     elif isinstance(result, ParameterSweepResult):
         rows.append(("declared points", len(result.points)))
     elif isinstance(result, OptimizationResult):
-        rows.extend((
-            ("saved best cost", result.best.cost),
-            ("saved best parameters", "; ".join(
-                f"{parameter.definitions_id}.{parameter.id}={value}"
-                for parameter, value in result.best.parameters.values.items()
-            )),
-            ("completed generation ledgers", len(result.ledger)),
-        ))
+        if result.best is None:
+            rows.extend((
+                ("comparison-model winner", "unavailable"),
+                ("comparison-model identity", result.comparison_model_identity or "unavailable"),
+            ))
+        else:
+            rows.extend((
+                ("saved comparison-model best cost", result.best.cost),
+                ("saved comparison-model best parameters", "; ".join(
+                    f"{parameter.definitions_id}.{parameter.id}={value}"
+                    for parameter, value in result.best.parameters.values.items()
+                )),
+            ))
+        if result.stages:
+            rows.extend(
+                (f"stage {stage.stage_id}",
+                 f"{stage.strategy}; {stage.status}; evaluations={stage.evaluation_count}; "
+                 f"iterations={stage.iteration_count}; model={stage.model_identity}")
+                for stage in result.stages
+            )
+        else:
+            rows.append(("completed generation ledgers", len(result.ledger)))
         settings, comparison = optimization_comparison_dataset(result)
         return (
             _table("Optimization Result summary", rows)

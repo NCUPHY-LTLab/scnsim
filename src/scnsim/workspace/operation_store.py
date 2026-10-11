@@ -30,7 +30,7 @@ from ..errors import (
 from .storage import _fsync_directory
 
 _DATABASE = "operations.sqlite3"
-_VERSION = 6
+_VERSION = 7
 _SCHEMA = (
     "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     "CREATE TABLE objects (sha256 TEXT PRIMARY KEY, payload BLOB NOT NULL)",
@@ -56,6 +56,23 @@ _SCHEMA = (
     "generation INTEGER NOT NULL, row_offset INTEGER NOT NULL, block_ref TEXT NOT NULL, "
     "value_ref TEXT NOT NULL, summary_json TEXT NOT NULL, PRIMARY KEY(completion_sha,ordinal))",
     "CREATE INDEX completion_candidate_order ON completion_candidates(completion_sha,generation,ordinal)",
+    "CREATE TABLE sensitivity_blocks (completion_sha TEXT NOT NULL, ordinal INTEGER NOT NULL, "
+    "block_id TEXT NOT NULL, kind TEXT NOT NULL, block_ref TEXT NOT NULL, quantity_id TEXT, "
+    "output_slice_json TEXT, parameter_slice_json TEXT, primal_blocks_json TEXT NOT NULL, "
+    "primal_status TEXT, derivative_status TEXT, summary_json TEXT NOT NULL, "
+    "PRIMARY KEY(completion_sha,ordinal), UNIQUE(completion_sha,block_id))",
+    "CREATE INDEX sensitivity_block_order ON sensitivity_blocks(completion_sha,quantity_id,ordinal)",
+    "CREATE TABLE optimization_stage_indexes (completion_sha TEXT NOT NULL, stage_ordinal INTEGER NOT NULL, "
+    "stage_id TEXT NOT NULL, model_identity_json TEXT NOT NULL, summary_ref TEXT NOT NULL, "
+    "history_ref TEXT NOT NULL, PRIMARY KEY(completion_sha,stage_ordinal), "
+    "UNIQUE(completion_sha,stage_id))",
+    "CREATE TABLE optimization_history_rows (completion_sha TEXT NOT NULL, stage_id TEXT NOT NULL, "
+    "ordinal INTEGER NOT NULL, model_identity_json TEXT NOT NULL, candidate_ref TEXT NOT NULL, "
+    "summary_json TEXT NOT NULL, PRIMARY KEY(completion_sha,stage_id,ordinal))",
+    "CREATE INDEX optimization_history_order ON optimization_history_rows(completion_sha,stage_id,ordinal)",
+    "CREATE TABLE optimization_transition_rows (completion_sha TEXT NOT NULL, ordinal INTEGER NOT NULL, "
+    "transition_id TEXT NOT NULL, transition_ref TEXT NOT NULL, PRIMARY KEY(completion_sha,ordinal), "
+    "UNIQUE(completion_sha,transition_id))",
 )
 
 
@@ -509,6 +526,30 @@ class Snapshot:
         row = self._connection.execute("SELECT revision,sha256,role FROM pointers WHERE name=?", (name,)).fetchone()
         return None if row is None else {"revision": row[0], "reference": self._ref(row[1], row[2])}
 
+    def find_attempt_pointer(self, attempt_id: str) -> dict[str, Any] | None:
+        """Locate one exact attempt pointer without replaying task history."""
+        if not isinstance(attempt_id, str) or not attempt_id:
+            raise _integrity("Exact attempt identity is malformed.")
+        rows = self._connection.execute(
+            "SELECT name,sha256,role FROM pointers WHERE role='attempt' "
+            "AND substr(name,1,8)='attempt/' "
+            "AND substr(name,length(name)-length(?)+1)=? "
+            "AND substr(name,length(name)-length(?),1)='/'",
+            (attempt_id, attempt_id, attempt_id),
+        ).fetchall()
+        matches = []
+        for name, digest, role in rows:
+            parts = name.split("/")
+            if len(parts) == 3 and parts[0] == "attempt" and parts[2] == attempt_id:
+                matches.append((parts[1], digest, role))
+        if len(matches) > 1:
+            raise _integrity("Exact attempt identity resolves to multiple task pointers.",
+                             attempt_id=attempt_id, match_count=len(matches))
+        if not matches:
+            return None
+        task_id, digest, role = matches[0]
+        return {"task_id": task_id, "reference": self._ref(digest, role)}
+
     def transaction_status(self, transaction_id: str) -> dict[str, str]:
         row = self._connection.execute("SELECT 1 FROM transactions WHERE transaction_id=?", (transaction_id,)).fetchone()
         return {"status": "not_committed" if row is None else "committed", "transaction_id": transaction_id}
@@ -614,6 +655,139 @@ class Snapshot:
                          "value_ref": self._decoded_reference(value_ref), "summary_json": summary})
         return rows
 
+    def sensitivity_block_count(self, completion_sha: str) -> int:
+        return self._connection.execute(
+            "SELECT count(*) FROM sensitivity_blocks WHERE completion_sha=?", (completion_sha,)
+        ).fetchone()[0]
+
+    def read_sensitivity_block_index(self, completion_sha: str, ordinal: int) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT block_id,kind,block_ref,quantity_id,output_slice_json,parameter_slice_json,"
+            "primal_blocks_json,primal_status,derivative_status,summary_json "
+            "FROM sensitivity_blocks "
+            "WHERE completion_sha=? AND ordinal=?", (completion_sha, ordinal)
+        ).fetchone()
+        if row is None:
+            return None
+        output_slice = None if row[4] is None else json.loads(row[4])
+        parameter_slice = None if row[5] is None else json.loads(row[5])
+        primal_blocks = json.loads(row[6])
+        summary = json.loads(row[9])
+        if ((output_slice is not None and not isinstance(output_slice, dict))
+                or (parameter_slice is not None and not isinstance(parameter_slice, dict))
+                or not isinstance(primal_blocks, list)
+                or not isinstance(summary, dict)):
+            raise _integrity("Sensitivity block index metadata is malformed.", ordinal=ordinal)
+        return {
+            "ordinal": ordinal, "block_id": row[0], "kind": row[1],
+            "block_ref": self._decoded_reference(row[2]), "quantity_id": row[3],
+            "output_slice": output_slice, "parameter_slice": parameter_slice,
+            "primal_blocks": primal_blocks,
+            "primal_status": row[7], "derivative_status": row[8], "summary_json": summary,
+        }
+
+    def read_sensitivity_block_indexes(self, completion_sha: str) -> list[dict[str, Any]]:
+        rows = []
+        cursor = self._connection.execute(
+            "SELECT ordinal,block_id,kind,block_ref,quantity_id,output_slice_json,parameter_slice_json,"
+            "primal_blocks_json,primal_status,derivative_status,summary_json "
+            "FROM sensitivity_blocks "
+            "WHERE completion_sha=? ORDER BY ordinal", (completion_sha,)
+        )
+        for (ordinal, block_id, kind, block_ref, quantity_id, output_raw, parameter_raw,
+             primal_raw, primal, derivative, summary_raw) in cursor:
+            output_slice = None if output_raw is None else json.loads(output_raw)
+            parameter_slice = None if parameter_raw is None else json.loads(parameter_raw)
+            primal_blocks = json.loads(primal_raw)
+            summary = json.loads(summary_raw)
+            if ((output_slice is not None and not isinstance(output_slice, dict))
+                    or (parameter_slice is not None and not isinstance(parameter_slice, dict))
+                    or not isinstance(primal_blocks, list)
+                    or not isinstance(summary, dict)):
+                raise _integrity("Sensitivity block index metadata is malformed.", ordinal=ordinal)
+            rows.append({
+                "ordinal": ordinal, "block_id": block_id, "kind": kind,
+                "block_ref": self._decoded_reference(block_ref), "quantity_id": quantity_id,
+                "output_slice": output_slice, "parameter_slice": parameter_slice,
+                "primal_blocks": primal_blocks,
+                "primal_status": primal, "derivative_status": derivative, "summary_json": summary,
+            })
+        return rows
+
+    def optimization_stage_count(self, completion_sha: str) -> int:
+        return self._connection.execute(
+            "SELECT count(*) FROM optimization_stage_indexes WHERE completion_sha=?",
+            (completion_sha,),
+        ).fetchone()[0]
+
+    def read_optimization_stage_indexes(self, completion_sha: str) -> list[dict[str, Any]]:
+        rows = []
+        cursor = self._connection.execute(
+            "SELECT stage_ordinal,stage_id,model_identity_json,summary_ref,history_ref "
+            "FROM optimization_stage_indexes WHERE completion_sha=? ORDER BY stage_ordinal",
+            (completion_sha,),
+        )
+        for ordinal, stage_id, model_raw, summary_ref, history_ref in cursor:
+            model_identity = json.loads(model_raw)
+            if not isinstance(model_identity, dict):
+                raise _integrity("Optimization model identity index is malformed.", stage_id=stage_id)
+            rows.append({
+                "stage_ordinal": ordinal, "stage_id": stage_id,
+                "model_identity": model_identity,
+                "summary_ref": self._decoded_reference(summary_ref),
+                "history_ref": self._decoded_reference(history_ref),
+            })
+        return rows
+
+    def read_optimization_history(self, completion_sha: str, stage_id: str) -> list[dict[str, Any]]:
+        rows = []
+        cursor = self._connection.execute(
+            "SELECT ordinal,model_identity_json,candidate_ref,summary_json "
+            "FROM optimization_history_rows WHERE completion_sha=? AND stage_id=? ORDER BY ordinal",
+            (completion_sha, stage_id),
+        )
+        for ordinal, model_raw, candidate_ref, summary_raw in cursor:
+            model_identity = json.loads(model_raw)
+            summary = json.loads(summary_raw)
+            if not isinstance(model_identity, dict) or not isinstance(summary, dict):
+                raise _integrity("Optimization history index is malformed.", stage_id=stage_id, ordinal=ordinal)
+            rows.append({
+                "ordinal": ordinal, "model_identity": model_identity,
+                "candidate_ref": self._decoded_reference(candidate_ref),
+                "summary_json": summary,
+            })
+        return rows
+
+    def read_optimization_history_row(self, completion_sha: str, stage_id: str,
+                                      ordinal: int) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT model_identity_json,candidate_ref,summary_json FROM optimization_history_rows "
+            "WHERE completion_sha=? AND stage_id=? AND ordinal=?",
+            (completion_sha, stage_id, ordinal),
+        ).fetchone()
+        if row is None:
+            return None
+        model_identity = json.loads(row[0])
+        summary = json.loads(row[2])
+        if not isinstance(model_identity, dict) or not isinstance(summary, dict):
+            raise _integrity("Optimization history index is malformed.",
+                             stage_id=stage_id, ordinal=ordinal)
+        return {"ordinal": ordinal, "model_identity": model_identity,
+                "candidate_ref": self._decoded_reference(row[1]), "summary_json": summary}
+
+    def read_optimization_transitions(self, completion_sha: str) -> list[dict[str, Any]]:
+        rows = []
+        cursor = self._connection.execute(
+            "SELECT ordinal,transition_id,transition_ref FROM optimization_transition_rows "
+            "WHERE completion_sha=? ORDER BY ordinal", (completion_sha,),
+        )
+        for ordinal, transition_id, transition_ref in cursor:
+            rows.append({
+                "ordinal": ordinal, "transition_id": transition_id,
+                "transition_ref": self._decoded_reference(transition_ref),
+            })
+        return rows
+
 class StoreTransaction(Snapshot):
     """Mutation mechanics inside one store-owned SQL transaction."""
 
@@ -698,5 +872,49 @@ class StoreTransaction(Snapshot):
                 "INSERT INTO completion_candidates VALUES (?,?,?,?,?,?,?)",
                 (completion_sha, row["ordinal"], row["generation"], row["row_offset"],
                  self._json_reference(row["block_ref"]), self._json_reference(row["value_ref"]), summary),
+            )
+
+    def index_sensitivity_blocks(self, completion_sha: str,
+                                 blocks: Sequence[Mapping[str, Any]]) -> None:
+        """Publish fixed Sensitivity block locators in the terminal transaction."""
+        for ordinal, row in enumerate(blocks):
+            summary = canonical_json_bytes(row["summary_json"]).decode("utf-8")
+            self._connection.execute(
+                "INSERT INTO sensitivity_blocks VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (completion_sha, ordinal, row["block_id"], row["kind"],
+                 self._json_reference(row["block_ref"]), row["quantity_id"],
+                 (None if row["output_slice"] is None else canonical_json_bytes(row["output_slice"]).decode("utf-8")),
+                 (None if row["parameter_slice"] is None else canonical_json_bytes(row["parameter_slice"]).decode("utf-8")),
+                 canonical_json_bytes(row["primal_blocks"]).decode("utf-8"),
+                 row["primal_status"], row["derivative_status"], summary),
+            )
+
+    def index_optimization(self, completion_sha: str,
+                           stages: Sequence[Mapping[str, Any]],
+                           transitions: Sequence[Mapping[str, Any]]) -> None:
+        """Publish compact stage/history locators with the terminal seal."""
+        for stage_ordinal, stage in enumerate(stages):
+            model_identity = canonical_json_bytes(stage["model_identity"]).decode("utf-8")
+            self._connection.execute(
+                "INSERT INTO optimization_stage_indexes VALUES (?,?,?,?,?,?)",
+                (completion_sha, stage_ordinal, stage["stage_id"], model_identity,
+                 self._json_reference(stage["summary_ref"]),
+                 self._json_reference(stage["history_ref"])),
+            )
+            for ordinal, row in enumerate(stage["rows"]):
+                if row["stage_id"] != stage["stage_id"] or row["model_identity"] != stage["model_identity"]:
+                    raise _integrity("Optimization history row differs from its stage identity.",
+                                     stage_id=stage["stage_id"], ordinal=ordinal)
+                self._connection.execute(
+                    "INSERT INTO optimization_history_rows VALUES (?,?,?,?,?,?)",
+                    (completion_sha, stage["stage_id"], ordinal, model_identity,
+                     self._json_reference(row["candidate_ref"]),
+                     canonical_json_bytes(row["summary_json"]).decode("utf-8")),
+                )
+        for ordinal, transition in enumerate(transitions):
+            self._connection.execute(
+                "INSERT INTO optimization_transition_rows VALUES (?,?,?,?)",
+                (completion_sha, ordinal, transition["transition_id"],
+                 self._json_reference(transition["transition_ref"])),
             )
 

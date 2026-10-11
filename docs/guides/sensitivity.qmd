@@ -1,0 +1,304 @@
+---
+title: "Sensitivity of physical quantities"
+subtitle: "Declare Jacobian, JVP and VJP requests on the same Plan and Views"
+---
+
+This dev26 `CONVERGING` guide describes the current candidate public declarations.
+The snippets are source examples, not recorded derivative executions or numerical
+accuracy evidence. The [Runtime Contract](../v1-runtime-contract.qmd#physical-program-target)
+is the authority for execution, ownership and failure behavior.
+
+## Reuse an authored parameter and physical boundary
+
+Use the declarations in [Chapter 1, Build](../../examples/engineer/chapter-01/01-build.qmd):
+`plan`, scalar `capacitance` (baseline 110 fF), `resonator_coordinate`, the grounded
+5.8 nH inductor, 6 fF coupling capacitor and terminated 50 ohm Port. Keep those
+objects from the same authored Plan; a new parameter with the same display name
+is not the captured parameter. This guide creates a JAX Run rather than executing
+the Chapter's Julia response cell.
+
+```python
+import numpy as np
+from scnsim import (
+    CircuitRun, DirectSolveSpec, DiagonalRootSpec, ReductionPipeline,
+    ParameterSet, SensitivitySpec, Jacobian, JVP, VJP,
+    OutputCoordinate, SensitivityScales, units as u,
+)
+
+run = CircuitRun(plan=plan, backend="jax", workspace="workspaces/lc-sensitivity")
+frequencies = np.linspace(5.75, 6.25, 401) * u.GHz
+response_spec = DirectSolveSpec(frequencies=frequencies)
+root_view = run.original.reduce(ReductionPipeline().retain(resonator_coordinate))
+root_spec = DiagonalRootSpec(
+    coordinate=resonator_coordinate, root_hint=6.0 * u.GHz,
+)
+quantities = {
+    "response": response_spec.S.on(run.original),
+    "frequency": root_spec.frequency.on(root_view),
+}
+```
+
+The frequency grid and root hint reuse Chapter 1's declarations. The hint is not
+a search interval or an answer. Each expression leaf owns its exact View;
+retaining the resonator coordinate does not unload the authored circuit.
+Sensitivity has no default View: all selector leaves must use `.on(view)` from
+this Run. In contrast, `run.optimize(view, spec)` supplies its explicit `view`
+only for objective leaves without `.on(...)`; already bound leaves keep their
+own View. The Spec-only `run.optimize(spec)` form requires every leaf bound.
+A compiler `default_view` is this explicit handoff, not a hidden choice of
+`run.original`. `.Y`
+and `.Z` select full network matrices; `OperatorSpec.matrix` selects the loaded
+operator matrix on its declared View. Scalar trace and root selectors use the
+same quantity declaration path, without replacing matrix outputs by an objective.
+
+## Inspect declared dependencies before device preparation
+
+```python
+dependencies = run.dependencies(quantities=quantities)
+```
+
+This returns captured declaration consumers and their declaration identity. It
+requires no realized mesh or JAX device. A declared dependency is not a claim
+that its derivative is nonzero, minimal, smooth or numerically available.
+Sensitivity has no public progress callback; `on_progress` remains the
+Optimization interface with its declared event and durability contract.
+The complete effective parameter point remains separate from the ordered `wrt`
+coordinates; parameters omitted from `wrt` still contribute physical coefficients.
+
+## Request physical derivatives
+
+```python
+jacobian_spec = SensitivitySpec(
+    quantities=quantities, wrt=(capacitance,), derivative=Jacobian(),
+)
+jacobian_result = run.sensitivity(jacobian_spec, parameters=ParameterSet())
+saved_jacobian = jacobian_result.jacobian
+```
+
+Jacobian cells carry output-unit/input-unit. The saved output layout records
+physical axes, units and component coordinates. Array entries flatten in physical
+C order, then component last/fastest (`real`, `imag`); real outputs have only
+`real`. `OutputCoordinate.index` contains physical array-axis ordinals, not a
+synthetic real/imag axis. For a full S matrix, the frequency/output-Port/input-Port
+ordinals are separate from its component:
+
+```python
+first_s_real = OutputCoordinate("response", index=(0, 0, 0), component="real")
+root_frequency = OutputCoordinate("frequency", index=(), component="real")
+```
+
+Use the actual saved layout to interpret axes and Port order; display labels do
+not replace those ordinals. A checked derivative may be unavailable at a
+non-smooth or numerically uncertified point. It is not replaced by zero, finite
+differences or an automatically selected backend.
+
+A JVP direction is a physical displacement per dimensionless path parameter:
+
+```python
+jvp_spec = SensitivitySpec(
+    quantities=quantities, wrt=(capacitance,),
+    derivative=JVP(direction={capacitance: 1.0 * u.fF}),
+)
+jvp_result = run.sensitivity(jvp_spec)
+saved_tangent = jvp_result.jvp
+```
+
+Direction coordinates convert to each input's SI unit; JVP outputs keep the
+physical output units. This is a local derivative, not a finite displaced solve
+or a global-optimum guarantee.
+
+VJP weights address explicit output coordinates. Each weight times its output
+must have one common scalar-functional unit. This root-only example declares a
+dimensionless functional with inverse-frequency weight:
+
+```python
+vjp_spec = SensitivitySpec(
+    quantities={"frequency": quantities["frequency"]}, wrt=(capacitance,),
+    derivative=VJP(weights={root_frequency: 1.0 / u.Hz}),
+)
+vjp_result = run.sensitivity(vjp_spec)
+saved_cotangent = vjp_result.vjp
+```
+
+Input cotangent units are functional-unit/input-unit. The common functional unit
+is recorded from supplied weights; it is not silently assumed dimensionless.
+A zero weight must still carry its explicit unit.
+
+## Record scales once for normalized Jacobians
+
+```python
+scaled_spec = SensitivitySpec(
+    quantities={"frequency": quantities["frequency"]}, wrt=(capacitance,),
+    derivative=Jacobian(),
+    scales=SensitivityScales(
+        inputs={capacitance: 110.0 * u.fF},
+        outputs={root_frequency: 6.0 * u.GHz},
+    ),
+)
+scaled_result = run.sensitivity(scaled_spec)
+normalized = scaled_result.normalized_jacobian
+```
+
+These explicit scales reuse the authored baseline and declared hint as
+normalization choices, not accuracy targets. The property uses the request's
+recorded scales: each cell is multiplied by its input scale and divided by its
+output scale. It does not accept replacement scales or certify forward accuracy.
+
+## Read an exact terminal record and release the Run
+
+A partial Sensitivity terminal record preserves actual completed primal and
+requested derivative evidence. It is excluded from complete-success caching and
+default resolution. Given its **actual recorded terminal `attempt_id`**, an explicit
+read uses the same readonly selection path:
+
+```python
+partial_result = run.resolve(
+    jacobian_spec, attempt={'attempt_id': recorded_attempt_id}
+)
+```
+
+`recorded_attempt_id` above comes from the actual terminal operation evidence,
+not an invented identity or a latest-attempt selector. A `ResultIdentity` is not
+this selector: its result/request/attempt hashes do not replace the exact
+terminal `attempt_id`. With omitted parameters, the named
+terminal record supplies the saved effective point and precision; an explicit
+parameter set requires an exact full-request match. Read only derivative blocks
+that the selected record actually contains.
+
+```python
+run.close()
+retained_projection = jacobian_result.jacobian
+```
+
+A Result owns a fixed lazy reader and detached metadata, not the Run. It remains
+readable after close while its immutable saved evidence is available. New Run
+operations and external View operations require an open Run; close during an
+active operation fails rather than terminating it. Repeated operations need no
+close between calls.
+
+## Mesh, warm ownership and backend boundaries
+
+All CMA, L-BFGS-B and Hybrid optimization stages freeze their realized section
+counts and matrix shapes. `OptimizationSpec.discretization` and a Hybrid stage's
+explicit mesh describe the planning domain or fixed counts. Missing or inadequate
+finite bounds produce a warning and a fixed starting realized mesh, not an
+invented maximum range or an adequacy claim. Finite length bounds alone are
+insufficient when active material dependence changes the electrical bound.
+Sensitivity differentiates the fixed physical program; it does not differentiate
+integer section-count selection. See [Electrical resolution](../concepts/electrical-resolution.qmd).
+
+`run.warmup(run.original, response_spec)` explicitly admits static transformable
+physical programs and prepared assembly handles on this Run, scoped by actual
+device and canonical identity/dtype. Later matching operations borrow those
+entries; unmatched stage/candidate programs remain operation-owned. Derivatives
+use the original callable rather than differentiating an AOT executable. Warmup does not return a solved physical result, publish a
+success or promise that every later derivative or changed-shape signature is
+already compiled. Generation/stage executable ownership and saved Result
+ownership are separate; released references do not promise an immediate RSS drop.
+
+JAX is the current physical-program and checked-AD path. Julia keeps its existing
+legacy/reference capabilities and native schemas; Sensitivity and new local or
+Hybrid strategies do not select Julia or fall back to it. Requested dtype,
+arithmetic and numerical certification remain distinct from forward accuracy.
+Generic raw `jax.grad` through the public Run is not promised.
+
+## Current public paths
+
+| Task | Current public path | Meaning |
+|---|---|---|
+| Inspect declared consumers | `run.dependencies(quantities=...)` | Pure declaration projection; no derivative support proof |
+| Request derivatives | `run.sensitivity(SensitivitySpec(...))` | Same physical Quantity/View program, explicit derivative mode |
+| Read normalized cells | `result.normalized_jacobian` | Request-recorded input/output scales |
+| Read a partial terminal | `run.resolve(spec, attempt={'attempt_id': recorded_attempt_id})` | Exact saved terminal, not default success or latest selection |
+| Optimize with CMA | `OptimizationSpec(optimizer=CMAESSpec(...))` | Existing controls and full-population budget condition; fixed stage mesh |
+| Optimize locally / in stages | `LBFGSBSpec` / `HybridSpec` | Explicit local controls and accepted-iterate cadence; stage winners distinct from final comparison |
+| Observe progress | `OptimizationProgress` | `stage_id`/`strategy`; CMA generation or local iteration counters, unavailable counters `None` |
+
+Progress budgets belong to the named current stage: `requested_budget` is its
+`max_evaluations`; CMA's achievable count includes baseline plus complete
+populations, while local `achievable_evaluations` is `None`. Stage
+`evaluated_count`, actual physical cache misses and SciPy controller counters
+are distinct facts. Hybrid has no fabricated summed achievable budget.
+
+Durable progress callbacks follow acknowledged persistence. Local iteration
+counters do not fabricate CMA generations; `iteration`, `stage_transition` and
+`partial` describe actual recorded phases. Hybrid best remains nullable until
+an actual full-cost evaluation under the final comparison model. Local linear coordinates use an explicit physical scale first, then the
+variable's declared domain scale; with neither they are raw SI numbers carrying
+SI-unit metadata. Log coordinates use the actual signed starting reference
+`theta = reference * exp(a*x)`, with `a = explicit_scale/abs(reference)` or
+`a = 1` when no explicit scale is declared. The stage records this map and
+transfers physical points, not controller coordinates, between models.
+Native finite bounds and half-lines are retained without CMA folding or an
+invented finite interval. Local restart
+starts a new stage from a committed accepted iterate with cleared curvature; it
+is not an exact L-BFGS-B continuation. Old Workspace formats have no compatibility
+reader: preserve historical artifacts and recompute in a current Workspace.
+
+## Reuse existing objectives with an explicit local stage
+
+The [Chapter 2 request](../../examples/engineer/chapter-02/03-optimize.qmd)
+provides actual `optimization_spec.variables`, `.objectives` and
+`fixed_inductance` for bounded capacitance and the loaded-frequency target.
+This separate snippet assumes the **Chapter 2** `plan` and
+`resonator_coordinate`, not the Chapter 1 objects above. Reuse those declarations
+on a JAX Run with their own authored handles. The local controls below must be supplied
+by the caller's declared policy; this guide does not choose a new scientific
+budget, line-search condition or stopping tolerance.
+
+```python
+from scnsim import LBFGSBSpec, OptimizationSpec
+
+local_run = CircuitRun(
+    plan=plan, backend="jax", workspace="workspaces/lc-local-stage",
+)
+local_view = local_run.original.reduce(
+    ReductionPipeline().retain(resonator_coordinate)
+)
+local_spec = OptimizationSpec(
+    variables=optimization_spec.variables,
+    objectives=optimization_spec.objectives,
+    optimizer=LBFGSBSpec(**declared_local_controls),
+    discretization=optimization_spec.discretization,
+)
+local_result = local_run.optimize(
+    local_view, local_spec, parameters=fixed_inductance,
+)
+```
+
+`declared_local_controls` must include `max_evaluations`, `max_iterations`,
+`ftol`, `gtol`, `max_line_search` and `commit_every_iterations`; optional
+`coordinate_scales` use the captured parameter refs and physical units.
+The existing common Objective remains the authority for target/at-least loss
+and weights. Checked physical gradients pass through the recorded local
+coordinate chain rule; CMA's linquad mapping is not used by this local stage.
+Unavailable/nonsmooth derivatives end the local stage with its actual reason,
+not a zero gradient or finite-difference replacement. Solver termination is
+recorded separately from any design acceptance.
+
+An `AcceptedIterateSelection` names an actual committed attempt/stage/iterate.
+Its `accepted_iterate_id` is the persisted content identity
+`stage.accepted_iterate.locator['candidate_ref']['sha256']`; the attempt and stage
+identify that occurrence. It is not a parameter-coordinate hash or a latest-row
+selection.
+Passing it as `restart_from` starts the new request's declared stage sequence
+from that physical point (an explicit stage seed takes precedence), with fresh
+controller state and cleared local curvature; it does not resume the old SciPy object. CMA's
+`resume_from` retains its separate exact post-tell CMA/RNG checkpoint semantics.
+Neither selection is a request to pick an arbitrary latest record. Hybrid
+transitions carry selected physical points and reevaluate them under the target
+stage's fixed model, not the previous controller's coordinates. Each entered stage
+first establishes branch anchors from the original full operation point under
+that model. The actual transition evaluation, source candidate/model and
+parameter-reference ancestry publish together in the first target-stage batch.
+
+`checkpoint="off"` keeps numerical stage and accepted-point evidence while
+suppressing dedicated recovery checkpoints, pointers and CMA/RNG/anchor restore
+state. It does not turn a local restart into exact solver continuation.
+When a Hybrid local derivative is unavailable, that stage stops and the terminal
+is PARTIAL; subsequent declared stages are not entered automatically. An explicit
+new stage/restart may use a preserved point, and final best remains nullable if
+the comparison stage was not entered. The comparison baseline is the original
+operation effective point reevaluated under the declared comparison model,
+separate from a later stage's selected-point seed. Its preparation evaluations
+and cost are reported separately from optimizer search budgets/controller `nfev`.

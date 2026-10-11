@@ -35,7 +35,18 @@ from .matrix import (
     ReconciliationEvidence,
     ScatteringMatrixResult,
 )
-from .optimization import OptimizationBest, OptimizationResult
+from .optimization import OptimizationBest, OptimizationResult, OptimizationStage
+from .sensitivity import (
+    SensitivityAxis,
+    SensitivityAxisCoordinate,
+    SensitivityBlockSequence,
+    SensitivityJacobianBlock,
+    SensitivityParameterBlock,
+    SensitivityProjection,
+    SensitivityQuantity,
+    SensitivityResult,
+    SensitivityValueBlock,
+)
 from .sweep import (
     ParameterField,
     ParameterPointAccessor,
@@ -70,6 +81,7 @@ __all__ = [
     "OperatorResult",
     "OptimizationBest",
     "OptimizationResult",
+    "OptimizationStage",
     "ParameterField",
     "ParameterPointAccessor",
     "ParameterPointIdentity",
@@ -82,6 +94,15 @@ __all__ = [
     "Result",
     "ResultIdentity",
     "ScatteringMatrixResult",
+    "SensitivityAxis",
+    "SensitivityAxisCoordinate",
+    "SensitivityBlockSequence",
+    "SensitivityJacobianBlock",
+    "SensitivityParameterBlock",
+    "SensitivityProjection",
+    "SensitivityQuantity",
+    "SensitivityResult",
+    "SensitivityValueBlock",
     "TraceResult",
     "_freeze",
     "_fresh_quantity_attribute",

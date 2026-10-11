@@ -13,7 +13,7 @@ import numpy as np
 
 from ..canonical import canonical_json_bytes, float64_hex, sha256_hex
 from ..errors import CompilerInvariantError, InvalidCandidatePhysicalParameter
-from .mesh import prepare_rlgc, quantity, realize_line
+from .mesh import prepare_rlgc, quantity, realize_line, matrix
 from .models import CompiledModel, MeshSpec, SeriesRL, SparseMatrix
 from ..numeric_encoding import record_bytes
 
@@ -57,6 +57,30 @@ def resolve_fields(plan: dict, values: dict, authorized: set = frozenset()) -> t
                     if key not in authorized:
                         raise InvalidCandidatePhysicalParameter("affine input is outside declared support", stage="affine_support", evidence=evidence[-1])
                 value = quantity(binding["slope"]) * value + quantity(binding["intercept"])
+            elif kind == "scalar_rlgc":
+                value = dict(binding["base"])
+                matrices = {name: matrix(value[name + "_per_length"])
+                            for name in ("resistance", "inductance", "conductance", "capacitance")}
+                for term in binding["terms"]:
+                    source = term["source"]
+                    ref = source["parameter"] if source["kind"] == "ref" else source["input"]
+                    key = parameter_key(ref)
+                    argument = values[key]
+                    if source["kind"] == "affine":
+                        lower, upper = map(quantity, source["support"])
+                        if not lower <= argument <= upper:
+                            item_evidence = {"parameter": ref, "consumer_target": {"path": leaf["path"], "field": item["id"]},
+                                             "input_si": argument, "support_si": [lower, upper], "authorized": key in authorized}
+                            evidence.append(item_evidence)
+                            if key not in authorized:
+                                raise InvalidCandidatePhysicalParameter("affine input is outside declared support", stage="affine_support", evidence=item_evidence)
+                        argument = quantity(source["slope"]) * argument + quantity(source["intercept"])
+                    for name in matrices:
+                        if term[name] is not None:
+                            matrices[name] = matrices[name] + argument * matrix(term[name])
+                for name, result in matrices.items():
+                    field_name = name + "_per_length"
+                    value[field_name] = {**value[field_name], "values_f64": [float64_hex(number) for number in result.flat]}
             else:
                 raise CompilerInvariantError("unknown physical binding", stage="compile")
             fields[tuple(leaf["path"]), item["id"]] = value

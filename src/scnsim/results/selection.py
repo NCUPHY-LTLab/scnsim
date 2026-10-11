@@ -70,9 +70,16 @@ def _optimization_series(
     kind: Literal["history", "objective", "residual", "parameter"],
     objective: str | None,
     parameter: Any | None,
+    stage_id: str | None = None,
 ) -> tuple[list[int], list[float | None], list[str], str, str, list[str]]:
     from ..canonical import float64_from_hex
     from ..authoring import ParameterRef
+
+    selected_stage = None
+    if result.stages:
+        selected_stage = result.stage(stage_id)
+    elif stage_id is not None:
+        raise ValueError("stage_id is unavailable for this Optimization Result")
 
     if kind in {"objective", "residual"}:
         if not isinstance(objective, str) or not objective:
@@ -84,18 +91,31 @@ def _optimization_series(
             raise TypeError("kind='parameter' requires parameter=ParameterRef")
         if objective is not None:
             raise ValueError("objective is valid only for objective or residual history")
-        retained = next(
-            (
-                item
-                for item in result.best.parameters.values
-                if item.definitions_id == parameter.definitions_id
-                and item.id == parameter.id
-            ),
-            None,
-        )
+        if selected_stage is None:
+            if result.best is None:
+                raise ValueError("parameter history requires a declared Optimization stage")
+            retained = next(
+                (
+                    item
+                    for item in result.best.parameters.values
+                    if item.definitions_id == parameter.definitions_id
+                    and item.id == parameter.id
+                ),
+                None,
+            )
+        else:
+            retained = next(
+                (
+                    item
+                    for item in selected_stage.variable_refs
+                    if item.definitions_id == parameter.definitions_id
+                    and item.id == parameter.id
+                ),
+                None,
+            )
         if retained is None:
             raise ValueError(
-                "selected parameter history is absent from the Optimization Result: "
+                "selected parameter history is absent from the selected Optimization model: "
                 f"{parameter.definitions_id}.{parameter.id}"
             )
         if retained._definition_record() != parameter._definition_record():
@@ -111,7 +131,14 @@ def _optimization_series(
         else None if kind != "parameter"
         else {"definitions_id": parameter.definitions_id, "parameter_id": parameter.id}
     )
-    rows = result._fixed_reader.project(kind, selector)
+    if selected_stage is None:
+        rows = result._fixed_reader.project(kind, selector)
+    else:
+        if kind in {"objective", "residual"} and objective not in selected_stage.objective_ids:
+            raise ValueError(
+                f"selected objective is absent from Optimization stage {selected_stage.stage_id!r}: {objective}"
+            )
+        rows = selected_stage.history
     ordinals: list[int] = []
     values: list[float | None] = []
     statuses: list[str] = []
@@ -131,7 +158,7 @@ def _optimization_series(
             encoded = row.get("cost_f64")
             value = float64_from_hex(encoded) if isinstance(encoded, str) else None
         elif kind in {"objective", "residual"}:
-            components = row["components"]
+            components = row.get("components", ())
             component = next(
                 (item for item in components if item["objective_id"] == objective),
                 None,

@@ -225,6 +225,43 @@ def complex_quantity_envelope(
     }
 
 
+def derived_quantity_envelope(value: object, *, si_unit: str | None = None, registry: object | None = None) -> dict[str, str]:
+    """Encode a unit-bearing derivative declaration without widening old units.
+
+    Derived scales and cotangents have physical product/quotient units outside
+    the native scalar vocabulary. Their new declaration schemas own this
+    boundary; existing quantity_envelope remains closed and unchanged.
+    """
+    if not _quantity_type(value):
+        raise _validation("derived values must be Pint Quantity instances")
+    if registry is not None and getattr(value, "_REGISTRY", None) is not registry:
+        raise _validation("quantity belongs to a foreign Pint registry")
+    converted = value.to_base_units() if si_unit is None else value.to(si_unit)
+    unit = str(converted.units) if si_unit is None else _nfc(si_unit, field="si_unit")
+    magnitude = _coherent_magnitude(value, converted, unit)
+    if getattr(magnitude, "ndim", 0) != 0:
+        raise _validation("derived quantity envelope requires one scalar")
+    dimension = str(converted.dimensionality)
+    if isinstance(magnitude, complex) or getattr(magnitude, "dtype", None) is not None and magnitude.dtype.kind == "c":
+        scalar = complex(magnitude)
+        return {"type": "complex_quantity_f64", "real_si_f64": float64_hex(scalar.real), "imag_si_f64": float64_hex(scalar.imag), "si_unit": unit, "dimensionality": dimension}
+    return {"type": "quantity_f64", "si_value_f64": float64_hex(magnitude), "si_unit": unit, "dimensionality": dimension}
+
+
+def derived_quantity_matrix_envelope(value: object, *, si_unit: str, registry: object | None = None) -> dict[str, object]:
+    """Encode the fixed real matrix basis of a scalar physical mapping."""
+    if not _quantity_type(value):
+        raise _validation("basis must be a Pint Quantity matrix")
+    if registry is not None and getattr(value, "_REGISTRY", None) is not registry:
+        raise _validation("quantity belongs to a foreign Pint registry")
+    converted = value.to(si_unit)
+    magnitude = converted.magnitude
+    shape = getattr(magnitude, "shape", ())
+    if len(shape) != 2:
+        raise _validation("matrix envelope requires two dimensions")
+    return {"type": "quantity_matrix_f64", "shape": list(shape), "values_f64": [float64_hex(value) for row in magnitude for value in row], "si_unit": _nfc(si_unit, field="si_unit"), "dimensionality": str(converted.dimensionality)}
+
+
 def _coherent_magnitude(value: object, converted: object, si_unit: str) -> object:
     """Convert multiplicative Pint units through decimal scale spelling.
 

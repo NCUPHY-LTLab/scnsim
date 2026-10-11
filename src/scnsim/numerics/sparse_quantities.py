@@ -102,7 +102,7 @@ def hybridized(system, start, assemble, measurements):
         facts = dict(determinant=determinant, right_residual=right, left_residual=left,
                      determinant_residual=eta_det, determinant_normalizer=rows, full_operator_residual=eta_q,
                      slope_scale=scale, correction=correction, singular_values=singular,
-                     newton_steps=step+1)
+                     newton_steps=step+1, left_null_vector=u)
         closed = (np.isfinite(h) and np.isfinite(hp) and ratio_le(eta_det, tau(q, rd), rd)
                   and np.isfinite(right) and right <= tau(q, rd) and np.isfinite(left) and left <= tau(q, rd)
                   and np.isfinite(eta_q) and eta_q <= tau(system.n, rd) and scale > 0
@@ -373,7 +373,7 @@ def residue_coupling(system, job, assemble, measurements):
         fail('root_slope_unresolved', 'residue_coupling', 'residue-normalized coupling is nonfinite')
     return dict(coupling_rad_s=coupling, residue_a=residues[0], residue_b=residues[1],
                 branch_roots_rad_s=np.asarray(roots, dtype=cd), evaluation_omega_rad_s=evaluation), dict(
-                reciprocity=reciprocity, branch_slope_scales=scales, branch_independence=singular)
+                reciprocity=reciprocity, branch_slopes=slopes, branch_slope_scales=scales, branch_independence=singular)
 
 
 def evaluate_quantity(system, job, assemble, measurements):

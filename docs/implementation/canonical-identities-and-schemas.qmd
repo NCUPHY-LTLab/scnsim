@@ -33,8 +33,8 @@ still-referenced facts; they are not an alternative target schema.
 
 ## Encode one canonical byte stream
 
-The dev24 [lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle)
-adds SQLite operation evidence v6 completion/index ownership; it does not change
+The dev26 [lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle)
+uses SQLite operation evidence v7 with inherited completion/index ownership; it does not change
 the version of every scientific or native envelope. The completion's
 `terminal_attempt_ref` binds the canonical completed attempt document whose
 digest remains `ResultIdentity.attempt_sha256`, rather than the running
