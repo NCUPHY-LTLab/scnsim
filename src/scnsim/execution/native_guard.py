@@ -480,6 +480,16 @@ def launch(command, fds, tracker):
                     original.add_note(f'Native launch descriptor cleanup: {secondary!r}')
 
 
+def _shutdown_control(control):
+    try:
+        control.shutdown(socket.SHUT_RDWR)
+    except OSError as error:
+        # Parent close/liveness EOF may arrive after the peer disconnected.
+        # This terminal transport state is not a descendant ownership failure.
+        if error.errno != errno.ENOTCONN:
+            raise
+
+
 def main():
     control_fd, alive_fd = map(int, sys.argv[1:3])
     lease_fds = list(map(int, sys.argv[3:]))
@@ -506,7 +516,7 @@ def main():
                     readable, _, _ = select.select([alive_fd], [], [], .02)
                     if readable and not os.read(alive_fd, 1):
                         stop.set()
-                        control.shutdown(socket.SHUT_RDWR)
+                        _shutdown_control(control)
                         return
                     tracker.scan()
             except BaseException as error:
@@ -523,9 +533,12 @@ def main():
                 finally:
                     stop.set()
                     try:
-                        control.shutdown(socket.SHUT_RDWR)
-                    except OSError:
-                        pass
+                        _shutdown_control(control)
+                    except BaseException as secondary:
+                        try:
+                            error.add_note(f'Native guardian control shutdown: {secondary!r}')
+                        except BaseException:
+                            pass  # Preserve the original ownership failure.
         watcher = threading.Thread(target=monitor, name='scnsim-native-owner', daemon=True)
         watcher.start()
         try:

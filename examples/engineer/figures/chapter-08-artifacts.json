@@ -244,9 +244,9 @@
     "shared_workspace_unchanged_during_resume": true
   },
   "publication_binding": {
-    "binding_sha256": "cdd3decae613df01b2ce83a00251f346cda82aadcfb41427c88accfec431b9ca",
+    "binding_sha256": "3e6e55c58394cd6e426feadae543511ddaa9d5f98dffdf0f5ff17f63f6e94834",
     "generator_sha256": "4434e3ddb7998773c2fc2ec5de3a22c1bdf00be94a1c3404d0b8d5b0e57f8dee",
-    "source_tree_sha256": "34ea71537243c094fac26c289b9e9f7df497263dfa1b025cd61e87ee9c4976c7"
+    "source_tree_sha256": "81a5827ac97aaaf83f33deb239e54e9a97ea2080204e61257bc5302085ccbe61"
   },
   "publication_rebind": {
     "deltas": {
@@ -453,7 +453,7 @@
           "before_sha256": "absent"
         },
         "src/scnsim/execution/native_guard.py": {
-          "after_sha256": "f968235fa0207e6da578c1cee832b8fafdcec6cef88b0c096bea07ac9dd31900",
+          "after_sha256": "0dd6ad56378a8311be56007ca58f78a04015bf581437228a9e33640985d3bfa5",
           "before_sha256": "absent"
         },
         "src/scnsim/execution/native_helper.py": {
@@ -715,7 +715,7 @@
       "08-report.html": "2a6c6d3f83f02e99340e46b8e51c8f5486e1fa7389de9a99662df6c6c43a2d2f",
       "08-resolve-only.md": "e62658d67ec37759b6412d9eec2378beef7e59c92d6a0edb298772f5ee347dc6"
     },
-    "publication_binding_sha256": "cdd3decae613df01b2ce83a00251f346cda82aadcfb41427c88accfec431b9ca",
+    "publication_binding_sha256": "3e6e55c58394cd6e426feadae543511ddaa9d5f98dffdf0f5ff17f63f6e94834",
     "redrawn_artifacts": {},
     "schema": "scnsim.engineer_publication_rebind.v3",
     "transition_id": "scnsim.package_architecture_lifecycle.20261011"

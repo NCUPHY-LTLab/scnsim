@@ -173,9 +173,9 @@
     }
   },
   "publication_binding": {
-    "binding_sha256": "5d0a2ca4464a08806202fc5f110d36d50357e7bc9cd95c2d8de4b1464003e935",
+    "binding_sha256": "8aea23b365298f8aca1e75e7eaa84d7c66e3188a75745723f16e127a65ff053f",
     "generator_sha256": "0900b4c6720dd68251d3d7d102d03770ce27ad7d3edbd553e3a204b461826ab4",
-    "source_tree_sha256": "34ea71537243c094fac26c289b9e9f7df497263dfa1b025cd61e87ee9c4976c7"
+    "source_tree_sha256": "81a5827ac97aaaf83f33deb239e54e9a97ea2080204e61257bc5302085ccbe61"
   },
   "publication_rebind": {
     "deltas": {
@@ -388,7 +388,7 @@
           "before_sha256": "absent"
         },
         "src/scnsim/execution/native_guard.py": {
-          "after_sha256": "f968235fa0207e6da578c1cee832b8fafdcec6cef88b0c096bea07ac9dd31900",
+          "after_sha256": "0dd6ad56378a8311be56007ca58f78a04015bf581437228a9e33640985d3bfa5",
           "before_sha256": "absent"
         },
         "src/scnsim/execution/native_helper.py": {
@@ -650,7 +650,7 @@
       "06-tapped-feedline-t.md": "2445ed4432967205d1bca80ec52d930fde42e8c5ebc8ecaaf826fc67d57161d2",
       "06-tapped-feedline-t.svg": "293d3a9aa5c1b5c35f821429b32f838de2e302ed2ac8cad5019f139ea131ac7c"
     },
-    "publication_binding_sha256": "5d0a2ca4464a08806202fc5f110d36d50357e7bc9cd95c2d8de4b1464003e935",
+    "publication_binding_sha256": "8aea23b365298f8aca1e75e7eaa84d7c66e3188a75745723f16e127a65ff053f",
     "redrawn_artifacts": {},
     "schema": "scnsim.engineer_publication_rebind.v3",
     "transition_id": "scnsim.package_architecture_lifecycle.20261011"
