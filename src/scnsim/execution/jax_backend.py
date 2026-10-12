@@ -43,6 +43,8 @@ class JaxBackend:
         self.diagnostics = diagnostics
         started = perf_counter_ns()
         with _span(trace, "numerical_backend_initialization", precision=precision):
+            from .._native import require_compensated_kernel
+            require_compensated_kernel()
             ensure_jax_configuration()
             import jax
             self.jax = jax
@@ -71,7 +73,7 @@ class JaxBackend:
                 "scope": "transfer_zero.Z.non_port_realizable",
                 "representation": "two_components_in_requested_base_dtype",
                 "coverage": "indexed_assembly_pair_residual_selected_formation",
-                "pair_product_kernel": "callback_local_ordered_actual_dtype_csr.v1",
+                "pair_product_kernel": "callback_local_cpp17_ordered_actual_dtype_csr.v1",
                 "correction": "one_per_actual_primal_or_derivative_equation_same_high_factor",
                 "projection": "F_Fp_then_Y_Yp_declared_complex_dtype",
             },

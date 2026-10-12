@@ -676,6 +676,8 @@ class CircuitRun:
         backend, selected_precision = self._selected_backend(None, precision)
         if backend != "jax":
             raise RuntimePreparationError("CircuitRun.prepare requires the JAX backend", stage="runtime_prepare")
+        from ._native import require_compensated_kernel
+        require_compensated_kernel()
         declarations = self._sensitivity_quantities(quantities, encoded=True)
         point = self._complete_parameters(parameters)
         active = None if wrt is None else tuple(
@@ -755,13 +757,20 @@ class CircuitRun:
     ):
         """Compile declared signatures from detached or view/spec acquisition.
 
-        batch_shapes declare leading theta point-batch dimensions. Compilation
-        performs no solve or successful evidence publication.
+        batch_shapes declare leading theta point-batch dimensions. View/spec
+        warming plans the actual checked operation, including ordered Objective
+        loss and each declared Hybrid stage. Prepared transforms remain raw,
+        caller-owned signatures. Runtime coefficients do not change static
+        variant identity within fixed operand modes; actual-frame consumers
+        remain explicitly lazy when their exact producer tree is unavailable.
+        Compilation performs no solve or successful evidence publication.
         """
         from .execution.warmup import prepare_warmup, warm_prepared
 
         if self._backend != "jax":
             raise RuntimePreparationError('CircuitRun.warmup requires backend="jax"', stage="warmup")
+        from ._native import require_compensated_kernel
+        require_compensated_kernel()
         if isinstance(view, PreparedFunction):
             if spec is not None or parameters is not None:
                 raise TypeError("prepared warmup does not take a spec or parameters")

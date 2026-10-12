@@ -9,7 +9,7 @@ references; it never purges process-global JAX state or promises RSS release.
 from collections import OrderedDict
 from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass
-from threading import RLock
+from threading import RLock, Event, get_ident
 
 from .policy import ExecutionPolicy
 
@@ -26,6 +26,9 @@ class CompileOwnerStats:
     admissions: int
     evictions: int
     operation_owned: int
+    actual_builds: int = 0
+    singleflight_waits: int = 0
+    pending_builds: int = 0
 
 
 @dataclass(slots=True)
@@ -35,6 +38,18 @@ class _Entry:
     touched: int
     pins: int = 0
     retire: bool = False
+
+
+@dataclass(slots=True)
+class _Flight:
+    event: object
+    builder_thread: int
+    epoch: int
+    users: int = 0
+    ready: bool = False
+    value: object = None
+    error: BaseException | None = None
+    entry: object = None
 
 
 class CompileOwner:
@@ -53,6 +68,9 @@ class CompileOwner:
         self._variants = OrderedDict()
         self._lock = RLock()
         self._clock = 0
+        self._epoch = 0
+        self._flights = {}
+        self._actual_builds = self._singleflight_waits = 0
         self._hits = self._misses = self._admissions = self._evictions = self._operation_owned = 0
 
     @contextmanager
@@ -106,9 +124,15 @@ class CompileOwner:
         return sum(e.known_bytes for table in (self._programs, self._variants)
                    for e in table.values() if e.known_bytes is not None)
 
+    def _active_pins(self, entry):
+        # Flight participants are virtual pins until their contexts finish. This
+        # avoids per-waiter reservation mutations during terminal publication.
+        return entry.pins + sum(flight.users for flight in self._flights.values()
+                                if flight.entry is entry)
+
     def _evict_one(self, tables):
         choices = [(entry.touched, table, key) for table in tables
-                   for key, entry in table.items() if not entry.pins]
+                   for key, entry in table.items() if not self._active_pins(entry)]
         if not choices:
             return False
         _, table, key = min(choices, key=lambda item: item[0])
@@ -159,7 +183,7 @@ class CompileOwner:
             entry = table.get(key)
             if entry is None:
                 return False
-            if entry.pins:
+            if self._active_pins(entry):
                 entry.retire = True
             else:
                 del table[key]
@@ -169,7 +193,7 @@ class CompileOwner:
         with self._lock:
             entry.pins -= 1
             table, _ = self._table(kind)
-            if not entry.pins and entry.retire and table.get(key) is entry:
+            if not self._active_pins(entry) and entry.retire and table.get(key) is entry:
                 del table[key]
 
     @contextmanager
@@ -185,41 +209,98 @@ class CompileOwner:
             self._release(key, kind, entry)
 
     @contextmanager
-    def acquire(self, key, factory, *, kind='program', known_bytes=None):
-        """Borrow a hit or create and optionally admit a static miss.
+    def acquire(self, key, factory, *, kind='program', known_bytes=None, acquisition=None):
+        """Share one actual build per owner/key, without locking over compile.
 
-        known_bytes may measure the created value via a callable.
-        Factory executes outside the owner lock. A concurrent admission under
-        the same structural key wins; the unused local value is released.
+        Registered followers pin the published item before notification. A
+        follower interruption detaches only that follower. Build failure wakes
+        every participant; no failed flight becomes a persistent cache entry.
         """
+        flight_key = (kind, key)
+        waited = False
         with self._lock:
             entry = self._lookup(key, kind)
             if entry is not None:
                 entry.pins += 1
-        if entry is None:
-            value = factory()
-            size = known_bytes(value) if callable(known_bytes) else known_bytes
-            if size is not None and (type(size) is not int or size < 0):
-                raise ValueError('known_bytes must be None or a nonnegative integer')
-            with self._lock:
-                entry = self._admit(key, value, kind, size)
-                if entry is not None:
-                    entry.pins += 1
-            if entry is None:
-                yield value
-                return
-            del value
+                flight = None
+                leader = False
+            else:
+                flight = self._flights.get(flight_key)
+                leader = flight is None
+                if leader:
+                    flight = _Flight(Event(), get_ident(), self._epoch)
+                    self._flights[flight_key] = flight
+                    self._actual_builds += 1
+                elif not flight.ready:
+                    if flight.builder_thread == get_ident():
+                        raise RuntimeError('recursive compilation acquisition of the same owner/key')
+                    self._singleflight_waits += 1
+                    waited = True
+                flight.users += 1
+        if flight is None:
+            try:
+                if acquisition is not None:
+                    acquisition.update(state="reused", admitted=True)
+                yield entry.value
+            finally:
+                self._release(key, kind, entry)
+            return
         try:
-            yield entry.value
+            if leader:
+                try:
+                    value = factory()
+                    size = known_bytes(value) if callable(known_bytes) else known_bytes
+                    if size is not None and (type(size) is not int or size < 0):
+                        raise ValueError('known_bytes must be None or a nonnegative integer')
+                    with self._lock:
+                        entry = (self._admit(key, value, kind, size)
+                                 if flight.epoch == self._epoch else None)
+                        if entry is None:
+                            if flight.epoch != self._epoch:
+                                self._operation_owned += 1
+                            flight.value = value
+                        else:
+                            flight.entry = entry
+                            flight.value = entry.value
+                        del value
+                except BaseException as error:
+                    with self._lock:
+                        flight.error = error
+                finally:
+                    with self._lock:
+                        flight.ready = True
+                        flight.event.set()
+            else:
+                flight.event.wait()
+            with self._lock:
+                error, value = flight.error, flight.value
+            if error is not None:
+                raise error
+            if acquisition is not None:
+                with self._lock:
+                    table, _ = self._table(kind)
+                    admitted = flight.entry is not None and table.get(key) is flight.entry and not flight.entry.retire
+                acquisition.update(state="compiled" if leader else "waited" if waited else "reused", admitted=admitted)
+            yield value
         finally:
-            self._release(key, kind, entry)
+            with self._lock:
+                flight.users -= 1
+                if not flight.users and self._flights.get(flight_key) is flight:
+                    del self._flights[flight_key]
+                    table, _ = self._table(kind)
+                    if flight.entry is not None and flight.entry.retire and not self._active_pins(flight.entry) and table.get(key) is flight.entry:
+                        del table[key]
+                    # Do not retain completed values or traceback-bearing errors.
+                    flight.value = flight.error = flight.entry = None
+
 
     def clear(self):
         """Release inactive entries and retire active ones; no global purge."""
         with self._lock:
+            self._epoch += 1
             for table in (self._programs, self._variants):
                 for key, entry in tuple(table.items()):
-                    if entry.pins:
+                    if self._active_pins(entry):
                         entry.retire = True
                     else:
                         del table[key]
@@ -230,5 +311,7 @@ class CompileOwner:
             entries = tuple(self._programs.values()) + tuple(self._variants.values())
             return CompileOwnerStats(len(self._programs), len(self._variants),
                 self._known_bytes(), sum(e.known_bytes is None for e in entries),
-                sum(bool(e.pins) for e in entries), self._hits, self._misses,
-                self._admissions, self._evictions, self._operation_owned)
+                sum(bool(self._active_pins(e)) for e in entries), self._hits, self._misses,
+                self._admissions, self._evictions, self._operation_owned,
+                self._actual_builds, self._singleflight_waits,
+                sum(not flight.ready for flight in self._flights.values()))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from html import escape, unescape
+import math
 import textwrap
 from typing import Any, Literal
 
@@ -12,6 +13,23 @@ import numpy as np
 from ..presentation import Theme
 from ...results.selection import _optimization_series
 from .common import _plotly, _presentation_source, _quantity_text, _require_axis_semantics, _style, _subplot_type, _trace_meta
+
+
+def _candidate_cost_text(record: Mapping[str, object]) -> str:
+    """Format one selected cost with the decoder's status-bound failure rule."""
+
+    encoded = record.get("cost_f64")
+    if not isinstance(encoded, str):
+        return "—"
+    from ...results.optimization_projection import _candidate_cost
+
+    status = record.get("status")
+    value = _candidate_cost(record, status if isinstance(status, str) else "")
+    return "+∞" if value == math.inf else f"{value:.12g}"
+
+
+def _cost_value_text(value: float) -> str:
+    return "+∞" if value == math.inf else f"{value:.12g}"
 
 def _complex_quantity_text(value: object) -> str:
     from ...canonical import float64_from_hex
@@ -47,8 +65,8 @@ def _optimization_term_rows(
         stage = result.stage(stage_id)
         rows = []
         for candidate in stage.history:
-            cost = candidate.get("cost_f64")
-            cost_text = f"{float64_from_hex(cost):.12g}" if isinstance(cost, str) else "—"
+            cost_text = _candidate_cost_text(candidate)
+            candidate_status = str(candidate.get("status", "unavailable"))
             parameters = "; ".join(
                 f"{binding['parameter']['definitions_id']}.{binding['parameter']['parameter_id']} = "
                 f"{_quantity_text(binding['value'])}"
@@ -56,14 +74,28 @@ def _optimization_term_rows(
             )
             components = "; ".join(
                 f"{component.get('objective_id', 'objective')}: "
-                + (f"{float64_from_hex(component['weighted_cost_f64']):.12g}"
-                   if isinstance(component.get("weighted_cost_f64"), str)
-                   else str(component.get("status", "unavailable")))
+                + (
+                    str(component.get("status", candidate_status))
+                    if candidate_status == "failure"
+                    else f"{float64_from_hex(component['weighted_cost_f64']):.12g}"
+                    if isinstance(component.get("weighted_cost_f64"), str)
+                    else str(component.get("status", "unavailable"))
+                )
                 for component in candidate.get("components", ())
             )
+            failure = candidate.get("failure")
+            if candidate_status == "failure" and isinstance(failure, Mapping):
+                failure_text = ": ".join(
+                    str(value) for value in (
+                        failure.get("kind"), failure.get("stage"),
+                        failure.get("detail", failure.get("message")),
+                    ) if value is not None
+                )
+                if failure_text:
+                    components = "; ".join(item for item in (components, failure_text) if item)
             rows.append((
                 candidate["evaluation_ordinal"], candidate.get("generation", "—"),
-                escape(str(candidate.get("status", "unavailable"))), cost_text,
+                escape(candidate_status), cost_text,
                 parameters, components,
             ))
         return tuple(list(column) for column in zip(*rows, strict=True)) if rows else tuple([] for _ in range(6))
@@ -75,8 +107,8 @@ def _optimization_term_rows(
     }
     rows = []
     for candidate in result._fixed_reader.project("table"):
-        cost = candidate.get("cost_f64")
-        cost_text = f"{float64_from_hex(cost):.12g}" if isinstance(cost, str) else "—"
+        cost_text = _candidate_cost_text(candidate)
+        candidate_status = str(candidate.get("status", "unavailable"))
         parameters = "; ".join(
             f"{binding['parameter']['definitions_id']}.{binding['parameter']['parameter_id']} = "
             f"{_quantity_text(binding['value'])}"
@@ -84,13 +116,18 @@ def _optimization_term_rows(
         )
         components = "; ".join(
             f"{component['objective_id']}: "
-            + (f"{float64_from_hex(component['value_f64']):.12g} {escape(objective_units[component['objective_id']])}"
-               if isinstance(component.get("value_f64"), str) else str(component["status"]))
+            + (
+                str(component.get("status", candidate_status))
+                if candidate_status == "failure"
+                else f"{float64_from_hex(component['value_f64']):.12g} {escape(objective_units[component['objective_id']])}"
+                if isinstance(component.get("value_f64"), str)
+                else str(component["status"])
+            )
             for component in candidate["components"]
         )
         rows.append((
             candidate["evaluation_ordinal"], candidate["generation"],
-            escape(str(candidate["status"])), cost_text, parameters, components,
+            escape(candidate_status), cost_text, parameters, components,
         ))
     return tuple(list(column) for column in zip(*rows, strict=True)) if rows else tuple([] for _ in range(6))
 
@@ -189,27 +226,60 @@ def optimization_plot(
         else None if result.stages
         else len(result.candidate_discretization)
     )
-    saved = (
-        "stage observed best cost unavailable" if display_candidate is None
-        else (
-            f"stage observed best cost {display_candidate.cost:.12g}"
+    if display_candidate is None:
+        if selected_stage is None:
+            saved = "No successful best is recorded"
+        else:
+            stage_facts = (
+                f"{selected_stage.status}; {selected_stage.iteration_count} iterations; "
+                f"{selected_stage.evaluation_count} evaluations"
+            )
+            if selected_stage.termination_reason is not None:
+                stage_facts += f"; termination: {selected_stage.termination_reason}"
+            saved = f"No successful stage best; {stage_facts}"
+    else:
+        saved = (
+            f"stage observed best cost {_cost_value_text(display_candidate.cost)}"
             if selected_stage is not None
-            else f"saved best cost {display_candidate.cost:.12g}"
+            else f"saved best cost {_cost_value_text(display_candidate.cost)}"
         )
-    )
     if kind in {"history", "objective", "residual", "parameter"}:
         ordinals, values, statuses, label, unit, details = _optimization_series(
             result, kind=kind, objective=objective, parameter=parameter,
             stage_id=stage_id,
         )
+        failed_occurrences = []
+        plotted_values = values
+        if kind == "history":
+            plotted_values = [None if value == math.inf else value for value in values]
+            failed_occurrences = [
+                {
+                    "evaluation_ordinal": ordinal,
+                    "status": status,
+                    "cost": "positive_infinity" if value == math.inf else "not_recorded",
+                    "detail": detail,
+                }
+                for ordinal, value, status, detail in zip(
+                    ordinals, values, statuses, details, strict=True
+                )
+                if status == "failure"
+            ]
+        display_values = [
+            "+∞" if value == math.inf
+            else "—" if value is None
+            else f"{value:.12g}"
+            for value in values
+        ]
         figure = go.Figure(data=[go.Scatter(
             x=ordinals,
-            y=values,
+            y=plotted_values,
             mode="lines+markers",
             name=escape(label),
             customdata=np.asarray([
-                [status, escape(detail)]
-                for status, detail in zip(statuses, details, strict=True)
+                [status, escape(detail), display_value]
+                for status, detail, display_value in zip(
+                    statuses, details, display_values, strict=True
+                )
             ], dtype=object),
             connectgaps=False,
             meta=_trace_meta(
@@ -226,9 +296,32 @@ def optimization_plot(
                 },
                 source=_presentation_source(result),
             ),
-            hovertemplate="evaluation=%{x}<br>value=%{y}<br>status=%{customdata[0]}<br>%{customdata[1]}<extra></extra>",
+            hovertemplate=(
+                "evaluation=%{x}<br>value=%{customdata[2]}<br>"
+                "status=%{customdata[0]}<br>%{customdata[1]}<extra></extra>"
+            ),
         )])
-        figure.update_xaxes(title_text="evaluation ordinal")
+        if failed_occurrences:
+            for occurrence in failed_occurrences:
+                ordinal = occurrence["evaluation_ordinal"]
+                figure.add_shape(
+                    type="rect",
+                    xref="x",
+                    yref="paper",
+                    x0=ordinal - 0.35,
+                    x1=ordinal + 0.35,
+                    y0=0.005,
+                    y1=0.045,
+                    fillcolor="rgba(190, 40, 40, 0.24)",
+                    line={"width": 0},
+                    layer="above",
+                )
+        figure.update_xaxes(
+            title_text=(
+                "evaluation ordinal; shaded strip marks failed candidates"
+                if failed_occurrences else "evaluation ordinal"
+            )
+        )
         figure.update_yaxes(title_text=f"{escape(label)} ({escape(unit)})")
     elif kind == "table":
         if objective is not None or parameter is not None:
@@ -305,6 +398,7 @@ def optimization_plot(
         "stage_model_identity": (
             None if selected_stage is None else _plain_metadata(selected_stage.model_identity)
         ),
+        "failed_occurrences": failed_occurrences if kind == "history" else [],
     }})
     if kind != "comparison":
         annotation_parts = [saved]
@@ -317,7 +411,9 @@ def optimization_plot(
                 annotation_parts.append(bindings)
         if selected_stage is not None and selected_stage.accepted_iterate is not None:
             accepted = selected_stage.accepted_iterate
-            annotation_parts.append(f"accepted iterate cost {accepted.cost:.12g}")
+            annotation_parts.append(
+                f"accepted iterate cost {_cost_value_text(accepted.cost)}"
+            )
         figure.add_annotation(
             text="; ".join(annotation_parts), x=0, y=1.12,
             xref="paper", yref="paper", xanchor="left", showarrow=False,
@@ -395,7 +491,27 @@ def optimization_add_to(
             x_axis=trace.meta["scnsim"]["x_axis"],
             y_axis=trace.meta["scnsim"]["y_axis"],
         )
-    figure.add_trace(source.data[0], row=row, col=col)
+    for trace in source.data:
+        figure.add_trace(trace, row=row, col=col)
+    if source.layout.shapes:
+        target_trace = figure.data[-len(source.data)]
+        xaxis_ref = target_trace.xaxis or "x"
+        yaxis_ref = target_trace.yaxis or "y"
+        yaxis_key = "yaxis" + yaxis_ref[1:]
+        target_axis = getattr(figure.layout, yaxis_key, None)
+        target_domain = (
+            (0.0, 1.0)
+            if target_axis is None or target_axis.domain is None
+            else tuple(target_axis.domain)
+        )
+        domain_height = target_domain[1] - target_domain[0]
+        for selected_shape in source.layout.shapes:
+            shape = selected_shape.to_plotly_json()
+            shape["xref"] = xaxis_ref
+            shape["yref"] = "paper"
+            shape["y0"] = target_domain[0] + float(shape["y0"]) * domain_height
+            shape["y1"] = target_domain[0] + float(shape["y1"]) * domain_height
+            figure.add_shape(**shape)
     return figure
 
 
@@ -407,6 +523,7 @@ def optimization_comparison_dataset(
     from hashlib import sha256
 
     from ...canonical import canonical_json_bytes, float64_from_hex
+    from ...results.optimization_projection import _candidate_cost
 
     def expression_text(value: object) -> str:
         if not isinstance(value, Mapping):
@@ -597,18 +714,29 @@ def optimization_comparison_dataset(
         "—" if initial is None else str(initial.get("evaluation_ordinal", "—")),
         "—" if ordinal is None else str(ordinal),
     ))
-    initial_cost_token = None if initial_outcome is None else initial_outcome.get("cost_f64")
-    initial_cost = float64_from_hex(initial_cost_token) if isinstance(initial_cost_token, str) else None
+    initial_cost_token = None if initial is None else initial.get("cost_f64")
+    initial_status = None if initial_outcome is None else initial_outcome.get("status")
+    initial_cost = (
+        _candidate_cost(
+            {"cost_f64": initial_cost_token},
+            initial_status if isinstance(initial_status, str) else "",
+        )
+        if isinstance(initial_cost_token, str)
+        else None
+    )
     best_cost = None if result.best is None else result.best.cost
     comparison.append((
         "total cost",
-        "—" if initial_cost is None else f"{initial_cost:.12g}",
-        "—" if best_cost is None else f"{best_cost:.12g}",
+        "—" if initial_cost is None else _cost_value_text(initial_cost),
+        "—" if best_cost is None else _cost_value_text(best_cost),
     ))
     comparison.append((
         "total cost delta (best - initial)",
         "—",
-        "—" if initial_cost is None or best_cost is None else f"{best_cost - initial_cost:.12g}",
+        "—" if (
+            initial_cost is None or best_cost is None
+            or not math.isfinite(initial_cost) or not math.isfinite(best_cost)
+        ) else f"{best_cost - initial_cost:.12g}",
     ))
     initial_components = (
         () if initial_outcome is None else initial_outcome.get("objective_components", ())
@@ -634,12 +762,26 @@ def optimization_comparison_dataset(
         right = best_by_id.get(name)
         if left is None and right is None:
             continue
-        left_value = None if left is None else left.get("value")
-        right_value = None if right is None else right.get("value")
-        left_residual = None if left is None else left.get("normalized_residual_f64")
-        right_residual = None if right is None else right.get("normalized_residual_f64")
-        left_cost = None if left is None else left.get("weighted_cost_f64")
-        right_cost = None if right is None else right.get("weighted_cost_f64")
+        initial_failed = (
+            isinstance(initial_outcome, Mapping)
+            and initial_outcome.get("status") == "failure"
+        )
+        best_failed = (
+            isinstance(best_outcome, Mapping)
+            and best_outcome.get("status") == "failure"
+        )
+        left_value = None if left is None or initial_failed else left.get("value")
+        right_value = None if right is None or best_failed else right.get("value")
+        left_residual = (
+            None if left is None or initial_failed
+            else left.get("normalized_residual_f64")
+        )
+        right_residual = (
+            None if right is None or best_failed
+            else right.get("normalized_residual_f64")
+        )
+        left_cost = None if left is None or initial_failed else left.get("weighted_cost_f64")
+        right_cost = None if right is None or best_failed else right.get("weighted_cost_f64")
         initial_value = (
             float64_from_hex(left_value["si_value_f64"])
             if isinstance(left_value, Mapping) and isinstance(left_value.get("si_value_f64"), str)

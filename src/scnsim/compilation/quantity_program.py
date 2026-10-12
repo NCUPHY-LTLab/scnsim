@@ -129,6 +129,21 @@ class QuantityProgram:
     def program_sha256(self):
         return hashlib.sha256(self.identity_bytes).hexdigest()
 
+    def projected_output_layout(self):
+        """Detached static primal output shapes/dtypes from expression lowering.
+
+        This is the same ordered projection authority used by native execution,
+        not an eval_shape/solve or an inference from packed real row counts.
+        Original binary64 parameter operands do not widen selected output dtype.
+        """
+        real = 'float32' if self.program.precision == 'float32' else 'float64'
+        complex_dtype = 'complex64' if self.program.precision == 'float32' else 'complex128'
+        return tuple({'quantity_key': expression.quantity_key,
+                      'shape': expression.shape,
+                      'dtype': complex_dtype if expression.complex_output else real,
+                      'si_unit': expression.si_unit}
+                     for expression in self.program.expressions)
+
     def quantity_metadata(self):
         return tuple({'key': leaf.key, 'observable_index': leaf.observable_index,
                       'si_unit': leaf.si_unit, 'axes': leaf.axes,

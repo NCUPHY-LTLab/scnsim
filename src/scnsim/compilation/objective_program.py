@@ -72,18 +72,32 @@ class ObjectiveProgram:
                          jnp.asarray(inputs.branch_starts_rad_s))
         return native, arguments
 
-    def _invoke(self, native, arguments, *, derivative, native_executor,
-                program_owner, device):
-        from contextlib import nullcontext
+    def coefficient_operands(self):
+        """Actual execution coefficients, distinct from compilation identity."""
+        import jax.numpy as jnp
+        return tuple(jnp.asarray(values, dtype=jnp.float64)
+                     for values in self.loss.runtime_operands())
+
+    def execution_variant(self, native, arguments, *, derivative, device):
+        """The same composed callable/key/signature consumed by warmup and execute."""
+        # Execution wraps this pure (key, callable, operands) recipe in its
+        # immutable plan; compilation has no upward execution dependency.
         transform = 'vjp' if derivative else 'checked_value'
         key = (native.variant_key('value', device=device, operands=arguments,
                                   transform=transform),
-               ('objective_loss', self.program_sha256))
+               ('objective_loss', self.loss.structural_record()))
+        return key, self._function(native, derivative=derivative), tuple(arguments)
+
+    def _invoke(self, native, arguments, *, derivative, native_executor,
+                program_owner, device):
+        from contextlib import nullcontext
+        arguments = (*arguments, self.coefficient_operands())
+        key, function, operands = self.execution_variant(native, arguments, derivative=derivative, device=device)
         borrowed = (nullcontext() if program_owner is None else
                     program_owner.hold_exact_core(native.core))
         with borrowed:
-            return native_executor(self._function(native, derivative=derivative),
-                *arguments, precision=self.precision, compile_key=key,
+            return native_executor(function,
+                *operands, precision=self.precision, compile_key=key,
                 owner=program_owner,
                 phase='physical_objective_value_gradient' if derivative else 'physical_objective_value',
                 details={'objective_count': len(self.loss.objectives)})
@@ -96,10 +110,14 @@ class ObjectiveProgram:
         with self._function_lock:
             function = self._native_functions.get(key)
             if function is None:
-                raw, loss = native.numeric_function, self.loss
-                def body(theta, omega, seeds):
+                raw, loss = native.numeric_function, self.loss.algebra_function()
+                output_pullback = self.loss.output_pullback_function()
+                def body(theta, omega, seeds, coefficients):
                     result = raw(theta, omega, seeds)
-                    payload = loss(result[1].output_values)
+                    if derivative:
+                        payload, covectors = output_pullback(result[1].output_values, coefficients)
+                        return payload.total_cost, (result, payload, covectors)
+                    payload = loss(result[1].output_values, coefficients)
                     return payload.total_cost, (result, payload)
                 function = checked_native(jax.value_and_grad(body, argnums=0, has_aux=True)
                                           if derivative else body)
@@ -141,13 +159,10 @@ class ObjectiveProgram:
                 derivative, payload = native_ad_runner(
                     native, arguments, self.loss, active_keys=active_keys)
             else:
-                error, ((_, (result, payload)), full_gradient) = self._invoke(native, arguments, derivative=True,
+                error, ((_, (result, payload, covectors)), full_gradient) = self._invoke(native, arguments, derivative=True,
                     native_executor=native_executor, program_owner=program_owner, device=device)
                 # B owns precise declared derivative demand and transformed equation
                 # certificates. Loss-covector zero is not a fabricated derivative.
-                _, loss_pullback = jax.vjp(lambda *values: self.loss(values).total_cost,
-                                           *result[1].output_values)
-                covectors = loss_pullback(jnp.ones_like(payload.total_cost))
                 derivative = project_native_derivative_outcome(native, (result, full_gradient), error,
                     output_covectors=native.output_covector_rows(covectors))
             require_primal(derivative.primal)
@@ -188,13 +203,14 @@ def compile_objective_quantities(plan_document, optimization_spec, parameter_set
 
 def compile_objective_program(plan_document, optimization_spec, parameter_set, *, default_view=None, mesh=None,
                               bounds=None, precision='float64', authorized=frozenset(),
-                              program_owner=None, admit_program=False):
+                              program_owner=None, admit_program=False, require_resolved_scales=True):
     quantity_program, modes = compile_objective_quantities(
         plan_document, optimization_spec, parameter_set, default_view=default_view, mesh=mesh,
         bounds=bounds, precision=precision, authorized=authorized,
         program_owner=program_owner, admit_program=admit_program)
     objectives = tuple(optimization_spec['objectives'])
-    loss = compile_objective_loss(objectives, operand_modes=modes)
+    loss = compile_objective_loss(objectives, operand_modes=modes,
+                                  require_resolved_scales=require_resolved_scales)
     identity = {'schema': 'scnsim.objective_program', 'schema_version': 1,
                 'quantity_program': json.loads(quantity_program.identity_bytes),
                 'objectives': objectives, 'operand_modes': modes}

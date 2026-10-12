@@ -53,10 +53,14 @@ _pair_p = core.Primitive('scnsim_checked_pair_equation')
 _pair_p.multiple_results = True
 _batch_pair_p = core.Primitive('scnsim_checked_pair_equation_batch')
 _batch_pair_p.multiple_results = True
+_residual_pair_p = core.Primitive('scnsim_checked_pair_residual_equation')
+_residual_pair_p.multiple_results = True
+_batch_residual_pair_p = core.Primitive('scnsim_checked_pair_residual_equation_batch')
+_batch_residual_pair_p.multiple_results = True
 
 
 def _callback(ah, al, bh, bl, prior, *products, equation, stage, mode, role,
-              derivative_order=0, certificate_site=(), dependency=(), parameter_ad_depth=0):
+              derivative_order=0, certificate_site=(), dependency=(), parameter_ad_depth=0, frequency_jet=False):
     shape = PairSolveOutcome(
         (jax.ShapeDtypeStruct(bh.shape, bh.dtype), jax.ShapeDtypeStruct(bl.shape, bl.dtype)),
         SolveAux(jax.ShapeDtypeStruct((), jnp.int32),
@@ -66,7 +70,7 @@ def _callback(ah, al, bh, bl, prior, *products, equation, stage, mode, role,
     return (*result.value, *result.aux, prior == 0)
 
 
-_static = ('equation', 'stage', 'mode', 'role', 'derivative_order', 'certificate_site', 'dependency', 'parameter_ad_depth')
+_static = ('equation', 'stage', 'mode', 'role', 'derivative_order', 'certificate_site', 'dependency', 'parameter_ad_depth', 'frequency_jet')
 _pair_p.def_impl(partial(jax.jit, static_argnames=_static)(_callback))
 mlir.register_lowering(_pair_p, equation_lowering(_callback))
 
@@ -113,6 +117,38 @@ def _batch_abstract(*operands, **params):
 _batch_pair_p.def_abstract_eval(_batch_abstract)
 
 
+def _residual_callback(ah, al, bh, bl, prior, retained_prior, *products, **params):
+    # The forward equation keeps its exact directional skip prerequisite.
+    # The separate primal status is a reverse residual, not a substitute here.
+    del retained_prior
+    return _callback(ah, al, bh, bl, prior, *products, **params)
+
+
+def _residual_abstract(ah, al, bh, bl, prior, retained_prior, *products, **params):
+    if retained_prior.shape != prior.shape or retained_prior.dtype != prior.dtype:
+        raise TypeError('pair residual requires the retained primal status shape/dtype')
+    return _abstract(ah, al, bh, bl, prior, *products, **params)
+
+
+def _batch_residual_callback(*operands, **params):
+    return jax.lax.map(lambda items: _residual_callback(*items, **params), operands)
+
+
+def _batch_residual_abstract(*operands, **params):
+    size = operands[0].shape[0]
+    result = _residual_abstract(*(core.ShapedArray(value.shape[1:], value.dtype)
+                                  for value in operands), **params)
+    return tuple(core.ShapedArray((size,) + value.shape, value.dtype) for value in result)
+
+
+for primitive, callback, abstract in (
+        (_residual_pair_p, _residual_callback, _residual_abstract),
+        (_batch_residual_pair_p, _batch_residual_callback, _batch_residual_abstract)):
+    primitive.def_impl(partial(jax.jit, static_argnames=_static)(callback))
+    primitive.def_abstract_eval(abstract)
+    mlir.register_lowering(primitive, equation_lowering(callback))
+
+
 # A finite first jet keeps both actual solution certificates in one primitive.
 # Its next JVP can consume BOTH first-direction statuses before the mixed solve.
 _first_p = core.Primitive('scnsim_checked_pair_first_jet')
@@ -128,11 +164,11 @@ _batch_linear_p.multiple_results = True
 def _next(params):
     order = params.get('derivative_order', 0) + 1
     return dict(params, stage=4, role='tangent' if order == 1 else 'mixed',
-                derivative_order=order)
+                derivative_order=order, frequency_jet=False)
 
 
 def _first_callback(ah, al, bh, bl, prior, a1h, a1l, b1h, b1l, *, equation,
-                    stage, mode, role, derivative_order=0, certificate_site=(), dependency=(), parameter_ad_depth=0):
+                    stage, mode, role, derivative_order=0, certificate_site=(), dependency=(), parameter_ad_depth=0, frequency_jet=False):
     # The existing host authority keeps ONE high factor through primal and
     # first tangent, then releases it before callback return. No JAX function
     # or opaque factor handle crosses that boundary.
@@ -192,7 +228,24 @@ def _jvp(primals, tangents, *, primitive=_pair_p, **params):
     if params.get('parameter_ad_depth', 0) >= 2:
         raise TypeError('finite pair jet supports two parameter directions, not third parameter derivatives')
     if len(primals) != 5:
-        raise TypeError('pair residual products are internal finite-jet equations')
+        # A physical-frequency first jet leaves its first parameter direction
+        # as AX = B - sum(CY). Its admitted second parameter direction must
+        # differentiate that represented equation, not the EFT bit mechanics.
+        if params.get('parameter_ad_depth', 0) != 1 or len(primals) not in (9, 17):
+            raise TypeError('pair residual products require the admitted second parameter direction')
+        ah, al, bh, bl, prior, *products = primals
+        a2h, a2l, b2h, b2l, _, *product_dots = map(ad.instantiate_zeros, tangents)
+        primal = primitive.bind(*primals, **params)
+        derivative_products = [a2h, a2l, *primal[:2]]
+        for offset in range(0, len(products), 4):
+            ch, cl, yh, yl = products[offset:offset + 4]
+            c2h, c2l, y2h, y2l = product_dots[offset:offset + 4]
+            derivative_products.extend((c2h, c2l, yh, yl, ch, cl, y2h, y2l))
+        derivative = primitive.bind(ah, al, b2h, b2l, primal[2],
+            *derivative_products, **dict(_next(params), parameter_ad_depth=2))
+        tangent = (*derivative[:2],
+                   *(ad.Zero(core.typeof(value).to_tangent_aval()) for value in primal[2:]))
+        return primal, tangent
     ah, al, bh, bl, prior = primals
     a1h, a1l, b1h, b1l, _ = map(ad.instantiate_zeros, tangents)
     jet = (_batch_first_p if primitive is _batch_pair_p else _first_p).bind(
@@ -206,29 +259,34 @@ def _jvp(primals, tangents, *, primitive=_pair_p, **params):
 def _jet_jvp(primals, tangents, *, primitive=_first_p, **params):
     # Frequency-order metadata belongs to the physical equation; it is not
     # the number of parameter directions introduced by this finite AD rule.
-    if params.get('parameter_ad_depth', 0) != 1:
+    if params.get('parameter_ad_depth', 0) != 1 and not (
+            params.get('frequency_jet', False) and params.get('parameter_ad_depth', 0) == 0):
         raise TypeError('finite pair jet supports two parameter directions, not third parameter derivatives')
     ah, al, bh, bl, prior, a1h, a1l, b1h, b1l = primals
     a2h, a2l, b2h, b2l, _, a12h, a12l, b12h, b12l = map(ad.instantiate_zeros, tangents)
     primal = primitive.bind(*primals, **params)
-    solve = _batch_pair_p if primitive is _batch_first_p else _pair_p
+    depth = params.get('parameter_ad_depth', 0) + 1
+    solve = _batch_residual_pair_p if primitive is _batch_first_p else _residual_pair_p
     second = solve.bind(ah, al, b2h, b2l, primal[4],
-                        a2h, a2l, *primal[:2], **dict(_next(params), parameter_ad_depth=2))
+                        primal[4], a2h, a2l, *primal[:2], **dict(_next(params), parameter_ad_depth=depth))
     # Original priority: primal, first tangent, second tangent. The callback
     # skips ALL residual products when a prerequisite equation is unavailable.
     mixed_prior = jnp.where(primal[4] != 0, primal[4],
                             jnp.where(primal[9] != 0, primal[9], second[2]))
-    mixed = solve.bind(ah, al, b12h, b12l, mixed_prior,
+    mixed = solve.bind(ah, al, b12h, b12l, mixed_prior, primal[4],
         a12h, a12l, *primal[:2], a1h, a1l, *second[:2], a2h, a2l, *primal[2:4],
         **dict(params, stage=4, role='mixed',
-               derivative_order=params.get('derivative_order', 0) + 2, parameter_ad_depth=2))
+               derivative_order=params.get('derivative_order', 0) + 2, parameter_ad_depth=depth, frequency_jet=False))
     derivatives = *second[:2], *mixed[:2], *(ad.Zero(core.typeof(value).to_tangent_aval())
                                             for value in primal[4:])
     return primal, derivatives
 
 
 def _partial_eval(trace, *tracers, primitive=_first_p, **params):
-    known = tuple(tracer.pval.get_known() for tracer in tracers[:5])
+    all_known = tuple(tracer.pval.get_known() for tracer in tracers)
+    if all(value is not None for value in all_known):
+        return tuple(trace.to_jaxpr_tracer(value) for value in primitive.bind(*all_known, **params))
+    known = all_known[:5]
     if any(value is None for value in known):
         return trace.default_process_primitive(primitive, tracers, params)
     solve = _batch_pair_p if primitive is _batch_first_p else _pair_p
@@ -329,6 +387,59 @@ ad.primitive_transposes[_pair_p] = _transpose
 ad.primitive_transposes[_batch_pair_p] = partial(_transpose, primitive=_batch_pair_p)
 
 
+def _residual_jvp(primals, tangents, *, primitive=_residual_pair_p, **params):
+    if params.get('parameter_ad_depth', 0) != 1 or len(primals) not in (10, 18):
+        raise TypeError('pair residual products require the admitted second parameter direction')
+    ah, al, bh, bl, prior, retained_prior, *products = primals
+    a2h, a2l, b2h, b2l, _, _, *product_dots = map(ad.instantiate_zeros, tangents)
+    primal = primitive.bind(*primals, **params)
+    derivative_products = [a2h, a2l, *primal[:2]]
+    for offset in range(0, len(products), 4):
+        ch, cl, yh, yl = products[offset:offset + 4]
+        c2h, c2l, y2h, y2l = product_dots[offset:offset + 4]
+        derivative_products.extend((c2h, c2l, yh, yl, ch, cl, y2h, y2l))
+    derivative = primitive.bind(ah, al, b2h, b2l, primal[2], retained_prior,
+        *derivative_products, **dict(_next(params), parameter_ad_depth=2))
+    return primal, (*derivative[:2],
+                   *(ad.Zero(core.typeof(value).to_tangent_aval()) for value in primal[2:]))
+
+
+def _residual_transpose(cotangents, ah, al, bh, bl, prior, retained_prior, *products,
+                        primitive=_residual_pair_p, **params):
+    # A reverse adjoint consumes the actual retained primal prerequisite;
+    # direction-dependent forward certificate outputs are not linear operands.
+    solve = _batch_pair_p if primitive is _batch_residual_pair_p else _pair_p
+    bars = _transpose(cotangents, ah, al, bh, bl, retained_prior, *products,
+                      primitive=solve, **params)
+    return *bars[:5], None, *bars[5:]
+
+
+def _residual_batch(operands, axes, **params):
+    size = next(value.shape[axis] for value, axis in zip(operands, axes) if axis is not None)
+    values = tuple(batching.bdim_at_front(value, axis, size) for value, axis in zip(operands, axes))
+    result = _batch_residual_pair_p.bind(*values, **params)
+    return result, (0,) * len(result)
+
+
+def _residual_nested_batch(operands, axes, **params):
+    size = next(value.shape[axis] for value, axis in zip(operands, axes) if axis is not None)
+    values = tuple(batching.bdim_at_front(value, axis, size) for value, axis in zip(operands, axes))
+    inner = values[0].shape[1]
+    flat = tuple(value.reshape((size * inner,) + value.shape[2:]) for value in values)
+    result = _batch_residual_pair_p.bind(*flat, **params)
+    return tuple(value.reshape((size, inner) + value.shape[1:]) for value in result), (0,) * len(result)
+
+
+ad.primitive_jvps[_residual_pair_p] = _residual_jvp
+ad.primitive_jvps[_batch_residual_pair_p] = partial(_residual_jvp, primitive=_batch_residual_pair_p)
+ad.primitive_transposes[_residual_pair_p] = _residual_transpose
+ad.primitive_transposes[_batch_residual_pair_p] = partial(_residual_transpose, primitive=_batch_residual_pair_p)
+batching.primitive_batchers[_residual_pair_p] = _residual_batch
+batching.primitive_batchers[_batch_residual_pair_p] = _residual_nested_batch
+register_equation_certificate(_residual_pair_p, value_count=2)
+register_equation_certificate(_batch_residual_pair_p, value_count=2)
+
+
 def _linear_transpose(cotangents, ah, al, xh, xl, prior, a1h, a1l, b1h, b1l,
                       *, primitive=_linear_p, **params):
     if any(ad.is_undefined_primal(value) for value in (ah, al, xh, xl, prior)):
@@ -403,3 +514,21 @@ def checked_pair_solve(equation, values_pair, rhs_pair, *, stage, prior_status=0
                          equation=equation, stage=stage, mode=mode, role=role,
                          derivative_order=derivative_order, dependency=tuple(dependency))
     return NativePairOutcome(result[:2], NativeSparseAux(*result[2:]))
+
+
+def checked_pair_frequency_jet(equation, values_pair, rhs_pair, frequency_values_pair,
+                               frequency_rhs_pair, *, prior_status=0, dependency=()):
+    """One local high-component factor, two represented pair equations.
+
+    Primal and frequency tangent retain separate stage3/stage4 certificates.
+    Each equation keeps its existing correction and postverification. The
+    frequency channel does not consume the two supported parameter AD depths.
+    """
+    dtype = jnp.result_type(*values_pair, *rhs_pair, *frequency_values_pair, *frequency_rhs_pair)
+    operands = tuple(jnp.asarray(value, dtype=dtype) for value in
+        (*values_pair, *rhs_pair, *frequency_values_pair, *frequency_rhs_pair))
+    result = _first_p.bind(*operands[:4], jnp.asarray(prior_status, dtype=jnp.int32),
+        *operands[4:], equation=equation, stage=3, mode='N', role='primal',
+        derivative_order=0, dependency=tuple(dependency), parameter_ad_depth=0, frequency_jet=True)
+    return (NativePairOutcome(result[:2], NativeSparseAux(*result[4:9])),
+            NativePairOutcome(result[2:4], NativeSparseAux(*result[9:14])))

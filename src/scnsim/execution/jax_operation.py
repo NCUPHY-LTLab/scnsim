@@ -540,14 +540,10 @@ def _execute_sensitivity_with_backend(*, binding, plan_document, prepared_analys
             authorized = frozenset(
                 parameter_key(reference) for reference in point.get("allow_extrapolation", ())
             )
-            from .warmup import program_owner_for_device
-            scoped_program_owner = program_owner_for_device(
-                program_owner, backend.device, admit=False,
-            )
             quantity_program = compile_quantity_program(
                 plan_document, declarations, point,
                 mesh=spec.get("discretization"), precision=precision,
-                authorized=authorized, program_owner=scoped_program_owner,
+                authorized=authorized, program_owner=program_owner,
                 admit_program=False,
             )
         inputs = quantity_program.inputs(point)
@@ -557,7 +553,7 @@ def _execute_sensitivity_with_backend(*, binding, plan_document, prepared_analys
             derivative_outcome = _native_sensitivity_transform(
                 quantity_program, inputs, prepared_analysis,
                 derivative_kind=derivative_kind, backend=backend,
-                program_owner=scoped_program_owner,
+                program_owner=program_owner,
                 execution_policy=execution_policy, frame_owner=frame_owner,
             )
 

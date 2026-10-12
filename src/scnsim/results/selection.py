@@ -74,6 +74,7 @@ def _optimization_series(
 ) -> tuple[list[int], list[float | None], list[str], str, str, list[str]]:
     from ..canonical import float64_from_hex
     from ..authoring import ParameterRef
+    from .optimization_projection import _candidate_cost
 
     selected_stage = None
     if result.stages:
@@ -149,14 +150,29 @@ def _optimization_series(
         ordinal = row["evaluation_ordinal"]
         value: float | None = None
         status = str(row["status"])
-        details.append("; ".join(
+        component_details = "; ".join(
             f"{item.get('objective_id')}: {item.get('status')} "
             f"({len(item.get('terms', ())) } terms)"
             for item in row.get("components", ())
-        ))
+        )
+        failure = row.get("failure")
+        failure_detail = ""
+        if isinstance(failure, Mapping):
+            kind_name = failure.get("kind")
+            stage_name = failure.get("stage")
+            message = failure.get("detail")
+            if message is None:
+                message = failure.get("message")
+            failure_detail = ": ".join(
+                item for item in (
+                    " @ ".join(str(part) for part in (kind_name, stage_name) if part),
+                    None if message is None else str(message),
+                ) if item
+            )
+        details.append("; ".join(item for item in (component_details, failure_detail) if item))
         if kind == "history":
             encoded = row.get("cost_f64")
-            value = float64_from_hex(encoded) if isinstance(encoded, str) else None
+            value = _candidate_cost(row, status) if isinstance(encoded, str) else None
         elif kind in {"objective", "residual"}:
             components = row.get("components", ())
             component = next(

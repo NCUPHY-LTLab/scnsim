@@ -4,13 +4,13 @@ subtitle: "Which layer owns each Runtime responsibility?"
 toc-depth: 2
 ---
 
-**Status:** the dev27 JAX-native physical-program and inherited lifecycle responsibilities
+**Status:** the dev28 JAX-native physical-program and inherited lifecycle responsibilities
 are `CONVERGING`; implementation is in progress. The single
 [Runtime contract](../v1-runtime-contract.qmd#physical-program-target) owns
 physical-program declarations, derivative/optimizer semantics and the inherited
 Run state, operation leases, fixed lazy Results, bounded recovery and native
 supervision. This page describes module handoffs, not a second policy.
-Historical dev23–25 candidate observations are not relabelled. Schematic
+Historical dev23–27 candidate observations are not relabelled. Schematic
 completion remains incomplete and deferred.
 
 The native numerical path has one detached array callable and explicit finite
@@ -436,3 +436,16 @@ physical constants. Static-pattern preparation, compiled-kernel reuse and actual
 call-local factor reuse are distinct observations. Each installed-wheel
 functionality claim is limited to its recorded workflow; historical measurements
 retain their original implementation identity and imply no current speed claim.
+
+
+### dev28 variant 與 native kernel 邊界
+
+`execution/variant_plan.py` 保存不可變的 role/key/callable/abstract operands 與
+prerequisite/lifetime/lazy reason；warmup 與 execution 共用 producer。Compilation
+只提供 pure Objective callable/key recipe，不向上匯入 Execution owner。
+`numerics/objective_loss.py` 是唯一 ordered loss formula，coefficient-free algebra
+僅捕捉 id/comparison/mode/unit；target/scale/weight arrays 留在 runtime operands。
+`CompileOwner` 持有 static programs/executables 與每 key pending build，沒有 point、
+factor、writer 或 live AD frame。Factory 在 owner lock 外執行，clear 阻止 late admission。
+`_native._compensated_cpu` 擁有 borrowed buffer 的 ordered CPU kernel，B native adapter
+與 public preparation 共用 lazy availability helper；authoring/spec 不 eager import kernel。

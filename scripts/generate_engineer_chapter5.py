@@ -75,7 +75,7 @@ def _source_tree() -> dict[str, object]:
     rows = {
         str(path.relative_to(ROOT)): _hash(path)
         for path in sorted((ROOT / "src" / "scnsim").rglob("*"))
-        if path.is_file() and not path.is_relative_to(paused) and path.suffix in {".py", ".jl", ".json", ".toml"}
+        if path.is_file() and not path.is_relative_to(paused) and path.suffix in {".py", ".jl", ".json", ".toml", ".cpp"}
     }
     return {"sha256": _hash_bytes(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()), "files": rows}
 

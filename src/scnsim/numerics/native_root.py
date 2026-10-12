@@ -191,6 +191,18 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
     from .jax_core import first, tau
     selected, eliminated = tuple(selected), tuple(eliminated)
     rows, columns = jnp.asarray(pattern.rows), jnp.asarray(pattern.cols)
+    # Canonical SparsePattern contains one slot per physical matrix entry.
+    # Certificate rows gather those fixed slots instead of expanding one
+    # full-nnz mask for every eliminated coordinate. Runtime Q/Qp stay arrays.
+    entry_slots = {(int(row), int(column)): slot for slot, (row, column) in
+                   enumerate(zip(pattern.rows, pattern.cols, strict=True))}
+    def entry_gather(values, target_row, target_columns):
+        slots = tuple(entry_slots.get((target_row, node), -1) for node in target_columns)
+        if not pattern.rows.size:
+            return jnp.zeros((len(slots),), dtype=values.dtype)
+        safe = jnp.asarray(tuple(max(slot, 0) for slot in slots), dtype=jnp.int32)
+        present = jnp.asarray(tuple(slot >= 0 for slot in slots), dtype=jnp.bool_)
+        return jnp.where(present, values[safe], jnp.asarray(0, dtype=values.dtype))
     rd, cd = (jnp.float32, jnp.complex64) if precision == 'float32' else (jnp.float64, jnp.complex128)
     width = len(selected)
     hybrid = declaration.kind == 'hybridized_pole'
@@ -220,10 +232,10 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
         x = jnp.zeros((node_count,), dtype=cd).at[column_node].set(1)
         if eliminated:
             x = x.at[jnp.asarray(eliminated)].set(-state.X[:, column])
-        slope_scale = jnp.abs(jnp.sum(jnp.where((rows == row) & (columns == column_node), state.Qp_values, 0)))
+        slope_scale = jnp.abs(entry_gather(state.Qp_values, row, (column_node,))[0])
         if eliminated:
-            q_row = jnp.stack(tuple(jnp.sum(jnp.where((rows == row) & (columns == node), state.Q_values, 0)) for node in eliminated))
-            qp_row = jnp.stack(tuple(jnp.sum(jnp.where((rows == row) & (columns == node), state.Qp_values, 0)) for node in eliminated))
+            q_row = entry_gather(state.Q_values, row, eliminated)
+            qp_row = entry_gather(state.Qp_values, row, eliminated)
             slope_scale = (slope_scale + jnp.sum(jnp.abs(qp_row) * jnp.abs(state.X[:, column]))
                            + jnp.sum(jnp.abs(q_row) * jnp.abs(state.Xp[:, column])))
         qx, bx = action(state.Q_values, x), action(state.bound_values, jnp.abs(x))
@@ -235,32 +247,14 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
         normalized = jnp.where(slope_scale == 0, jnp.inf, jnp.abs(fp) / slope_scale)
         return jnp.asarray((state.elimination_eta, eta_q, eta_f, correction, normalized, slope_scale), dtype=rd)
 
-    def primal(candidate, seed):
-        initial = jnp.asarray(seed, dtype=cd)
-        status = first(jnp.int32(0), ~jnp.isfinite(initial), 14)
-        if hybrid:
-            status = first(status, initial.real <= 0, 14)
-        # Hybrid checked_state aborts immediately on initialization/local
-        # failure. An abstract state supplies only fixed failed-packet shapes;
-        # no extra state evaluation or factorization is performed there.
-        state_shape = jax.eval_shape(state_function, candidate, initial)
-        empty_state = jax.tree_util.tree_map(lambda item: jnp.zeros(item.shape, dtype=item.dtype), state_shape)
-        def condition(loop):
-            omega, steps, stopped, status, stage, previous_state = loop
-            return (steps < 32) & ~stopped & (status == 0)
-        def body(loop):
-            omega, steps, _, status, stage, previous_state = loop
-            state = state_function(candidate, omega)
-            code = jnp.where(state.check_status != 0, state.check_status, state.certificate_status)
-            h, hp, _, _, _, _, _, determinant_status, determinant_stage = equation(state)
-            stage = jnp.where((code == 0) & (determinant_status != 0), determinant_stage, stage)
-            code = first(code, determinant_status != 0, determinant_status)
-            code = first(code, hp == 0, 11)
-            updated = jnp.asarray(omega - jnp.asarray(h / hp, dtype=cd), dtype=cd)
-            stopped = same_bits(updated, omega)
-            return jnp.where(code == 0, updated, omega), steps + 1, stopped, code, stage, state
-        omega, steps, _, status, failure_stage, last_state = jax.lax.while_loop(condition, body,
-            (initial, jnp.int32(0), jnp.asarray(False), status, jnp.int32(0), empty_state))
+    def finalize(candidate, omega, last_state, steps, status, failure_stage):
+        """Original final selected-state/closure authority, without Newton.
+
+        All inputs are call-local arrays. Alternative private methods supply
+        their actual terminal point, last state, steps and prior failure; no
+        branch selection, hidden iteration or substituted certificate occurs.
+        Production Newton calls this at its original point and in its order.
+        """
         state = (jax.lax.cond(status == 0, lambda _: state_function(candidate, omega),
                              lambda _: last_state, operand=None)
                  if hybrid else state_function(candidate, omega))
@@ -323,6 +317,34 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
         return RootPacket(omega, slope, status, jnp.int32(stage), steps, status == 0,
             certificate, v, u, singular, dm, de, dpm, dpe, shifts, normalizer[0], normalizer[1],
             state.check_status, first(state.certificate_status, status != 0, status), state.certificates, state)
+
+    def primal(candidate, seed):
+        initial = jnp.asarray(seed, dtype=cd)
+        status = first(jnp.int32(0), ~jnp.isfinite(initial), 14)
+        if hybrid:
+            status = first(status, initial.real <= 0, 14)
+        # Hybrid checked_state aborts immediately on initialization/local
+        # failure. An abstract state supplies only fixed failed-packet shapes;
+        # no extra state evaluation or factorization is performed there.
+        state_shape = jax.eval_shape(state_function, candidate, initial)
+        empty_state = jax.tree_util.tree_map(lambda item: jnp.zeros(item.shape, dtype=item.dtype), state_shape)
+        def condition(loop):
+            omega, steps, stopped, status, stage, previous_state = loop
+            return (steps < 32) & ~stopped & (status == 0)
+        def body(loop):
+            omega, steps, _, status, stage, previous_state = loop
+            state = state_function(candidate, omega)
+            code = jnp.where(state.check_status != 0, state.check_status, state.certificate_status)
+            h, hp, _, _, _, _, _, determinant_status, determinant_stage = equation(state)
+            stage = jnp.where((code == 0) & (determinant_status != 0), determinant_stage, stage)
+            code = first(code, determinant_status != 0, determinant_status)
+            code = first(code, hp == 0, 11)
+            updated = jnp.asarray(omega - jnp.asarray(h / hp, dtype=cd), dtype=cd)
+            stopped = same_bits(updated, omega)
+            return jnp.where(code == 0, updated, omega), steps + 1, stopped, code, stage, state
+        omega, steps, _, status, failure_stage, last_state = jax.lax.while_loop(condition, body,
+            (initial, jnp.int32(0), jnp.asarray(False), status, jnp.int32(0), empty_state))
+        return finalize(candidate, omega, last_state, steps, status, failure_stage)
 
     # The scalar implicit equation uses the same selected-dtype checked solve
     # as the previous derivative frame. Its transpose and mixed jets remain
@@ -394,6 +416,11 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
         # state; chart certification cannot block frequency-only root AD.
         return packet, tangent._replace(omega=omega_dot, selected_state=state_dot)
 
+    # Internal finite equation/finalization interfaces for the private method
+    # comparison. The root's public call remains the SAME Newton trajectory.
+    root.finalize = finalize
+    root.state_function = state_function
+    root.equation = equation
     return root
 
 

@@ -341,22 +341,19 @@ class PairMixedOutcome(NamedTuple):
     mixed: PairSolveOutcome
 
 
-class _HostLoops:
-    """Callback-local execution of the SAME ordered namespace pair kernel.
-
-    There is no nested JAX dispatch, alternate precision, numerical fallback or
-    retained factor. The host interval is inclusive; no hidden timing counters.
-    """
-    @staticmethod
-    def while_loop(condition, body, state):
-        while condition(state):
-            state = body(state)
-        return state
-
-
 def _host_pair_product(payload):
-    from . import compensated as cp
-    return cp.csr_pair_product(payload, xp=np, lax=_HostLoops, barrier=lambda value: value)
+    """Required compiled ordered CSR kernel; borrowed buffers stay call-local.
+
+    No numerical Python-loop fallback or nested JAX dispatch is available.
+    Installation/preparation owns a missing native extension's ImportError.
+    """
+    from .._native import _compensated_cpu
+    hi_data, hi_indices, hi_indptr, lo_data, lo_indices, lo_indptr, xhi, xlo = payload
+    operands = tuple(np.ascontiguousarray(value) for value in payload)
+    shape = (len(hi_indptr) - 1,) + xhi.shape[1:]
+    high, low = np.empty(shape, dtype=xhi.dtype), np.empty(shape, dtype=xhi.dtype)
+    _compensated_cpu.csr_pair_product(*operands, high, low)
+    return high, low
 
 
 def _host_pair_equation(pattern, a, b, prior, *, stage, ordering, mode='N',

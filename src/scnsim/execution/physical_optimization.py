@@ -23,7 +23,6 @@ from .local_optimizer import LocalEvaluation, LocalUnavailable, run_local_optimi
 from .physical_analysis import _point_at, point_identity, project_primal_bodies
 from .physical_candidate import encode_physical_candidate, encode_physical_candidate_failure
 from .quantities import EvaluationFailure, continue_root, quantity_record
-from .warmup import program_owner_for_device
 
 _CANDIDATE_FAILURES = frozenset(('invalid_candidate_physical_parameter',
     'eliminated_block_solve_failure', 'root_slope_unresolved',
@@ -132,7 +131,7 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
           'seed': None},))
     comparison_id = controls.get('comparison_stage_id', 'main')
     original_values = parameter_values(effective_point)
-    owner = program_owner_for_device(program_owner, backend.device, admit=False)
+    owner = program_owner
     stages, transitions = [], []
     global_baseline = None
     comparison_baseline = comparison_best = comparison_model = None
@@ -280,17 +279,22 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                 corrected[index] = result.root_omega_rad_s
             return corrected
 
-        def compute(point, *, gradient=False, prepared=None, anchor=False):
+        def compute(point, *, gradient=False, prepared=None, anchor=False,
+                    evaluation_role='candidate'):
             inputs = program.inputs(point, branch_starts_rad_s=starts)
             options = {'active_keys': tuple(parameter_key(row['parameter']) for row in variables)} if gradient else {'prepared': prepared}
             try:
-                with trace.span('physical_value_gradient' if gradient else 'physical_value', details={'stage_id': stage_id}):
+                with trace.span('physical_value_gradient' if gradient else 'physical_value',
+                                details={'stage_id': stage_id,
+                                         'evaluation_role': evaluation_role}):
                     if gradient:
                         from .native_ad import objective_value_and_gradient
 
                         def native_ad_runner(native, arguments, loss, *, active_keys):
                             return objective_value_and_gradient(
-                                native, arguments, loss, active_keys=active_keys,
+                                native, arguments, loss,
+                                coefficients=program.coefficient_operands(),
+                                active_keys=active_keys,
                                 backend=backend, program_owner=owner,
                                 execution_policy=execution_policy,
                                 frame_owner=frame_owner,
@@ -419,7 +423,8 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
             progress('committed')
 
         if not stage_resume:
-            original = compute(effective_point, anchor=True)
+            original = compute(effective_point, anchor=True,
+                evaluation_role='baseline' if global_baseline is None else 'stage_baseline')
             kind = 'baseline' if global_baseline is None else 'evaluation'
             baseline_locator, baseline_ref, _ = record(effective_point, original, kind=kind)
             baseline_locator['kind'] = kind
@@ -434,7 +439,7 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
             comparison_baseline, comparison_model = baseline_locator, model_identity
         reevaluation_locator = baseline_locator
         if point_identity(seed) != point_identity(effective_point) and not stage_resume:
-            seed_outcome = compute(seed)
+            seed_outcome = compute(seed, evaluation_role='stage_seed')
             reevaluation_locator, _, _ = record(seed, seed_outcome)
             preparations += 1
             del seed_outcome
@@ -486,7 +491,8 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                     index, point, packet = item
                     try:
                         with operation_resource.candidate_compute():
-                            return index, point, compute(point, prepared=packet), None
+                            return index, point, compute(point, prepared=packet,
+                                evaluation_role='candidate_value'), None
                     except SCNSimError as error:
                         if error.kind not in _CANDIDATE_FAILURES:
                             raise
@@ -558,7 +564,8 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                 point = _point_at(effective_point, coordinate_map.physical_values(coordinates))
                 try:
                     with operation_resource.candidate_compute():
-                        outcome = compute(point, gradient=True)
+                        outcome = compute(point, gradient=True,
+                            evaluation_role='candidate_value_gradient')
                     locator, ref, cost = record(point, outcome)
                     trial_rows[tuple(coordinates)] = (locator, ref)
                     if outcome.gradient is None:

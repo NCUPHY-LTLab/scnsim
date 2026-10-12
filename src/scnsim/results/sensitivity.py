@@ -32,6 +32,49 @@ SensitivityOperationKind = Literal["jacobian", "jvp", "vjp"]
 SensitivityStatus = Literal["complete", "partial", "unavailable"]
 
 
+def _angular_unit_power(unit: object) -> object:
+    """Return the explicit angular factor in a Pint unit expression.
+
+    Pint treats radians as dimensionless, so its ordinary dimensionality check
+    cannot distinguish angular frequency (rad/s) from cyclic frequency (Hz).
+    Follow the parsed unit definitions only to retain that presentation
+    distinction; this does not alter the stored numeric value or conversion.
+    """
+
+    parsed = units.registry.Unit(unit)
+
+    def power(name: str, active: frozenset[str]) -> object:
+        if name == "radian":
+            return 1
+        if name in active:
+            return 0
+        definition = units.registry._units.get(name)
+        if definition is None:
+            return 0
+        next_active = active | {name}
+        return sum(
+            exponent * power(str(reference), next_active)
+            for reference, exponent in definition.reference.items()
+        )
+
+    return sum(
+        exponent * power(str(name), frozenset())
+        for name, exponent in parsed._units.items()
+    )
+
+
+def _require_angular_unit_convention(
+    source: object, target: object, *, context: str
+) -> None:
+    """Reject display conversions that erase or introduce an angle factor."""
+
+    if _angular_unit_power(source) != _angular_unit_power(target):
+        raise ValueError(
+            f"{context} cannot convert between angular and cyclic frequency "
+            "conventions; select an explicitly authored quantity projection"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class SensitivityAxisCoordinate:
     """One named coordinate in a stored observable or parameter axis."""
@@ -135,17 +178,18 @@ class SensitivityJacobianBlock:
                 stage="result_access",
                 evidence={"quantity_id": self.quantity_id, "status": self.status},
             )
-        column_scales = np.asarray(
-            [
-                float(
-                    input_scales[(parameter.definitions_id, parameter.id)]
-                    .to(parameter.spec.si_unit)
-                    .magnitude
-                )
-                for parameter in self.parameters
-            ],
-            dtype=np.float64,
-        )
+        column_scales_list = []
+        for parameter in self.parameters:
+            scale = input_scales[(parameter.definitions_id, parameter.id)]
+            _require_angular_unit_convention(
+                scale.units,
+                parameter.spec.si_unit,
+                context="input normalization scale",
+            )
+            column_scales_list.append(
+                float(scale.to(parameter.spec.si_unit).magnitude)
+            )
+        column_scales = np.asarray(column_scales_list, dtype=np.float64)
         values = np.asarray(self.values)
         rows = values.reshape((-1, len(self.parameters)))
         coordinates = self.output_coordinates
@@ -156,6 +200,11 @@ class SensitivityJacobianBlock:
         for index, (coordinate, output_unit) in enumerate(
             zip(coordinates, units_by_row, strict=True)
         ):
+            _require_angular_unit_convention(
+                output_scales[coordinate].units,
+                output_unit,
+                context="output normalization scale",
+            )
             output_magnitude = float(
                 output_scales[coordinate].to(output_unit).magnitude
             )
@@ -207,6 +256,12 @@ class SensitivityBlockSequence(Sequence[object]):
     def __len__(self) -> int:
         return len(self._identifiers)
 
+    @property
+    def block_ids(self) -> tuple[str, ...]:
+        """Return request-ordered block identities without reading any body."""
+
+        return self._identifiers
+
     def _index(self, selected: int | slice) -> int | range:
         if isinstance(selected, slice):
             return range(*selected.indices(len(self)))
@@ -254,6 +309,21 @@ class SensitivityProjection:
             if getattr(block, "block_id", None) == identifier:
                 return block
         raise KeyError(identifier)
+
+    @property
+    def block_ids(self) -> tuple[str, ...]:
+        """Return the sealed block order from metadata without hydrating blocks."""
+
+        blocks = self.blocks
+        if isinstance(blocks, SensitivityBlockSequence):
+            return blocks.block_ids
+        if isinstance(blocks, tuple):
+            return tuple(item.block_id for item in blocks)
+        raise SCNSimStateError(
+            "Sensitivity block identifiers are unavailable without loading block bodies",
+            stage="result_access",
+            evidence={"operation": self.kind, "block_sequence": type(blocks).__name__},
+        )
 
 
 class _NormalizedJacobian(Mapping[str, np.ndarray]):
@@ -361,22 +431,56 @@ class SensitivityResult(AnalysisResult):
         *,
         kind: SensitivityOperationKind,
         block_id: str,
+        style: Literal["auto", "table", "bar", "heatmap"] = "auto",
+        output_unit: str | None = None,
+        output_units: Mapping[OutputCoordinate, str] | None = None,
+        parameter_units: Mapping[ParameterRef | tuple[str, str], str] | None = None,
+        parameter_labels: Mapping[ParameterRef | tuple[str, str], str] | None = None,
+        normalized: bool = False,
+        input_scales: Mapping[ParameterRef | tuple[str, str], Quantity] | None = None,
+        output_scales: Mapping[OutputCoordinate, Quantity] | None = None,
         theme: Theme = Theme.AUTO,
     ) -> Figure:
         from ..visualization.plots.sensitivity import sensitivity_plot
 
-        return sensitivity_plot(self, kind=kind, block_id=block_id, theme=theme)
+        return sensitivity_plot(
+            self,
+            kind=kind,
+            block_id=block_id,
+            style=style,
+            output_unit=output_unit,
+            output_units=output_units,
+            parameter_units=parameter_units,
+            parameter_labels=parameter_labels,
+            normalized=normalized,
+            input_scales=input_scales,
+            output_scales=output_scales,
+            theme=theme,
+        )
 
     def show(
         self,
         *,
         kind: SensitivityOperationKind | None = None,
         block_id: str | None = None,
+        style: Literal["auto", "table", "bar", "heatmap"] = "auto",
+        output_unit: str | None = None,
+        output_units: Mapping[OutputCoordinate, str] | None = None,
+        parameter_units: Mapping[ParameterRef | tuple[str, str], str] | None = None,
+        parameter_labels: Mapping[ParameterRef | tuple[str, str], str] | None = None,
+        normalized: bool = False,
+        input_scales: Mapping[ParameterRef | tuple[str, str], Quantity] | None = None,
+        output_scales: Mapping[OutputCoordinate, Quantity] | None = None,
         theme: Theme = Theme.AUTO,
     ) -> object:
         if kind is None:
-            if block_id is not None:
-                raise ValueError("block_id requires a Sensitivity operation kind")
+            if (
+                block_id is not None or style != "auto" or output_unit is not None
+                or output_units is not None or parameter_units is not None
+                or parameter_labels is not None or normalized
+                or input_scales is not None or output_scales is not None
+            ):
+                raise ValueError("block presentation options require a Sensitivity operation kind")
             from ..visualization.quantity_html import sensitivity_summary
 
             return sensitivity_summary(self, theme=theme)
@@ -384,7 +488,19 @@ class SensitivityResult(AnalysisResult):
             raise ValueError("block_id is required to plot saved Sensitivity data")
         from ..visualization.plots.common import show_figure
 
-        return show_figure(self.plot(kind=kind, block_id=block_id, theme=theme))
+        return show_figure(self.plot(
+            kind=kind,
+            block_id=block_id,
+            style=style,
+            output_unit=output_unit,
+            output_units=output_units,
+            parameter_units=parameter_units,
+            parameter_labels=parameter_labels,
+            normalized=normalized,
+            input_scales=input_scales,
+            output_scales=output_scales,
+            theme=theme,
+        ))
 
     @property
     def normalized_jacobian(self) -> Mapping[str, np.ndarray]:

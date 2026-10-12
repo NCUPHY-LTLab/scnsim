@@ -29,7 +29,6 @@ from .quantities import (
 )
 from .quantity_policy import diagonal_passive_policy
 from .policy import ExecutionPolicy
-from .warmup import program_owner_for_device
 
 
 def _auxiliary_by_ordinal(rows):
@@ -353,7 +352,7 @@ class PhysicalAnalysis:
         self.baseline_values = parameter_values(self.baseline)
         self.anchors = {}
         self._plan = plan
-        self._program_owner = program_owner_for_device(program_owner, backend.device, admit=False)
+        self._program_owner = program_owner
         initial_point = (self.baseline if self.spec['type'] in _ROOT_TYPES
                          or first_point is None else first_point)
         self._initial_point_key = point_identity(initial_point)

@@ -1,7 +1,9 @@
 """Static semantic runtime identity from installed SCNSim package bytes.
 
-Package-relative manifests cover shipped Python, Julia, schemas, and static
-metadata. Host runtime discovery and process launch do not participate."""
+Package-relative manifests cover shipped Python, compensated CPU kernel source,
+Julia, schemas, and static metadata. The historical python_source_sha256 key
+also binds packaged native kernel source, independent of platform binary bytes.
+Host runtime discovery and process launch do not participate."""
 
 from __future__ import annotations
 
@@ -30,6 +32,7 @@ def _runtime_identity_base() -> dict[str, object]:
         ),
         *package.glob("_schemas/*.json"),
         package / "_julia" / "runtime.json",
+        package / "_native" / "compensated_cpu.cpp",
     ]
     julia_files = list((package / "_julia").rglob("*.jl"))
     project = package / "_julia" / "Project.toml"

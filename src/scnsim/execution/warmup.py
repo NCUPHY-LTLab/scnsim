@@ -13,6 +13,7 @@ from hashlib import sha256
 from time import perf_counter_ns
 
 from .compile_owner import CompileOwnerStats
+from .variant_plan import ExecutionVariant, ExecutionVariantPlan
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +27,8 @@ class WarmupKernel:
     admitted: bool
     known_bytes: int | None
     generated_code_bytes: int | None
+    preparation_state: str = "compiled"
+    lazy_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,27 +48,27 @@ class WarmupSummary:
 
     @property
     def compiled_count(self):
-        return sum(not kernel.reused for kernel in self.kernels)
+        return sum(kernel.preparation_state == "compiled" for kernel in self.kernels)
 
     @property
     def reused_count(self):
-        return sum(kernel.reused for kernel in self.kernels)
+        return sum(kernel.preparation_state == "reused" for kernel in self.kernels)
+
+    @property
+    def planned_count(self):
+        return len(self.kernels)
+
+    @property
+    def waited_count(self):
+        return sum(kernel.preparation_state == "waited" for kernel in self.kernels)
+
+    @property
+    def lazy_count(self):
+        return sum(kernel.preparation_state == "lazy" for kernel in self.kernels)
 
     @property
     def compile_ns(self):
         return sum(kernel.compile_ns for kernel in self.kernels if kernel.compile_ns is not None)
-
-
-def program_owner_for_device(owner, device, *, admit=False):
-    """Return the one bounded owner; compiler keys bind the actual device.
-
-    No nested registry or program payload is retained under a device key.
-    Admission and pinning use the explicit CompileOwner APIs at each consumer.
-    """
-    return owner
-
-
-
 
 
 def prepared_variant_key(prepared, transform, batch_shape, device, argument_shapes):
@@ -73,6 +76,25 @@ def prepared_variant_key(prepared, transform, batch_shape, device, argument_shap
     return ('prepared_function', prepared.structural_identity, transform,
             tuple(batch_shape), prepared.precision,
             (device.platform, device.id, device.process_index), argument_shapes)
+
+
+def compile_variant_plan(plan, *, executable_owner, device, resource):
+    """Compile descriptors from the SAME plan consumed by execution."""
+    import jax
+    from ..canonical import canonical_json_bytes
+    def compiler(variant):
+        with resource.exclusive_assembly(), jax.default_device(device), jax.enable_x64(True):
+            return jax.jit(variant.function).lower(*variant.abstract_operands).compile()
+    rows = plan.compile(executable_owner, compiler)
+    kernels = []
+    for variant, row in zip(plan.variants, rows, strict=True):
+        shapes = tuple((tuple(value.shape), str(value.dtype))
+                       for value in jax.tree.leaves(variant.abstract_operands))
+        kernels.append(WarmupKernel(sha256(canonical_json_bytes(row.key)).hexdigest(),
+            row.role, shapes, row.state in ('reused', 'waited'), row.elapsed_ns,
+            row.compile_ns, row.admitted, None, row.generated_code_bytes,
+            row.state, row.lazy_reason))
+    return tuple(kernels)
 
 
 def _compile_variants(prepared, *, executable_owner, device, transforms, batch_shapes, resource):
@@ -116,33 +138,16 @@ def _compile_variants(prepared, *, executable_owner, device, transforms, batch_s
                 raise ValueError(f'unsupported warmup transform {transform!r}')
             shapes = tuple((tuple(arg.shape), str(arg.dtype)) for arg in signature)
             key = prepared_variant_key(prepared, transform, batch_shape, device, shapes)
-            digest = sha256(canonical_json_bytes(key)).hexdigest()
-            started_ns = perf_counter_ns()
-            compile_ns = None
-            def build():
-                nonlocal compile_ns
-                with resource.exclusive_assembly(), jax.default_device(device), jax.enable_x64(True):
-                    compile_start = perf_counter_ns()
-                    executable = jax.jit(function).lower(*signature).compile()
-                    compile_ns = perf_counter_ns() - compile_start
-                    return executable
-
-            def code_bytes(executable):
-                # This is known generated-code size, not full host residency or
-                # temporary device memory. Unexposed sizes remain unknown.
-                size = getattr(executable, 'size_of_generated_code_in_bytes', None)
-                return None if size is None else size()
-
-            with executable_owner.acquire(key, build, kind='variant', known_bytes=None) as executable:
-                admitted = executable_owner.get(key, kind='variant') is executable
-                kernels.append(WarmupKernel(digest, transform, shapes, compile_ns is None,
-                    perf_counter_ns() - started_ns, compile_ns, admitted, None, code_bytes(executable)))
-            executable = function = None
+            plan = ExecutionVariantPlan((ExecutionVariant(transform, key, function,
+                                                          tuple(signature)),))
+            kernels.extend(compile_variant_plan(plan, executable_owner=executable_owner,
+                                                device=device, resource=resource))
+            function = None
     return tuple(kernels)
 
 
 
-def _compile_execution_variants(native, *, executable_owner, device, resource,
+def plan_native_execution(native, *, executable_owner, device, resource,
                                 checked_derivatives=False):
     """Lower the SAME candidate and checked value chunks used by execution.
 
@@ -153,6 +158,7 @@ def _compile_execution_variants(native, *, executable_owner, device, resource,
     import jax
     from ..canonical import canonical_json_bytes
     from ..numerics.native_sparse import checked_native
+    from .native_ad import candidate_ad_variant, branch_ad_variant
 
     theta = jax.ShapeDtypeStruct(native.input_layout['theta']['shape'], 'float64')
     status = jax.ShapeDtypeStruct((), 'int32')
@@ -162,53 +168,37 @@ def _compile_execution_variants(native, *, executable_owner, device, resource,
     def compile_one(kind, function, arguments, *, key=None, **options):
         if key is None:
             key = native.variant_key(kind, device=device, operands=arguments, **options)
-        shapes = native.core.operand_signature(arguments)
-        digest = sha256(canonical_json_bytes(key)).hexdigest()
-        started_ns = perf_counter_ns()
-        compile_ns = None
-
-        def build():
-            nonlocal compile_ns
-            with resource.exclusive_assembly(), jax.default_device(device), jax.enable_x64(True):
-                compile_start = perf_counter_ns()
-                executable = jax.jit(function).lower(*arguments).compile()
-                compile_ns = perf_counter_ns() - compile_start
-                return executable
-
-        with executable_owner.acquire(key, build, kind='variant', known_bytes=None) as executable:
-            admitted = executable_owner.get(key, kind='variant') is executable
-            size = getattr(executable, 'size_of_generated_code_in_bytes', None)
-            kernels.append(WarmupKernel(digest, kind, shapes, compile_ns is None,
-                perf_counter_ns() - started_ns, compile_ns, admitted, None,
-                None if size is None else size()))
+        kernels.append(ExecutionVariant(kind, key, function, tuple(arguments)))
 
     with executable_owner.hold_exact_core(native.core):
-        compile_one('candidate', native.candidate_function, (theta,))
+        if not checked_derivatives:
+            compile_one('candidate', native.candidate_function, (theta,))
         with resource.exclusive_assembly(), jax.default_device(device), jax.enable_x64(True):
             candidate = jax.eval_shape(native.candidate_function, theta)
         if checked_derivatives:
             # The producer is the SAME cached checked linearization as execution.
             # Do not construct consumers from an independently traced Partial:
             # identical leaf shapes do not establish identical static jaxpr.
-            compile_one('candidate_ad', checked_native(native.candidate_ad_function), (theta,),
-                transform='checked_candidate_linearization')
-            if native.root_layout or native.coupling_layout:
-                arguments = (candidate,
-                    jax.ShapeDtypeStruct(native.input_layout['omega']['shape'], omega_dtype),
-                    jax.ShapeDtypeStruct(native.input_layout['seeds']['shape'],
-                                         native.input_layout['seeds']['dtype']), status, status)
-                compile_one('branch_ad', checked_native(native.branch_ad_function), arguments,
-                    transform='checked_joint_branch_linearization')
+            kernels.append(candidate_ad_variant(native, theta, device=device))
+            arguments = (candidate,
+                jax.ShapeDtypeStruct(native.input_layout['omega']['shape'], omega_dtype),
+                jax.ShapeDtypeStruct(native.input_layout['seeds']['shape'],
+                                     native.input_layout['seeds']['dtype']), status, status)
+            kernels.append(branch_ad_variant(native, *arguments, device=device))
         namespaces = tuple(dict.fromkeys((row['view_index'], tuple(row['demand']))
                                         for row in native.work_layout))
         for view_index, demand in namespaces:
             for bucket in dict.fromkeys((executable_owner.policy.frequency_chunk_size, 1)):
                 arguments = (candidate, jax.ShapeDtypeStruct((bucket,), omega_dtype), status, status)
-                compile_one('chunk', native.chunk_function(view_index, demand, bucket), arguments,
-                            view_index=view_index, demand=demand, bucket=bucket, transform='value')
+                function = native.chunk_function(view_index, demand, bucket)
+                if checked_derivatives:
+                    function = checked_native(function)
+                compile_one('chunk', function, arguments, view_index=view_index,
+                            demand=demand, bucket=bucket,
+                            transform='checked_value' if checked_derivatives else 'value')
         seed = jax.ShapeDtypeStruct((), native.input_layout['seeds']['dtype'])
         root_packets = {}
-        for row in native.root_layout:
+        for row in (() if checked_derivatives else native.root_layout):
             start = row['start_index']
             branch = native.branch_function(start)
             arguments = (candidate, seed)
@@ -217,14 +207,29 @@ def _compile_execution_variants(native, *, executable_owner, device, resource,
                                                transform='checked_value'))
             with resource.exclusive_assembly(), jax.default_device(device), jax.enable_x64(True):
                 root_packets[start] = jax.eval_shape(branch, *arguments)
-        for row in native.coupling_layout:
+        for row in (() if checked_derivatives else native.coupling_layout):
             ordinal = row['observable_index']
             packets = tuple(root_packets[start] for start in row['branch_indices'])
             arguments = (candidate, packets, jax.ShapeDtypeStruct((), omega_dtype))
             compile_one('coupling', checked_native(native.coupling_function(ordinal)), arguments,
                 key=native.coupling_variant_key(ordinal, device=device, operands=arguments,
                                                  transform='checked_value'))
-    return tuple(kernels)
+    if checked_derivatives:
+        kernels.append(ExecutionVariant("checked_frame_consumers",
+            ("lazy_frame_consumers", native.structural_identity), None, (),
+            prerequisites=tuple(row.key for row in kernels if row.role in ("candidate_ad", "branch_ad")),
+            lifetime="operation_frame",
+            lazy_reason="Requires the SAME producer Partial static tree; no live frame is acquired during warmup."))
+    return ExecutionVariantPlan(tuple(kernels))
+
+
+def _compile_execution_variants(native, *, executable_owner, device, resource,
+                                checked_derivatives=False):
+    plan = plan_native_execution(native, executable_owner=executable_owner,
+        device=device, resource=resource, checked_derivatives=checked_derivatives)
+    with executable_owner.hold_exact_core(native.core):
+        return compile_variant_plan(plan, executable_owner=executable_owner,
+                                    device=device, resource=resource)
 
 
 def warm_prepared(prepared, *, executable_owner, device=None,
@@ -259,7 +264,7 @@ def prepare_warmup(*, plan_document, analysis, precision,
     from ..compilation.mesh import quantity
     from ..compilation.quantity_program import compile_point_quantity_program, compile_quantity_program
     from ..compilation.quantity_declarations import quantity_declarations
-    from ..compilation.objective_program import compile_objective_quantities
+    from ..compilation.objective_program import compile_objective_program
     from ..compilation.prepared_function import prepared_from_quantity_program
     from .python_host import iter_resolved_points
     from .config import ensure_jax_configuration, mark_jax_initialized
@@ -281,13 +286,21 @@ def prepare_warmup(*, plan_document, analysis, precision,
         points = chain((baseline_parameters,), points)
     mesh = spec.get('discretization')
     if request['operation'] == 'optimize_direct' and spec['optimizer']['type'] == 'hybrid':
-        first = spec['optimizer']['stages'][0]
-        mesh = first['discretization']
-        if first['seed'] is not None:
-            points = [first['seed']]
+        # Every declared stage uses the original effective point for structural
+        # planning unless an explicit stage seed supplies that model's point.
+        # Transition-only future capability partitions remain lazy.
+        from itertools import chain
+        stages = tuple(spec['optimizer']['stages'])
+        stage_points = tuple(iter_resolved_points(request['parameter_source']))
+        work = ((dict(spec, optimizer=stage['optimizer']),
+                 stage['discretization'],
+                 stage['seed'] if stage['seed'] is not None else point)
+                for stage in stages for point in stage_points)
+    else:
+        work = ((spec, mesh, point) for point in points)
     kernels, preparation_ns = [], 0
     point_count = 0
-    for point in points:
+    for spec, mesh, point in work:
         point_count += 1
         preparation_start = perf_counter_ns()
         authorized = frozenset(parameter_key(ref) for ref in point.get('allow_extrapolation', ()))
@@ -302,10 +315,11 @@ def prepare_warmup(*, plan_document, analysis, precision,
             elif request['operation'] == 'optimize_direct':
                 bounds = {parameter_key(row['parameter']): (quantity(row['lower']), quantity(row['upper']))
                           for row in spec['variables'] if row.get('domain') is None}
-                program, _ = compile_objective_quantities(plan_document, spec, point,
+                objective = compile_objective_program(plan_document, spec, point,
                     default_view=request['view'], mesh=mesh, bounds=bounds,
                     precision=precision, authorized=authorized,
-                    program_owner=executable_owner, admit_program=True)
+                    program_owner=executable_owner, admit_program=True, require_resolved_scales=False)
+                program = objective.quantity_program
             else:
                 program = compile_point_quantity_program(plan_document,
                     quantity_declarations(spec, request['view']), point,
@@ -317,11 +331,40 @@ def prepare_warmup(*, plan_document, analysis, precision,
         device = jax.devices('cpu')[0]
         mark_jax_initialized(configuration)
         preparation_ns += perf_counter_ns() - preparation_start
-        with operation_resources(cpu_threads=configuration.cpu_threads) as resource:
-            kernels.extend(_compile_execution_variants(native, executable_owner=executable_owner,
-                                                       device=device, resource=resource,
-                checked_derivatives=(request['operation'] == 'sensitivity' or
-                    any(transform != 'value' for transform in transforms))))
+        if request['operation'] != 'optimize_direct':
+            with operation_resources(cpu_threads=configuration.cpu_threads) as resource:
+                kernels.extend(_compile_execution_variants(native, executable_owner=executable_owner,
+                    device=device, resource=resource,
+                    checked_derivatives=request['operation'] == 'sensitivity'))
+        if request['operation'] == 'optimize_direct':
+            theta = jax.ShapeDtypeStruct(native.input_layout['theta']['shape'], 'float64')
+            omega = jax.ShapeDtypeStruct(native.input_layout['omega']['shape'], native.input_layout['omega']['dtype'])
+            seeds = jax.ShapeDtypeStruct(native.input_layout['seeds']['shape'], native.input_layout['seeds']['dtype'])
+            coefficients = tuple(jax.ShapeDtypeStruct((len(objective.loss.objectives),), 'float64') for _ in range(3))
+            arguments = (theta, omega, seeds, coefficients)
+            variants = []
+            key, function, operands = objective.execution_variant(native, arguments, derivative=False, device=device)
+            variants.append(ExecutionVariant('objective_value', key, function, operands))
+            with operation_resources(cpu_threads=configuration.cpu_threads) as resource:
+                if spec['optimizer']['type'] != 'cma_es':
+                    if native.work_layout:
+                        from .native_ad import objective_loss_pullback_variant
+                        # These are actual execution-owned producer recipes. Only
+                        # frame consumers remain lazy; no aggregate shape solve.
+                        producers = plan_native_execution(native, executable_owner=executable_owner,
+                            device=device, resource=resource, checked_derivatives=True)
+                        variants.extend(producers.variants)
+                        outputs = tuple(jax.ShapeDtypeStruct(tuple(row['shape']), row['dtype'])
+                                        for row in program.projected_output_layout())
+                        variants.append(objective_loss_pullback_variant(native, objective.loss,
+                            outputs, coefficients, device=device))
+                    else:
+                        key, function, operands = objective.execution_variant(native, arguments, derivative=True, device=device)
+                        variants.append(ExecutionVariant('objective_gradient', key, function, operands))
+                with executable_owner.hold_exact_core(native.core):
+                    kernels.extend(compile_variant_plan(ExecutionVariantPlan(tuple(variants)),
+                        executable_owner=executable_owner, device=device, resource=resource))
+            del objective
         # Explicit raw derivatives/batches are different callable signatures and
         # reported separately; they never imply a checked chunk cache hit.
         raw_transforms = tuple(transform for transform in transforms if transform != 'value')

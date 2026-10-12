@@ -16,6 +16,7 @@ from .assembly_program import compile_assembly
 from .native_sparse import checked_sparse_solve, checked_dense_solve, NativeSparseAux, NativeSparseOutcome
 from .sparse_structure import _block, _dense, _full_pattern
 from .sparse_solve import SparseEquation
+from .native_equation_jet import checked_sparse_frequency_jet
 
 
 class NativeCandidate(NamedTuple):
@@ -185,11 +186,10 @@ class NativeFrequencyProgram:
         input_certificate = NativeSparseAux(input_status, asym, numerator, denominator, input_performed)
         prior = first(check_status, input_status != 0, input_status)
         rhs = _dense(self.blocks[2][0], high[2])
-        solved = checked_sparse_solve(self.ee, high[3], rhs, stage=3, prior_status=prior, dependency=dependency)
-        prior = first(prior, solved.aux.status != 0, solved.aux.status)
-        rhs_prime = _dense(self.blocks[2][0], prime[2]) - self.ee.matmul(prime[3], solved.value)
-        derivative = checked_sparse_solve(self.ee, high[3], rhs_prime, stage=4, prior_status=prior,
-                                          role='frequency_tangent', derivative_order=1, dependency=dependency)
+        rhs_prime = _dense(self.blocks[2][0], prime[2])
+        jet = checked_sparse_frequency_jet(self.ee, high[3], rhs, prime[3], rhs_prime,
+                                           prior_status=prior, dependency=dependency)
+        solved, derivative = jet.primal, jet.frequency
         X, Xp = solved.value, derivative.value
         F = _dense(self.blocks[0][0], high[0]) - self.re.matmul(high[1], X)
         Fp = (_dense(self.blocks[0][0], prime[0]) - self.re.matmul(prime[1], X)
@@ -345,12 +345,10 @@ class NativeFrequencyProgram:
         input_certificate = NativeSparseAux(certificate_status, asym, numerator, denominator, input_performed)
         prior = first(check_status, certificate_status != 0, certificate_status)
         rhs = tuple(_dense(self.blocks[2][0], part) for part in pairs[2])
-        solved = checked_pair_solve(self.ee, pairs[3], rhs, stage=3, prior_status=prior, dependency=dependency)
-        prior = first(prior, solved.aux.status != 0, solved.aux.status)
-        prime_rhs = cp.add(tuple(_dense(self.blocks[2][0], part) for part in primes[2]),
-                           cp.negate(_pair_product(pattern, primes[3], solved.value)))
-        derivative = checked_pair_solve(self.ee, pairs[3], prime_rhs, stage=4, prior_status=prior,
-                                        role='frequency_tangent', derivative_order=1, dependency=dependency)
+        from .native_pair import checked_pair_frequency_jet
+        frequency_rhs = tuple(_dense(self.blocks[2][0], part) for part in primes[2])
+        solved, derivative = checked_pair_frequency_jet(self.ee, pairs[3], rhs,
+            primes[3], frequency_rhs, prior_status=prior, dependency=dependency)
         F = cp.project(cp.add(rr, cp.negate(_pair_product(self.re.pattern, pairs[1], solved.value))))
         Fp = cp.project(cp.add(cp.add(rrp,
             cp.negate(_pair_product(self.re.pattern, primes[1], solved.value))),

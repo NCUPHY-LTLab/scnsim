@@ -3,7 +3,7 @@ title: "Execution Backends and Operation Benchmark"
 subtitle: "Same-process JAX, verified results and read-only hierarchical observations"
 ---
 
-**Status:** CONVERGING, 1.0.0.dev27 development candidate contract. The following interfaces are
+**Status:** CONVERGING, 1.0.0.dev28 development candidate contract. The following interfaces are
 implementation targets, not completed execution, performance or acceptance
 claims. Historical dev10 comparison records remain bound to their original
 source, wheel, numerical outputs and publication identities. No durable tests
@@ -11,7 +11,7 @@ or stabilization are assigned.
 
 ## Differentiable program implementation target
 
-The [dev27 physical-program contract](../v1-runtime-contract.qmd#physical-program-target)
+The [dev28 physical-program contract](../v1-runtime-contract.qmd#physical-program-target)
 is CONVERGING. JAX values, Jacobian/JVP/VJP and optimizer objectives share one
 physical evaluator; existing Julia code remains frozen legacy/reference scope.
 Selected dtype differs from compensated arithmetic and achieved accuracy.
@@ -591,11 +591,12 @@ conditions, add a tolerance or certify a previously failed candidate.
 For retained, non-port-realizable Z transfer-zero only, the dev20 CONVERGING
 candidate uses two-component expansions in the selected base dtype
 (Float32/Complex64 or Float64/Complex128) through assembly and selected Schur
-formation. The high/low sparse action uses one compiled JAX CSR row-batched core with
-runtime coefficients, indices and RHS, ordered high/low traversal and masked
-inactive rows. It preserves sparse structure without a dense operator or padded
-stencil and replaces the former per-row Python dispatch. Transfer, compilation,
-synchronized compute and download have separate diagnostic phases.
+formation. The current high/low sparse action uses the packaged C++17 CPU
+buffer kernel with runtime CSR coefficients, indices and RHS. It preserves
+ordered high/low traversal and sparse structure without a dense operator or
+padded stencil. Native callback and synchronized numerical execution are
+distinct from JAX executable compilation; the CPU buffer action does not
+require compiling or downloading a JAX CSR row-batched kernel.
 The high-part factorization is performed once and reused for one
 fixed low-aware correction. Corrected-equation certification retains the pair
 representation as its numerical authority. Consistently formed F/Fp are then
@@ -617,8 +618,9 @@ call-local factor reuse are distinct observations. Each installed-wheel
 functionality claim is limited to its recorded workflow; historical measurements
 retain their original implementation identity and imply no current speed claim.
 
-The current JAX algorithm is
-`scnsim.jax-sparse-csc-superlu-reuse-analytic-newton32.v1`. Canonical requests
+The current JAX algorithm is operation-specific:
+`scnsim.jax.native_physical.{operation}.v1`, with `operation` equal to
+`direct`, `evaluate`, `optimize` or `sensitivity`. Canonical requests
 bind it, and actual execution environment records bind SciPy and the selected
 backend. This prevents an old dense request/checkpoint from becoming a new sparse
 execution by relabeling. Historical files retain their original execution
@@ -743,3 +745,14 @@ numerator/scale/ratio. Bound arithmetic rounds outward in the selected real
 dtype, including operation-count-derived subnormal error terms. This
 is a numerical reciprocity certificate within rounding uncertainty, not a
 forward-accuracy, performance or complete-model convergence claim.
+
+
+### dev28 編譯與暖機成本
+
+共用 execution variant plan 區分 planned、compiled、cache reused、single-flight
+waited 與 lazy。CMA 的 composed Objective cost、local/Hybrid 的實際 derivative
+路徑必須與 execution 使用同一 callable/key；子函式 AOT 不等於 composed body
+已編譯。Runtime objective coefficients 在固定 static modes 內不改 executable key。
+Compile-only warmup、首次 execution、後續同結構候選、保存與 memory observations
+分開報告。Generated-code bytes 是輔助資訊，不等於 LLVM/JAX/native allocator
+resident bytes；unknown bytes 保持 unknown，不以提高 CPU 使用率或固定秒數作 Gate。

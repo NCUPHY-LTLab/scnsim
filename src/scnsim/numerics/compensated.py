@@ -199,58 +199,6 @@ def project(a: Pair, *, xp: Any,
     return _rounded(a[0] + a[1], barrier)
 
 
-def _csr_component(data: Any, indices: Any, indptr: Any, X: Pair, *,
-                   xp: Any, lax: Any, barrier: Any) -> Pair:
-    """Independent CSR rows, each consuming its stored entries in order.
-
-    Ragged rows advance in lockstep. Inactive lanes use safe operands and
-    retain their accumulator bits; no padded matrix/stencil is constructed.
-    Compilation exposes row/RHS array work, not a multicore guarantee.
-    """
-    rows = indptr.shape[0] - 1
-    shape = (rows,) + X[0].shape[1:]
-    initial = (xp.zeros(shape, dtype=X[0].dtype),
-               xp.zeros(shape, dtype=X[0].dtype), indptr[:-1])
-    if data.shape[0] == 0:
-        return initial[:2]
-    ends = indptr[1:]
-    lane_shape = (rows,) + (1,) * (X[0].ndim - 1)
-    zero = xp.asarray(0, dtype=X[0].dtype)
-    def pending(state):
-        return xp.any(state[2] < ends)
-    def advance(state):
-        hi, lo, cursor = state
-        active = cursor < ends
-        # Inactive cursors may equal nnz. Never gather that out-of-range index.
-        offset = xp.where(active, cursor, xp.asarray(0, dtype=cursor.dtype))
-        column = indices[offset]
-        mask = active.reshape(lane_shape)
-        coefficient = xp.asarray(data[offset], dtype=X[0].dtype).reshape(lane_shape)
-        coefficient = xp.where(mask, coefficient, zero)
-        vector = (xp.where(mask, X[0][column], zero),
-                  xp.where(mask, X[1][column], zero))
-        term = multiply((coefficient, xp.zeros_like(coefficient)), vector,
-                        xp=xp, barrier=barrier)
-        updated = add((hi, lo), term, xp=xp, barrier=barrier)
-        return (xp.where(mask, updated[0], hi),
-                xp.where(mask, updated[1], lo),
-                cursor + active.astype(cursor.dtype))
-    high, low, _ = lax.while_loop(pending, advance, initial)
-    return high, low
-
-
-def csr_pair_product(payload: tuple[Any, ...], *, xp: Any, lax: Any,
-                     barrier: Any) -> Pair:
-    """Pure runtime-array kernel: high traversal, low traversal, then combine."""
-    hi_data, hi_indices, hi_indptr, lo_data, lo_indices, lo_indptr, xhi, xlo = payload
-    X = (xhi, xlo)
-    high = _csr_component(hi_data, hi_indices, hi_indptr, X,
-                          xp=xp, lax=lax, barrier=barrier)
-    low = _csr_component(lo_data, lo_indices, lo_indptr, X,
-                         xp=xp, lax=lax, barrier=barrier)
-    return add(high, low, xp=xp, barrier=barrier)
-
-
 def sparse_matmul(A_hi: Any, A_lo: Any, X: Pair, *, execute: Any) -> Pair:
     """Use the required adapter's compiled CSR kernel; no host-loop fallback.
 

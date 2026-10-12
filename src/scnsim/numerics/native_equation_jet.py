@@ -8,6 +8,7 @@ reverse consumes retained arrays, never an opaque factor or Python AD tape.
 from __future__ import annotations
 
 from functools import partial
+from typing import NamedTuple
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -28,7 +29,7 @@ _batch_linear_p.multiple_results = True
 def _next(params):
     order = params.get('derivative_order', 0) + 1
     return dict(params, stage=4, role='tangent' if order == 1 else 'mixed',
-                derivative_order=order)
+                derivative_order=order, frequency_jet=False)
 
 
 def _first(prior, *statuses):
@@ -120,32 +121,37 @@ def _solve_jvp(primals, tangents, *, primitive=ns._solve_p, **params):
 def _jet_jvp(primals, tangents, *, primitive=_first_p, **params):
     # Frequency order is physical equation metadata, independent of the two
     # admitted parameter directions in this finite AD rule.
-    if params.get('parameter_ad_depth', 0) != 1:
+    if params.get('parameter_ad_depth', 0) != 1 and not (
+            params.get('frequency_jet', False) and params.get('parameter_ad_depth', 0) == 0):
         raise TypeError('finite equation jet supports two parameter directions, not third parameter derivatives')
     values, rhs, prior, values1, rhs1 = primals
     values2, rhs2, _, values12, rhs12 = map(ad.instantiate_zeros, tangents)
     primal = primitive.bind(*primals, **params)
     batched = primitive is _batch_first_p
-    solve = ns._batch_solve_p if batched else ns._solve_p
-    tangent_params = dict(_next(params), parameter_ad_depth=2)
+    solve = ns._batch_residual_solve_p if batched else ns._residual_solve_p
+    depth = params.get('parameter_ad_depth', 0) + 1
+    tangent_params = dict(_next(params), parameter_ad_depth=depth)
     residual2 = rhs2 - _product(values2, primal[0], params, batched)
-    second = solve.bind(values, residual2, primal[2], **tangent_params)
+    second = solve.bind(values, residual2, primal[2], primal[2], **tangent_params)
     # Both actual first equations, not a global Error predicate, own the mixed
     # prerequisites. No inactive conditional site enters this local status.
     mixed_prior = _first(primal[2], primal[7], second[1])
     residual12 = rhs12 - _product(values12, primal[0], params, batched)
     residual12 = residual12 - _product(values1, second[0], params, batched)
     residual12 = residual12 - _product(values2, primal[1], params, batched)
-    mixed = solve.bind(values, residual12, mixed_prior,
+    mixed = solve.bind(values, residual12, mixed_prior, primal[2],
         **dict(params, stage=4, role='mixed',
-               derivative_order=params.get('derivative_order', 0) + 2, parameter_ad_depth=2))
+               derivative_order=params.get('derivative_order', 0) + 2, parameter_ad_depth=depth, frequency_jet=False))
     derivatives = second[0], mixed[0], *(ad.Zero(core.typeof(value).to_tangent_aval())
                                         for value in primal[2:])
     return primal, derivatives
 
 
 def _partial_eval(trace, *tracers, primitive=_first_p, **params):
-    known = tuple(tracer.pval.get_known() for tracer in tracers[:3])
+    all_known = tuple(tracer.pval.get_known() for tracer in tracers)
+    if all(value is not None for value in all_known):
+        return tuple(trace.to_jaxpr_tracer(value) for value in primitive.bind(*all_known, **params))
+    known = all_known[:3]
     if any(value is None for value in known):
         return trace.default_process_primitive(primitive, tracers, params)
     solve = ns._batch_solve_p if primitive is _batch_first_p else ns._solve_p
@@ -245,3 +251,26 @@ for primitive in (_first_p, _linear_p):
     batching.primitive_batchers[primitive] = partial(_batch, primitive=primitive)
 for primitive in (_batch_first_p, _batch_linear_p):
     batching.primitive_batchers[primitive] = partial(_nested_batch, primitive=primitive)
+
+
+class NativeSparseFrequencyJet(NamedTuple):
+    primal: ns.NativeSparseOutcome
+    frequency: ns.NativeSparseOutcome
+
+
+def checked_sparse_frequency_jet(equation, values, rhs, frequency_values, frequency_rhs,
+                                 *, prior_status=0, dependency=()):
+    """One call-local factor for selected AX=B and AXw=Bw-AwX.
+
+    Physical frequency order is not parameter AD depth. The finite native
+    rules retain both actual equation certificates and support two subsequent
+    parameter directions; no native factor is an operand or returned value.
+    """
+    dtype = jnp.result_type(values, rhs, frequency_values, frequency_rhs)
+    operands = tuple(jnp.asarray(value, dtype=dtype) for value in
+                     (values, rhs, frequency_values, frequency_rhs))
+    result = _first_p.bind(operands[0], operands[1], jnp.asarray(prior_status, dtype=jnp.int32),
+        operands[2], operands[3], equation=equation, stage=3, mode='N', role='primal',
+        derivative_order=0, dependency=tuple(dependency), parameter_ad_depth=0, frequency_jet=True)
+    return NativeSparseFrequencyJet(ns.NativeSparseOutcome(result[0], ns.NativeSparseAux(*result[2:7])),
+        ns.NativeSparseOutcome(result[1], ns.NativeSparseAux(*result[7:12])))

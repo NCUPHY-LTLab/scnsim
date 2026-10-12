@@ -12,6 +12,16 @@ from contextlib import nullcontext
 _BASIS_WIDTH = 8
 
 
+def _abstract_operands(operands):
+    """Keep only the pytree's array signature in a reusable variant recipe."""
+    import jax
+
+    return jax.tree.map(
+        lambda value: jax.ShapeDtypeStruct(tuple(value.shape), value.dtype),
+        operands,
+    )
+
+
 def _bucket_sizes(count, width):
     """Yield full policy buckets followed by actual one-frequency tails."""
     while count >= width:
@@ -67,16 +77,10 @@ def _append_response_error_frames(frames, result, rows, *, basis_kind, basis_ind
 
 
 def _candidate_frame(native, theta, *, backend, owner):
-    from ..numerics.native_sparse import checked_native
-
-    function = checked_native(native.candidate_ad_function)
-    operands = (theta,)
-    key = native.variant_key(
-        'candidate_ad', device=backend.device, operands=operands,
-        transform='checked_candidate_linearization',
-    )
+    variant = candidate_ad_variant(native, theta, device=backend.device)
     error, frame = backend.execute_native(
-        function, *operands, precision=backend.precision, compile_key=key,
+        variant.function, theta,
+        precision=backend.precision, compile_key=variant.key,
         owner=owner, phase='native_ad_candidate_frame',
     )
     _checked_failure(error)
@@ -102,19 +106,43 @@ def _candidate_tangents(native, frame, directions, *, backend, owner, basis_kind
 
 def _branch_frame(native, candidate, omega, seeds, check_status, certificate_status,
                   *, backend, owner):
-    from ..numerics.native_sparse import checked_native
-
-    function = checked_native(native.branch_ad_function)
-    operands = candidate, omega, seeds, check_status, certificate_status
-    key = native.variant_key(
-        'branch_ad', device=backend.device, operands=operands,
-        transform='checked_joint_branch_linearization',
-    )
+    variant = branch_ad_variant(native, candidate, omega, seeds, check_status,
+                                certificate_status, device=backend.device)
     error, frame = backend.execute_native(
-        function, *operands, precision=backend.precision, compile_key=key,
+        variant.function, candidate, omega, seeds, check_status, certificate_status,
+        precision=backend.precision, compile_key=variant.key,
         owner=owner, phase='native_ad_joint_branches',
     )
     return error, frame
+
+
+def candidate_ad_variant(native, theta, *, device):
+    """Return the exact checked candidate-frame recipe shared with warmup."""
+    from ..numerics.native_sparse import checked_native
+    from .variant_plan import ExecutionVariant
+
+    operands = (theta,)
+    key = native.variant_key(
+        'candidate_ad', device=device, operands=operands,
+        transform='checked_candidate_linearization',
+    )
+    return ExecutionVariant('candidate_ad', key,
+        checked_native(native.candidate_ad_function), _abstract_operands(operands))
+
+
+def branch_ad_variant(native, candidate, omega, seeds, check_status,
+                      certificate_status, *, device):
+    """Return the exact checked joint-branch frame recipe shared with warmup."""
+    from ..numerics.native_sparse import checked_native
+    from .variant_plan import ExecutionVariant
+
+    operands = candidate, omega, seeds, check_status, certificate_status
+    key = native.variant_key(
+        'branch_ad', device=device, operands=operands,
+        transform='checked_joint_branch_linearization',
+    )
+    return ExecutionVariant('branch_ad', key,
+        checked_native(native.branch_ad_function), _abstract_operands(operands))
 
 
 def _response_slot_plan(native):
@@ -384,31 +412,44 @@ def _project_jvps(native, response_values, branch_frame, response_tangents,
     )
 
 
+def objective_loss_pullback_variant(native, loss, values, coefficients, *, device):
+    """Return the same compact loss/cotangent recipe for warmup and execution.
+
+    Coefficients are explicit dynamic operands. The key carries the ordered
+    static loss structure and operand signature, never target/scale/weight
+    values. The callable uses the loss object's structural algebra only; its
+    numeric coefficients arrive through ``runtime_coefficients``.
+    """
+    from .variant_plan import ExecutionVariant
+
+    operands = (values, coefficients)
+    key = (native.variant_key(
+        'value', device=device, operands=operands,
+        transform='objective_loss_output_pullback',
+    ), ('objective_loss', loss.structural_record()))
+    return ExecutionVariant('objective_loss_output_pullback', key,
+        loss.output_pullback_function(), _abstract_operands(operands),
+        lifetime='run_static')
+
+
+def _objective_loss_payload_and_covectors(native, loss, values, coefficients, *,
+                                          backend, owner):
+    variant = objective_loss_pullback_variant(native, loss, values, coefficients,
+                                               device=backend.device)
+    return backend.execute_native(
+        variant.function, values, coefficients,
+        precision=backend.precision, compile_key=variant.key,
+        owner=owner, phase='native_objective_loss_pullback',
+        details={'objective_count': len(loss.objective_ids)},
+    )
+
+
 def _projection_pullback(native, response_values, branch_frame, *, backend,
-                         loss=None, weights=None, basis=None):
+                         weights=None, basis=None):
     import jax
     import jax.numpy as jnp
 
     available = branch_frame.outcome.derivative_available
-    if loss is not None:
-        def function(response, branch):
-            projection = native.compact_leaf_projection_function(response, branch, available)[1]
-            result = loss(projection.output_values)
-            return result.total_cost, result
-
-        _, pullback, payload = jax.vjp(function, response_values,
-                                      branch_frame.outcome.values, has_aux=True)
-        response_cotangents, branch_cotangents = pullback(jnp.ones_like(payload.total_cost))
-        projection = native.compact_leaf_projection_function(
-            response_values, branch_frame.outcome.values, available,
-        )[1]
-        _, loss_pullback = jax.vjp(lambda *values: loss(values).total_cost,
-                                   *projection.output_values)
-        output_covectors = native.output_covector_rows(
-            loss_pullback(jnp.ones_like(payload.total_cost)))
-        return (response_cotangents, branch_cotangents, output_covectors,
-                projection, payload)
-
     def function(response, branch):
         return native.compact_leaf_projection_function(response, branch, available)[0]
 
@@ -753,7 +794,8 @@ def sensitivity_derivative(native, arguments, *, derivative_kind, quantity_progr
 
 
 def objective_value_and_gradient(native, arguments, loss, *, active_keys, backend,
-                                 program_owner, execution_policy, frame_owner):
+                                 coefficients, program_owner, execution_policy,
+                                 frame_owner):
     """Differentiate the exact shared Objective loss through bounded chunks."""
     import jax
     import jax.numpy as jnp
@@ -775,9 +817,15 @@ def objective_value_and_gradient(native, arguments, loss, *, active_keys, backen
         branch_error, branch_frame = _branch_frame(native, candidate, omega, seeds,
             checks, certificates, backend=backend, owner=owner)
         flat, projection = _project(native, response_values, branch_frame)
-        payload = loss(projection.output_values)
-        response_ct, branch_ct, output_covectors, _, _ = _projection_pullback(
-            native, response_values, branch_frame, backend=backend, loss=loss)
+        payload, output_covectors = _objective_loss_payload_and_covectors(
+            native, loss, projection.output_values, coefficients,
+            backend=backend, owner=program_owner,
+        )
+        output_covectors = native.output_covector_rows(output_covectors)
+        response_ct, branch_ct, _, _, _ = _projection_pullback(
+            native, response_values, branch_frame, backend=backend,
+            weights=output_covectors,
+        )
         total_candidate, derivative_frames, checks, certificates = _work_vjp(
             native, candidate_frame, omega,
             tuple(value[None, ...] for value in response_ct), family_shapes,

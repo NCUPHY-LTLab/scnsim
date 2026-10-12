@@ -479,7 +479,7 @@ _batch_solve_p = core.Primitive('scnsim_checked_sparse_equation_batch')
 _batch_solve_p.multiple_results = True
 
 
-def _callback(values, rhs, prior, *, equation, stage, mode, role, certificate_site=(), backend='sparse', derivative_order=0, dependency=(), parameter_ad_depth=0):
+def _callback(values, rhs, prior, *, equation, stage, mode, role, certificate_site=(), backend='sparse', derivative_order=0, dependency=(), parameter_ad_depth=0, frequency_jet=False):
     if backend == 'dense':
         return _dense_equation(values, rhs, prior, equation=equation, stage=stage, mode=mode)
     if backend != 'sparse':
@@ -528,7 +528,7 @@ def _dense_equation(values, rhs, prior, *, equation, stage, mode):
                         lambda _: unavailable(prior, jnp.bool_(False)), None)
 
 
-_static = ('equation', 'stage', 'mode', 'role', 'certificate_site', 'backend', 'derivative_order', 'dependency', 'parameter_ad_depth')
+_static = ('equation', 'stage', 'mode', 'role', 'certificate_site', 'backend', 'derivative_order', 'dependency', 'parameter_ad_depth', 'frequency_jet')
 _solve_p.def_impl(partial(jax.jit, static_argnames=_static)(_callback))
 
 
@@ -539,7 +539,7 @@ def _batch_callback(values, rhs, prior, **params):
 _batch_solve_p.def_impl(partial(jax.jit, static_argnames=_static)(_batch_callback))
 
 
-def _abstract(values, rhs, prior, *, equation, stage, mode, role, certificate_site=(), backend='sparse', derivative_order=0, dependency=(), parameter_ad_depth=0):
+def _abstract(values, rhs, prior, *, equation, stage, mode, role, certificate_site=(), backend='sparse', derivative_order=0, dependency=(), parameter_ad_depth=0, frequency_jet=False):
     del stage, mode, role, certificate_site, backend, derivative_order, dependency, parameter_ad_depth
     if values.shape != (len(equation.pattern.rows),):
         raise TypeError('sparse coefficient shape disagrees with declared CSC pattern')
@@ -661,6 +661,99 @@ def _nested_batch(args, axes, **params):
 batching.primitive_batchers[_batch_solve_p] = _nested_batch
 
 
+# Finite directional residual equations have a checked forward prerequisite
+# that can itself depend on a direction. Reverse consumes the separately
+# retained primal prerequisite, never that nonlinear diagnostic as a linear
+# coefficient. Both executions retain their actual owned certificates.
+_residual_solve_p = core.Primitive('scnsim_checked_residual_equation')
+_residual_solve_p.multiple_results = True
+_batch_residual_solve_p = core.Primitive('scnsim_checked_residual_equation_batch')
+_batch_residual_solve_p.multiple_results = True
+
+
+def _residual_callback(values, rhs, prior, retained_prior, **params):
+    del retained_prior
+    return _callback(values, rhs, prior, **params)
+
+
+def _residual_abstract(values, rhs, prior, retained_prior, **params):
+    if retained_prior.shape != prior.shape or retained_prior.dtype != prior.dtype:
+        raise TypeError('residual equation requires the retained primal status shape/dtype')
+    return _abstract(values, rhs, prior, **params)
+
+
+def _batch_residual_callback(*operands, **params):
+    return jax.lax.map(lambda items: _residual_callback(*items, **params), operands)
+
+
+def _batch_residual_abstract(*operands, **params):
+    size = operands[0].shape[0]
+    result = _residual_abstract(*(core.ShapedArray(value.shape[1:], value.dtype)
+                                  for value in operands), **params)
+    return tuple(core.ShapedArray((size,) + value.shape, value.dtype) for value in result)
+
+
+for primitive, callback, abstract in (
+        (_residual_solve_p, _residual_callback, _residual_abstract),
+        (_batch_residual_solve_p, _batch_residual_callback, _batch_residual_abstract)):
+    primitive.def_impl(partial(jax.jit, static_argnames=_static)(callback))
+    primitive.def_abstract_eval(abstract)
+    mlir.register_lowering(primitive, equation_lowering(callback))
+
+
+def _residual_jvp(primals, tangents, *, primitive=_residual_solve_p, **params):
+    depth = params.get('parameter_ad_depth', 0)
+    if depth >= 2:
+        raise TypeError('finite equation jet supports two parameter directions, not third parameter derivatives')
+    values, rhs, prior, retained_prior = primals
+    values_dot, rhs_dot, _, _ = map(ad.instantiate_zeros, tangents)
+    primal = primitive.bind(*primals, **params)
+    product = partial(_matmul, params['equation'], mode=params['mode'])
+    if primitive is _batch_residual_solve_p:
+        product = jax.vmap(product)
+    residual = rhs_dot - product(values_dot, primal[0])
+    order = params.get('derivative_order', 0) + 1
+    tangent = primitive.bind(values, residual, primal[1], retained_prior,
+        **dict(params, stage=4, role='tangent' if order == 1 else 'mixed',
+               derivative_order=order, parameter_ad_depth=depth + 1, frequency_jet=False))
+    return primal, (tangent[0], *(ad.Zero(core.typeof(value).to_tangent_aval())
+                                   for value in primal[1:]))
+
+
+def _residual_transpose(cotangents, values, rhs, prior, retained_prior,
+                        *, primitive=_residual_solve_p, **params):
+    # Forward `prior` still controls the original performed/skip status and
+    # remains archived by checkify. There is no forward tangent execution to
+    # substitute for an adjoint's own primal prerequisite in reverse mode.
+    solve = _batch_solve_p if primitive is _batch_residual_solve_p else _solve_p
+    bars = _transpose(cotangents, values, rhs, retained_prior, primitive=solve, **params)
+    return bars[0], bars[1], None, None
+
+
+def _residual_batch(operands, axes, **params):
+    size = next(value.shape[axis] for value, axis in zip(operands, axes) if axis is not None)
+    values = tuple(batching.bdim_at_front(value, axis, size) for value, axis in zip(operands, axes))
+    result = _batch_residual_solve_p.bind(*values, **params)
+    return result, (0,) * len(result)
+
+
+def _residual_nested_batch(operands, axes, **params):
+    size = next(value.shape[axis] for value, axis in zip(operands, axes) if axis is not None)
+    values = tuple(batching.bdim_at_front(value, axis, size) for value, axis in zip(operands, axes))
+    inner = values[0].shape[1]
+    flat = tuple(value.reshape((size * inner,) + value.shape[2:]) for value in values)
+    result = _batch_residual_solve_p.bind(*flat, **params)
+    return tuple(value.reshape((size, inner) + value.shape[1:]) for value in result), (0,) * len(result)
+
+
+ad.primitive_jvps[_residual_solve_p] = _residual_jvp
+ad.primitive_jvps[_batch_residual_solve_p] = partial(_residual_jvp, primitive=_batch_residual_solve_p)
+ad.primitive_transposes[_residual_solve_p] = _residual_transpose
+ad.primitive_transposes[_batch_residual_solve_p] = partial(_residual_transpose, primitive=_batch_residual_solve_p)
+batching.primitive_batchers[_residual_solve_p] = _residual_batch
+batching.primitive_batchers[_batch_residual_solve_p] = _residual_nested_batch
+
+
 def _error_check(ctx, error, enabled_errors, *operands, primitive=_solve_p,
                  value_count=1, certificate_groups=(), **params):
     # checkify manufactures select placeholders here, outside the caller
@@ -680,7 +773,8 @@ def _error_check(ctx, error, enabled_errors, *operands, primitive=_solve_p,
                     site = site + ('equation', ordinal)
                 base_order = params.get('derivative_order', 0)
                 group_order = base_order + 1 if order == 'next' else base_order if order is None else order
-                group_role = ('tangent' if group_order == 1 else 'mixed') if role == 'derivative' else params['role'] if role is None else role
+                group_role = ('frequency_tangent' if params.get('frequency_jet', False) else
+                    'tangent' if group_order == 1 else 'mixed') if role == 'derivative' else params['role'] if role is None else role
                 failure = SparseEquationCheck(checkify.get_traceback(), site,
                     group_role, params['stage'] if stage is None else stage, group_order, params.get('dependency', ()), *payload)
                 error = checkify.assert_func(ctx, error, jnp.any(payload[0] != 0), failure)
@@ -709,6 +803,8 @@ def register_equation_certificate(primitive, *, value_count, certificate_groups=
 _certificate_primitives = set()
 register_equation_certificate(_solve_p, value_count=1)
 register_equation_certificate(_batch_solve_p, value_count=1)
+register_equation_certificate(_residual_solve_p, value_count=1)
+register_equation_certificate(_batch_residual_solve_p, value_count=1)
 
 
 def checked_sparse_solve(equation: SparseEquation, values, rhs, *, stage=3,

@@ -8,10 +8,11 @@ The reader-facing [Simulation conventions](concepts/simulation-conventions.qmd)
 connect these version-bound rules to the canonical phasor, wave-reference, and
 linewidth definitions without adding a second runtime contract.
 
-## JAX-native physical program target (dev27) {#physical-program-target}
+## JAX-native physical program target (dev28) {#physical-program-target}
 
-This is the **CONVERGING dev27 candidate**. The native callable replacement is
-being implemented; previous observations retain their original identities;
+This is the **CONVERGING dev28 candidate**. It retains the dev27 native callable
+authority while refining shared compilation and owned numerical hot paths;
+previous observations retain their original identities;
 source implementation does not establish native coverage, accuracy or Human acceptance. One physical program maps ordered
 real scalar parameter coordinates to physical quantities. Direct evaluation,
 sweeps, dependency queries, Sensitivity and Optimization consume that same
@@ -2811,7 +2812,7 @@ unchanged; that correction condition is not a root-location error bound.
 |---|---|---|---|
 | SI lowering and dtype conversion | Information can round before execution | Binary64 physical lowering and selected-dtype conversion remain explicit | Compensation does not recover discarded input information |
 | Indexed assembly/coalescing | Contributions can cancel | Existing narrow retained non-Port-realizable Z TransferZero high/low assembly | No universal speed or accuracy claim |
-| Sparse high/low action and residual | Products/sums can lose low parts | One compiled JAX CSR row-batched core; ordered high traversal, low traversal, then combination; runtime indices/coefficients/RHS | No dense operator, padded stencil or per-row Python dispatch; compile/transfer/compute/download are separate phases |
+| Sparse high/low action and residual | Products/sums can lose low parts | Packaged C++17 CPU buffer kernel; ordered high traversal, low traversal, then combination; runtime CSR indices/coefficients/RHS | No dense operator or padded stencil; native buffer action is distinct from JAX executable compilation and requires no JAX CSR kernel download |
 | Corrected Schur value/derivative | Subtraction can magnify rounding | One high factor and fixed primal/derivative correction; pair-aware residual and formation, then declared-dtype F/Fp→Y/Yp projection | Current cofactor/denominator consumes the projection, not an expanded output |
 | Determinant and scale products | Intermediate overflow/underflow | Existing mantissa/exponent representation and family-specific normalization | Not a cancellation cure or confidence interval |
 | Newton and certification | A derivative, correction and residual establish different facts | Existing analytic derivative, stops and typed failure ownership | No mean estimate, changed tolerance or automatic precision fallback |
@@ -3576,3 +3577,40 @@ overwrite unrelated success receipts.
   Human acceptance of the contract defined in
   [Structured Circuit Authoring and Certified Diagrams](contracts/automatic-semantic-circuit-diagram-layout.qmd).
 - V1 has no public linear-algebra scaling configuration.
+
+
+## dev28：共用編譯規劃與 native CPU 補償 {#dev28-compilation-ownership}
+
+此範圍維持 `CONVERGING`。既有公開 Plan/Run/View/Quantity、Sensitivity、
+CMA/L-BFGS-B/Hybrid、Result 與 Benchmark 入口，以及 SQLite v7，保持不變。
+本次候選使用 `1.0.0.dev28`；支援目標限定 Python3.12、Linux x86_64
+（glibc>=2.28）與 macOS Apple ARM（>=12）。Windows、Intel Mac、Linux ARM、
+Julia 數值修改與 schematic completion 不在本次範圍。
+
+Warmup 與 execution 共用不可變 execution variant plan，使用同一 callable、
+abstract operand signature、cache key 與 Run-local compile owner。Warmup 只
+lower/compile，不隱藏執行 baseline、root、factorization、candidate 或保存
+成功 Result。Optimization 的已宣告 CMA cost、local gradient、Hybrid stage
+與 Sensitivity derivative 類型，各自列出真正需要的 variants；不預編譯
+未請求組合。依賴實際 linearization frame 的 consumer，若沒有同一 producer
+的 exact static tree，保持明列 lazy，不以相同 array shapes 冒稱已暖機。
+
+固定 ordered operand modes、comparison、layout、wrt、dtype 與物理結構之內，
+theta/omega/seed 與 objective target/scale/weight 是 runtime operands，不以
+其數值製造新的 executable identity。Exact zero-target smooth-square mode
+仍屬明確 static mode；保留既有 smooth-square cost 與 abs-at-zero unavailable
+責任，不把兩種數學模式混成一個假零導數。依 baseline 解析的 scale 只能在
+正常 execution 中取得，warmup 使用其 abstract signature，不能偷跑 baseline。
+
+CompileOwner 以每個 `(kind,key)` 協調 single-flight，長編譯不持有 owner global
+lock。等待者共享實際 item，並各自持有到同步／必要 pullback 完成；等待者取消
+只移除自己的等待，factory failure/interrupt 必須喚醒其他等待者並保留原 cause。
+clear 不讓尚未完成的 build 延遲重新 admission；不清除其他 Run 或全域 JAX cache。
+既有 16 program/16 variant/known256MiB policy 保持，unknown bytes 不冒稱 RAM 上限。
+Run.close 仍拒絕 active operation，不兼任 cancel；detached PreparedFunction 仍屬 caller。
+
+補償 host kernel 以 C++17 CPython buffer API 打包，不依賴 NumPy C ABI、Pybind 或
+Cython，不提供 Python fallback。保留高／低位表示、dtype、ordered accumulation、
+fixed correction、residual/certificate 與 failure 語意。Linux/macOS 預建 wheel
+讓 uv 使用者不需 compiler；Git/sdist 的 native source build 仍需合適 compiler。
+Artifact 存在不等於平台實際執行完成，實際 wheel/phase/lifetime 觀察另行記錄。

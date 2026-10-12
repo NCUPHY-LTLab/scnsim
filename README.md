@@ -20,7 +20,7 @@ semantics and this documentation remain `CONVERGING`; Alpha is neither a
 stable release nor a new scientific-validation claim. Public API and saved
 workspace compatibility may change before a stable release.
 
-The development candidate is `1.0.0.dev27`. The differentiable physical-program
+The development candidate is `1.0.0.dev28`. The differentiable physical-program
 target and SQLite operation evidence v7 remain `CONVERGING`; declaration and
 execution integration are in progress. [The physical-program contract](docs/v1-runtime-contract.qmd#physical-program-target)
 binds value, Jacobian/JVP/VJP and optimization to one model, fixed meshes for
@@ -33,7 +33,7 @@ The [lifecycle contract](docs/v1-runtime-contract.qmd#package-lifecycle) defines
 optional Run close, automatic operation cleanup, fixed lazy Results, bounded
 recovery and managed Julia startup. Old operation Workspaces require recomputation;
 there is no migration or compatibility reader. Historical observations keep their
-original identities. Earlier-version observations remain historical evidence, not dev27
+original identities. Earlier-version observations remain historical evidence, not dev28
 execution or delivery evidence. Python 3.12 remains required. Normal
 `CircuitRun.solve`, `evaluate` and `optimize` default to same-process JAX CPU
 Float64/Complex128; Float32/Complex64 and explicit Julia are selectable.
@@ -316,3 +316,13 @@ uv add "scnsim @ git+https://github.com/OrPenStrike/scnsim.git@<reviewed-commit-
 ## License
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+
+The dev28 candidate keeps the existing public simulation interfaces and SQLite
+operation format v7. Warmup and execution share one immutable variant plan,
+including declared Objective and derivative work; frame-dependent consumers are
+reported as lazy when their exact producer tree is unavailable. Owner-local
+single-flight coordinates compilation without a global JAX cache purge.
+Prebuilt native CPU wheels target Python3.12/Linux x86_64 glibc>=2.28 and macOS
+Apple ARM>=12; source installation requires a C++17 compiler. Platform execution
+and performance remain separately observed CONVERGING scope.

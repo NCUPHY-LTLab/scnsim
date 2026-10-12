@@ -3,7 +3,7 @@ title: "Sensitivity of physical quantities"
 subtitle: "Declare Jacobian, JVP and VJP requests on the same Plan and Views"
 ---
 
-This dev27 `CONVERGING` guide describes the current candidate public declarations.
+This dev28 `CONVERGING` guide describes the current candidate public declarations.
 The snippets are source examples, not recorded derivative executions or numerical
 accuracy evidence. The [Runtime Contract](../v1-runtime-contract.qmd#physical-program-target)
 is the authority for execution, ownership and failure behavior.
@@ -344,3 +344,20 @@ the comparison stage was not entered. The comparison baseline is the original
 operation effective point reevaluated under the declared comparison model,
 separate from a later stage's selected-point seed. Its preparation evaluations
 and cost are reported separately from optimizer search budgets/controller `nfev`.
+
+
+### dev28 的保存值呈現
+
+此候選的既有 `plot`/`show` 入口提供 `style="auto"|"table"|"bar"|"heatmap"`。
+Auto 對同量綱的單一 row 使用 signed bar，多 row 使用 heatmap，混合單位使用 table；
+完整 IDs 保留在 hover/metadata。`output_unit` 或逐 `OutputCoordinate` 的
+`output_units` 與逐參數的 `parameter_units`/`parameter_labels` 明確決定呈現，
+不依 `_m`/`_um` 名稱推測實際單位，也不默默做 2π 轉換。
+角頻率輸出仍代表角頻率：可縮放為 `Mrad/s` 或 `rad/µs`，不能只用
+Pint 將 `rad/s` 換成 `MHz` 就把數值標為普通頻率。若要呈現 Hz，必須先
+在 authored physical Quantity projection 中明確定義除以 `2π` 的物理量，
+再呈現該輸出及其導數；display unit 不會代替這項物理定義。
+`normalized=False` 保留原 SI 值；`normalized=True` 預設只用 request-authored scales。
+若另外提供呈現 scales，必須同時提供有單位的 `input_scales` 與 `output_scales`，
+不由套件推測工程步長、threshold 或 tolerance。這是保存 Jacobian 的可追蹤
+呈現，不重新執行求解，不改局部導數或 global-optimum 責任。
