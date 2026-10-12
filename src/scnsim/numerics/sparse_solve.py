@@ -49,6 +49,34 @@ class MixedOutcome(NamedTuple):
     mixed: SolveOutcome
 
 
+def _stack_solve_lanes(outcomes, rhs):
+    """Stack finite equation outputs only; no factors or native handles escape.
+
+    The zero-lane case has no performed equation and preserves the declared
+    selected dtype/shape. Each nonempty lane was solved by the SAME host math.
+    """
+    if not outcomes:
+        rd = np.empty((), dtype=rhs.dtype).real.dtype
+        return SolveOutcome(np.zeros_like(rhs), SolveAux(np.zeros((0,), dtype=np.int32),
+            *(np.zeros((0,), dtype=rd) for _ in range(3))))
+    return SolveOutcome(np.stack(tuple(row.value for row in outcomes)),
+        SolveAux(*(np.stack(tuple(row.aux[index] for row in outcomes)) for index in range(4))))
+
+
+def _host_solve_batch(pattern, values, rhs, prior_status, *, stage, mode, ordering):
+    """One transport for independent ordinary equations, factor local per lane.
+
+    No cross-lane status propagation or shared factor is introduced here. Lane
+    prerequisites are already supplied by the original compiled point stages.
+    An unexpected exception escapes immediately; completed lane factors have
+    already been released by _host_solve's existing finally.
+    """
+    outcomes = tuple(_host_solve(pattern, values[index], rhs[index], prior_status[index],
+                                stage=stage, mode=mode, ordering=ordering)
+                     for index in range(rhs.shape[0]))
+    return _stack_solve_lanes(outcomes, rhs)
+
+
 def _host_transport(*operands, callback, input_tree, specifications,
                     output_tree, output_specifications):
     """Decode exact selected operands before any host equation arithmetic.
@@ -180,19 +208,33 @@ def _host_high_dispatch(pattern, av, bv, code, ad, bd, *more,
                                second=more if mixed_mode else None)
 
 
-def _high_callback(equation, a, b, prior, *, stage, a_dot, b_dot, derivative_stage, second=None):
+def _host_high_dispatch_batch(pattern, av, bv, code, ad, bd, *more,
+                             ordering, stage, derivative_stage, mixed_mode):
+    """Finite first/mixed bundles use the SAME factor-local host jet per lane."""
+    outcomes = tuple(_host_high_dispatch(pattern, av[index], bv[index], code[index],
+        ad[index], bd[index], *(value[index] for value in more), ordering=ordering,
+        stage=stage, derivative_stage=derivative_stage, mixed_mode=mixed_mode)
+        for index in range(bv.shape[0]))
+    kind = MixedOutcome if mixed_mode else DirectionalOutcome
+    return kind(*(_stack_solve_lanes(tuple(row[index] for row in outcomes), bv)
+                  for index in range(4 if mixed_mode else 2)))
+
+
+def _high_callback(equation, a, b, prior, *, stage, a_dot, b_dot, derivative_stage, second=None, batched=False):
     import jax
     import jax.numpy as jnp
     dtype = jnp.result_type(a, b, a_dot, b_dot)
     a, b, a_dot, b_dot = (jnp.asarray(value, dtype=dtype) for value in (a, b, a_dot, b_dot))
     rd = b.real.dtype
-    scalar = lambda dtype: jax.ShapeDtypeStruct((), dtype)
+    scalar = lambda dtype: jax.ShapeDtypeStruct((b.shape[0],) if batched else (), dtype)
     shape = SolveOutcome(jax.ShapeDtypeStruct(b.shape, b.dtype),
                          SolveAux(scalar(jnp.int32), scalar(rd), scalar(rd), scalar(rd)))
     result_shape = DirectionalOutcome(shape, shape) if second is None else MixedOutcome(shape, shape, shape, shape)
     operands = () if second is None else tuple(jnp.asarray(value, dtype=dtype) for value in second)
     mixed_mode = second is not None
-    return equation.call_callback(('high', stage, derivative_stage, mixed_mode), _host_high_dispatch,
+    function = _host_high_dispatch_batch if batched else _host_high_dispatch
+    key = ('high_batch' if batched else 'high', stage, derivative_stage, mixed_mode)
+    return equation.call_callback(key, function,
                                   result_shape, a, b, jnp.asarray(prior, dtype=jnp.int32),
                                   a_dot, b_dot, *operands, stage=stage,
                                   derivative_stage=derivative_stage, mixed_mode=mixed_mode)

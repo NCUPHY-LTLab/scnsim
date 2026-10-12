@@ -1042,7 +1042,7 @@ class PhysicalAnalysis:
             if in_memory:
                 record = {
                     'families': {
-                        family: np.asarray(getattr(outcomes, family)[lane])
+                        family: np.asarray(getattr(outcomes, family))[lane]
                         for family in ('S', 'Y', 'Z')
                     },
                 }
@@ -1058,7 +1058,7 @@ class PhysicalAnalysis:
                 'certificate_position': certificate_position,
                 'certificates': certificates,
                 'families': {
-                    family: array_record(np.asarray(getattr(outcomes, family)[lane]))
+                    family: array_record(np.asarray(getattr(outcomes, family))[lane])
                     for family in ('S', 'Y', 'Z')
                 },
             })

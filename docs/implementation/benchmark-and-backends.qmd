@@ -3,7 +3,7 @@ title: "Execution Backends and Operation Benchmark"
 subtitle: "Same-process JAX, verified results and read-only hierarchical observations"
 ---
 
-**Status:** CONVERGING, 1.0.0.dev29 development candidate contract. The following interfaces are
+**Status:** CONVERGING, 1.0.0.dev30 development candidate contract. The following interfaces are
 implementation targets, not completed execution, performance or acceptance
 claims. Historical dev10 comparison records remain bound to their original
 source, wheel, numerical outputs and publication identities. No durable tests
@@ -26,6 +26,28 @@ public call includes preparation, synchronized numerical execution, resource
 drain and typed-result assembly. It is not a numerical-kernel-only clock or a
 saved history. Current dev28 and earlier timing observations retain their
 original scopes; this candidate does not establish memory-mode performance.
+
+## Direct stage bundles and observation scope (dev30 candidate)
+
+Ordinary Direct maps ready point arithmetic within the existing main bucket
+(default eight) and tail-one variant. Independent different-matrix sparse
+equations share a host boundary crossing, with separate local factors and
+per-lane certificates. W, actual Y/Z/S formation/checks and source W retain
+per-point dependency order; the first and source equation bundles remain
+separate. Already-ready later lanes can execute before an earlier later-stage
+failure is known. Ordered reducers preserve original occurrence failure
+selection and actual performed evidence; external submissions stop and
+in-flight work drains without swallowing unexpected fatal errors.
+
+Unknown total native scratch still uses one external chunk slot. Batch shape,
+callback count, factor count, numerical work and aggregate wall clocks remain
+separate observations; none implies a speedup. Warmup plans and compiles the
+same successor callable/key/signature actually consumed by execution, without
+running sparse equations or choosing a baseline. True frame-dependent
+consumers remain explicitly lazy. Historical one-/four-slot diagnoses retain
+their original source and instrumentation identities and are not this
+successor's performance measurement. Memory storage, numerical checks, dtype,
+mesh, output grid and Julia/reference boundaries are unchanged.
 
 ## Differentiable program implementation target
 

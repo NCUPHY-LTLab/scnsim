@@ -60,7 +60,7 @@ class JaxBackend:
 
     def identity(self) -> dict[str, object]:
         return {
-            "backend": "jax", "algorithm_id": "scnsim.jax.native_physical.v1",
+            "backend": "jax", "algorithm_id": "scnsim.jax.native_physical.stage_bundle.v1",
             "jax": importlib.metadata.version("jax"), "jaxlib": importlib.metadata.version("jaxlib"),
             "scipy": importlib.metadata.version("scipy"),
             "threadpoolctl": importlib.metadata.version("threadpoolctl"),
@@ -122,7 +122,7 @@ class JaxBackend:
         if operation not in ('direct', 'evaluate', 'optimize', 'sensitivity'):
             raise ValueError('unknown native physical operation identity')
         identity = self.identity()
-        identity.update(algorithm_id=f'scnsim.jax.native_physical.{operation}.v1',
+        identity.update(algorithm_id=f'scnsim.jax.native_physical.{operation}.stage_bundle.v1',
                         assembly='array_only_candidate_once_sparse_values_frequency',
                         executable_ownership='explicit_bounded_compile_owner_pinned_until_synchronized')
         return identity

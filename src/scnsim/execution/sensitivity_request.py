@@ -122,7 +122,7 @@ def prepare_sensitivity(*, plan_sha256: str, encoded_spec: Mapping[str, object],
     spec = finalize_sensitivity_spec(encoded_spec)
     functional_unit = spec['functional_unit']
     runtime = _jax_runtime_identity(runtime_base, precision=precision)
-    runtime['algorithm_id'] = 'scnsim.jax.native_physical.sensitivity.v1'
+    runtime['algorithm_id'] = 'scnsim.jax.native_physical.sensitivity.stage_bundle.v1'
     analysis = PreparedAnalysis.create(
         plan_sha256=plan_sha256, operation='sensitivity',
         view={'type': 'network_view_set', 'views': [json.loads(value) for value in leaf_views]},

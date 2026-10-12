@@ -533,7 +533,22 @@ _solve_p.def_impl(partial(jax.jit, static_argnames=_static)(_callback))
 
 
 def _batch_callback(values, rhs, prior, **params):
-    return jax.lax.map(lambda items: _callback(*items, **params), (values, rhs, prior))
+    if params.get('backend', 'sparse') == 'dense':
+        return jax.vmap(lambda av, bv, code: _dense_equation(av, bv, code,
+            equation=params['equation'], stage=params['stage'], mode=params['mode']))(values, rhs, prior)
+    if params.get('backend', 'sparse') != 'sparse':
+        raise ValueError('unknown checked equation backend')
+    from .sparse_solve import _host_solve_batch
+    rd = jnp.empty((), dtype=rhs.dtype).real.dtype
+    size = rhs.shape[0]
+    shape = SolveOutcome(jax.ShapeDtypeStruct(rhs.shape, rhs.dtype),
+        SolveAux(jax.ShapeDtypeStruct((size,), jnp.int32),
+                 *(jax.ShapeDtypeStruct((size,), rd) for _ in range(3))))
+    result = params['equation'].call_callback(
+        ('native_batch', params['stage'], params['mode'], params['role']),
+        _host_solve_batch, shape, values, rhs, prior,
+        stage=params['stage'], mode=params['mode'])
+    return (result.value, *result.aux, prior == 0)
 
 
 _batch_solve_p.def_impl(partial(jax.jit, static_argnames=_static)(_batch_callback))
@@ -572,6 +587,8 @@ mlir.register_lowering(_solve_p, equation_lowering(_callback))
 
 def _batch_abstract(values, rhs, prior, **params):
     size = values.shape[0]
+    if rhs.shape[0] != size or prior.shape != (size,):
+        raise TypeError('batched equation operands require the same lane axis')
     avals = _abstract(core.ShapedArray(values.shape[1:], values.dtype),
                       core.ShapedArray(rhs.shape[1:], rhs.dtype),
                       core.ShapedArray(prior.shape[1:], prior.dtype), **params)
@@ -682,8 +699,9 @@ def _residual_abstract(values, rhs, prior, retained_prior, **params):
     return _abstract(values, rhs, prior, **params)
 
 
-def _batch_residual_callback(*operands, **params):
-    return jax.lax.map(lambda items: _residual_callback(*items, **params), operands)
+def _batch_residual_callback(values, rhs, prior, retained_prior, **params):
+    del retained_prior  # retained primal prerequisite remains a PE/transpose operand
+    return _batch_callback(values, rhs, prior, **params)
 
 
 def _batch_residual_abstract(*operands, **params):

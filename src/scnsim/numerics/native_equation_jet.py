@@ -68,7 +68,25 @@ def _linear_callback(values, x, prior, values1, rhs1, **params):
 
 
 def _batch_callback(*operands, callback, **params):
-    return jax.lax.map(lambda items: callback(*items, **params), operands)
+    values, rhs_or_x, prior, values1, rhs1 = operands
+    if callback is _linear_callback:
+        residual = rhs1 - _product(values1, rhs_or_x, params, batched=True)
+        return ns._batch_callback(values, residual, prior, **params)
+    if callback is not _callback:
+        raise TypeError('unknown finite equation jet callback')
+    if params.get('backend', 'sparse') == 'sparse' and params['mode'] == 'N':
+        from .sparse_solve import _high_callback
+        result = _high_callback(params['equation'], values, rhs_or_x, prior,
+            stage=params['stage'], a_dot=values1, b_dot=rhs1,
+            derivative_stage=4, batched=True)
+        performed = prior == 0
+        tangent_performed = performed & (result.primal.aux.status == 0)
+        return (result.primal.value, result.tangent.value,
+                *result.primal.aux, performed, *result.tangent.aux, tangent_performed)
+    primal = ns._batch_callback(values, rhs_or_x, prior, **params)
+    residual = rhs1 - _product(values1, primal[0], params, batched=True)
+    tangent = ns._batch_callback(values, residual, primal[1], **_next(params))
+    return primal[0], tangent[0], *primal[1:], *tangent[1:]
 
 
 def _abstract(values, rhs, prior, values1, rhs1, **params):

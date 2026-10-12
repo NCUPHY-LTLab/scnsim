@@ -8,9 +8,9 @@ The reader-facing [Simulation conventions](concepts/simulation-conventions.qmd)
 connect these version-bound rules to the canonical phasor, wave-reference, and
 linewidth definitions without adding a second runtime contract.
 
-## JAX-native physical program target (dev29) {#physical-program-target}
+## JAX-native physical program target (dev30) {#physical-program-target}
 
-This is the **CONVERGING dev29 candidate**. It retains the dev28 native callable
+This is the **CONVERGING dev30 candidate**. It retains the dev28 native callable
 authority while refining shared compilation and owned numerical hot paths;
 previous observations retain their original identities;
 source implementation does not establish native coverage, accuracy or Human acceptance. One physical program maps ordered
@@ -85,6 +85,40 @@ Each output expression uses its own ordered leaf mapping into the shared
 physical frame. Repeated leaves, mixed Views and real/imaginary projections
 retain the declared occurrence and unit; a local leaf ordinal is not a global
 observable index. Primal and derivative public projection share this mapping.
+
+### Direct within-chunk stage batching (dev30 candidate)
+
+The existing configurable main frequency bucket (default eight) and stable
+size-one tail bound ordinary Direct stage work. Within one chunk, general
+point arithmetic is mapped across lanes; each ready bundle crosses the host
+boundary once for its independent sparse equations. Each lane still owns its
+actual matrix, RHS, local factor and numerical certificate. Different matrices
+do not share a factor or become a new physical model.
+
+The physical order for each point remains W, then actual Y/Z/S formation and
+its existing checks, then source W. Those two equation stages form separate
+ready bundles. Already-ready later lanes may perform work before an earlier
+lane's later-stage failure is known. Actual lane performed/presence/status and
+evidence remain truthful; both semantic failure reducers retain original
+frequency occurrence order. Failure stops new external submissions and drains
+work already in flight; unexpected fatal errors retain their cause and cleanup
+responsibility. This is not a cross-frequency skip or bitwise-work-equivalence
+promise, a retry policy, or a new numerical condition.
+
+Unknown total native scratch still admits one external chunk slot; known
+output bytes are not a total estimate. No private four-slot override is a
+shipped resource default. Each lane's native factor is released before that native equation call or
+bundle returns; a host lane loop need not retain multiple factors at once.
+JAX point/chunk arrays remain through synchronization and required consumption,
+then are released. CompileOwner retains static programs and executables only. Memory Direct keeps its existing no-persistence contract.
+Warmup and execution use the same successor producer callable, abstract
+signature, key and source-bound identity. Warmup performs no factorization,
+baseline or numerical solve; a producer change requires its actual variant,
+not a relabeled previous warm hit. Genuine actual-frame consumers remain lazy
+until the same producer's exact static tree is available. Existing observations
+retain their source identities; this candidate makes no speed prediction or
+cross-platform performance claim. Root/N2 policy and Julia numerical scope are
+unchanged.
 
 ### Detached callable and scheduling ownership
 

@@ -93,8 +93,11 @@ class NativeChunkOutcome(NamedTuple):
 
 def _compile_chunk(function, bucket):
     # Capture only the admitted immutable point equation and static bucket.
-    # Individually functionalized frame errors become scan OUTPUTS, not one
-    # overwritten checkify effect payload for the whole frequency scan.
+    # Frequencies in this already-in-flight window are independent lanes. Each
+    # lane keeps W -> Y/Z/S checks -> source W -> reconciliation in that order;
+    # its functionalized Error is output DATA, never one overwritten effect.
+    # A lane may already perform work when an earlier lane later fails. The
+    # ordered reducers below report that truth and prevent NEW outer windows.
     from .native_sparse import checked_native
     checked = checked_native(function)
     def chunk(candidate, omega, prior_check_status=0, prior_certificate_status=0):
@@ -103,14 +106,18 @@ def _compile_chunk(function, bucket):
         from .jax_core import first
         if omega.shape != (bucket,):
             raise ValueError('native chunk operand shape differs from its declared bucket')
-        def body(carry, frequency):
-            error, outcome = checked(candidate, frequency, *carry)
-            checks = first(carry[0], outcome.check_status != 0, outcome.check_status)
-            certificates = first(carry[1], outcome.certificate_status != 0, outcome.certificate_status)
-            return (checks, certificates), (outcome, error)
         initial = (jnp.asarray(prior_check_status, dtype=jnp.int32),
                    jnp.asarray(prior_certificate_status, dtype=jnp.int32))
-        final, (outcomes, errors) = jax.lax.scan(body, initial, omega)
+        errors, outcomes = jax.vmap(checked, in_axes=(None, 0, None, None))(
+            candidate, omega, *initial)
+        # Only semantic-status reduction is sequential. Numerical arithmetic
+        # and finite ordinary equation bindings operate on the bounded lanes.
+        def fold(carry, local):
+            checks = first(carry[0], local[0] != 0, local[0])
+            certificates = first(carry[1], local[1] != 0, local[1])
+            return (checks, certificates), None
+        final, _ = jax.lax.scan(fold, initial,
+            (outcomes.check_status, outcomes.certificate_status))
         return NativeChunkOutcome(outcomes, errors, *final)
     return chunk
 
@@ -439,7 +446,7 @@ def acquire_native_core(quantity_program, capabilities, *, owner=None, admit=Fal
                          for line in model.lines],
         'views': [json.loads(view.declaration_bytes) for view in program.views],
         'precision': program.precision, 'capabilities': capabilities,
-        'implementation': 'scnsim.jax.native_physical_core.v1'}
+        'implementation': 'scnsim.jax.native_physical_core.stage_bundle.v1'}
     identity = hashlib.sha256(canonical_json_bytes(record)).hexdigest()
     key = ('native_physical_core', identity)
     if owner is not None:
@@ -964,7 +971,7 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
                           for _, indices in frozen_segments)})
     identity = hashlib.sha256(canonical_json_bytes({'program': quantity_program.program_sha256,
         'capabilities': capabilities, 'source_indices': source_indices, 'gathers': gathers,
-        'implementation': 'scnsim.jax.native_physical.v1'})).hexdigest()
+        'implementation': 'scnsim.jax.native_physical.stage_bundle.v1'})).hexdigest()
     work_layout = tuple(MappingProxyType({'work_index': index, 'view_index': view_index,
         'demand': tuple(sorted(demand)), 'omega_index': omega_index,
         'source_index': source_indices[omega_index]})
