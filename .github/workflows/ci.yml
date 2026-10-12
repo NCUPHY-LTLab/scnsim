@@ -507,8 +507,9 @@ jobs:
         env:
           MACOSX_DEPLOYMENT_TARGET: "12.0"
           ARCHFLAGS: "-arch arm64"
+          _PYTHON_HOST_PLATFORM: "macosx-12.0-arm64"
         run: |
-          uv run --locked python - <<'PYCODE'
+          uv run --no-project --python 3.12 python - <<'PYCODE'
           import platform
           assert platform.machine() == "arm64", platform.machine()
           PYCODE
@@ -517,7 +518,8 @@ jobs:
           clang++ --version > native-wheelhouse/BUILD-TOOLS.txt
       - name: Verify exact native wheel tag and installed extension
         run: |
-          uv run --locked python - <<'PYCODE'
+          uv venv --clear --python 3.12 .venv-native-wheel
+          .venv-native-wheel/bin/python - <<'PYCODE'
           import glob, hashlib, json, platform, zipfile
           from pathlib import Path
           wheels = glob.glob("native-wheelhouse/*.whl")
@@ -536,7 +538,6 @@ jobs:
               binding = {"wheel": Path(wheels[0]).name, "wheel_sha256": hashlib.sha256(Path(wheels[0]).read_bytes()).hexdigest(), "platform": platform.system(), "machine": platform.machine(), "resources": resources, "record_sha256": hashlib.sha256(archive.read(record)).hexdigest()}
           Path("native-wheelhouse/NATIVE-RESOURCE-MANIFEST.json").write_text(json.dumps(binding, indent=2) + "\n")
           PYCODE
-          uv venv --python 3.12 .venv-native-wheel
           uv pip install --python .venv-native-wheel/bin/python native-wheelhouse/*.whl
           .venv-native-wheel/bin/python - <<'PYCODE'
           import platform
