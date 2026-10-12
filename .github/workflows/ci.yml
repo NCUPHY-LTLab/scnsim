@@ -493,6 +493,7 @@ jobs:
       - name: Build and audit CP312 manylinux_2_28 x86_64 wheel
         if: runner.os == 'Linux'
         run: |
+          mkdir -p native-wheelhouse
           docker run --rm -v "$PWD:/io" -w /io quay.io/pypa/manylinux_2_28_x86_64 /bin/bash -euxc '
             /opt/python/cp312-cp312/bin/python -m pip install uv==0.12.6 auditwheel
             /opt/python/cp312-cp312/bin/python -m uv build --no-sources --python /opt/python/cp312-cp312/bin/python --out-dir /io/native-unrepaired
