@@ -313,12 +313,12 @@ def parameter_field_add_to(result: Any, figure: Any, *, row: int, col: int, x: A
     return figure
 
 
-def _point_parameter_lines(point: Any) -> list[str]:
+def _parameter_set_lines(parameters: Any) -> list[str]:
     from ...authoring.physical_values import RLGC
     from ...units import Quantity
     from ..quantity_presentation import _quantity
 
-    bindings = point.parameters.values
+    bindings = parameters.values
     if not bindings:
         return ["∅"]
 
@@ -355,6 +355,51 @@ def _point_parameter_lines(point: Any) -> list[str]:
     return lines
 
 
+def _parameter_record_lines(bindings) -> list[str]:
+    from ...canonical import float64_from_hex
+    from ...units import Quantity, registry
+    from ..quantity_presentation import _declared_quantity, _quantity
+
+    bindings = tuple(bindings)
+    if not bindings:
+        return ["∅"]
+
+    lines: list[str] = []
+    for parameter, record in bindings:
+        name = f"{parameter['definitions_id']}.{parameter['parameter_id']}"
+        if record["type"] in {"quantity_f64", "complex_quantity_f64"}:
+            value = _declared_quantity(record)
+            if not isinstance(value, Quantity):
+                raise TypeError("parameter quantity record did not decode to a Quantity")
+            magnitude, unit = _quantity(value)
+            lines.append(f"{name} = {magnitude} {unit}")
+            continue
+        if record["type"] == "rlgc":
+            conductors = ", ".join(record["conductors"])
+            lines.append(f"{name}: RLGC({conductors}; reference {record['reference_conductor']})")
+            for label, attribute in (
+                ("R", "resistance_per_length"),
+                ("L", "inductance_per_length"),
+                ("G", "conductance_per_length"),
+                ("C", "capacitance_per_length"),
+            ):
+                matrix_record = record[attribute]
+                rows = np.asarray([
+                    float64_from_hex(value) for value in matrix_record["values_f64"]
+                ], dtype=np.float64).reshape(tuple(matrix_record["shape"])).tolist()
+                entries = "; ".join(
+                    "[" + ", ".join(repr(float(item)) for item in row) + "]"
+                    for row in rows
+                )
+                unit = format(registry.Quantity(1, matrix_record["si_unit"]).units, "~P")
+                lines.append(f"{name} {label} = [{entries}] {unit}")
+            continue
+        raise TypeError(
+            f"unsupported sweep parameter record type: {record['type']}"
+        )
+    return lines
+
+
 def _wrapped_table_cell(value: str, *, width: int) -> tuple[str, int]:
     lines: list[str] = []
     for line in value.splitlines() or [""]:
@@ -373,30 +418,56 @@ def _wrapped_table_cell(value: str, *, width: int) -> tuple[str, int]:
 
 def points_plot(points: Sequence[Any], *, theme: Theme = Theme.AUTO, title: str = "Parameter sweep outcomes") -> Any:
     go, _, _ = _plotly()
+    compact_rows = points._plot_rows() if callable(getattr(points, "_plot_rows", None)) else None
     source_index: list[str] = []
     status: list[str] = []
     parameters: list[str] = []
     identities: list[str] = []
-    failure: list[str] = []
+    failures: list[str] = []
     row_line_counts: list[int] = []
-    for point in points:
-        source, source_lines = _wrapped_table_cell(str(point.source_index), width=12)
-        state, state_lines = _wrapped_table_cell(
-            "success" if point.succeeded else "failure", width=14
+    if compact_rows is None:
+        rows = (
+            {
+                "source_index": point.source_index,
+                "status": "success" if point.succeeded else "failure",
+                "parameters_sha256": point.identity.parameters_sha256,
+                "parameters": point.parameters,
+                "failure": None if point.succeeded else {
+                    "kind": point.failure.kind,
+                    "message": str(point.failure),
+                },
+            }
+            for point in points
         )
+    else:
+        rows = compact_rows
+    for row in rows:
+        source, source_lines = _wrapped_table_cell(str(row["source_index"]), width=12)
+        state, state_lines = _wrapped_table_cell(str(row["status"]), width=14)
         parameter, parameter_lines = _wrapped_table_cell(
-            "\n".join(_point_parameter_lines(point)), width=56
+            "\n".join(
+                _parameter_record_lines(row["parameter_values"])
+                if "parameter_values" in row
+                else _parameter_set_lines(row["parameters"])
+            ),
+            width=56,
         )
         identity, identity_lines = _wrapped_table_cell(
-            point.identity.parameters_sha256, width=32
+            str(row["parameters_sha256"]), width=32
         )
-        failure_text = "—" if point.succeeded else f"{point.failure.kind}: {point.failure}"
+        failure = row["failure"]
+        if failure is None:
+            failure_text = "—"
+        elif "stage" in failure:
+            failure_text = f"{failure['kind']} ({failure['stage']}): {failure['message']}"
+        else:
+            failure_text = f"{failure['kind']}: {failure['message']}"
         failure_value, failure_lines = _wrapped_table_cell(failure_text, width=32)
         source_index.append(source)
         status.append(state)
         parameters.append(parameter)
         identities.append(identity)
-        failure.append(failure_value)
+        failures.append(failure_value)
         row_line_counts.append(
             max(source_lines, state_lines, parameter_lines, identity_lines, failure_lines)
         )
@@ -410,7 +481,7 @@ def points_plot(points: Sequence[Any], *, theme: Theme = Theme.AUTO, title: str 
             "font": {"size": 13},
         },
         cells={
-            "values": [source_index, status, parameters, identities, failure],
+            "values": [source_index, status, parameters, identities, failures],
             "height": cell_height,
             "align": "left",
             "font": {"size": 12},
@@ -418,8 +489,8 @@ def points_plot(points: Sequence[Any], *, theme: Theme = Theme.AUTO, title: str 
     )])
     figure.update_layout(
         width=1100,
-        height=72 + 64 + 36 + cell_height * len(points),
-        meta={"scnsim": {"kind": "parameter_sweep_outcomes", "point_count": len(points)}},
+        height=72 + 64 + 36 + cell_height * len(source_index),
+        meta={"scnsim": {"kind": "parameter_sweep_outcomes", "point_count": len(source_index)}},
     )
     return _style(figure, theme, title=title)
 

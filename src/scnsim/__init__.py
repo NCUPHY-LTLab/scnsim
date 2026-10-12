@@ -2,7 +2,7 @@
 
 Numerical execution remains separately accepted where documented.  Structured
 authoring, parameter closure, and semantic diagram capture are an actively
-converging V1 candidate. The dev26 physical-program and derivative boundary
+converging V1 candidate. The dev27 JAX-native physical-program and derivative boundary
 remain CONVERGING; public facades reexport one responsibility-owned implementation.
 
 Start with :class:`CircuitPlan` if you develop reusable circuit models.  Start
@@ -116,6 +116,8 @@ from .results import (
     ScatteringMatrixResult,
     TraceResult,
 )
+from .execution.policy import ExecutionPolicy
+from .execution.prepared_function import PreparedFunction
 from .execution.config import RuntimeConfiguration, configure_runtime
 from .runtime import CircuitRun, NetworkViewRef, ReductionPipeline
 from .specs import (
@@ -209,6 +211,8 @@ def __getattr__(name: str) -> object:
 __version__ = metadata_version("scnsim")
 
 __all__ = [
+    "ExecutionPolicy",
+    "PreparedFunction",
     "RLGCScalarTerm",
     "ScalarRLGCMap",
     'SensitivitySpec',

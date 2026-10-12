@@ -3,7 +3,7 @@ title: "Execution Backends and Operation Benchmark"
 subtitle: "Same-process JAX, verified results and read-only hierarchical observations"
 ---
 
-**Status:** CONVERGING, 1.0.0.dev26 development candidate contract. The following interfaces are
+**Status:** CONVERGING, 1.0.0.dev27 development candidate contract. The following interfaces are
 implementation targets, not completed execution, performance or acceptance
 claims. Historical dev10 comparison records remain bound to their original
 source, wheel, numerical outputs and publication identities. No durable tests
@@ -11,7 +11,7 @@ or stabilization are assigned.
 
 ## Differentiable program implementation target
 
-The [dev26 physical-program contract](../v1-runtime-contract.qmd#physical-program-target)
+The [dev27 physical-program contract](../v1-runtime-contract.qmd#physical-program-target)
 is CONVERGING. JAX values, Jacobian/JVP/VJP and optimizer objectives share one
 physical evaluator; existing Julia code remains frozen legacy/reference scope.
 Selected dtype differs from compensated arithmetic and achieved accuracy.
@@ -76,26 +76,40 @@ or delivery obligations. The current architecture/lifecycle candidate uses only
 its assigned stage-specific installed-wheel observations. No speed or numerical
 acceptance threshold is added.
 
-## Warm preparation, progress and evidence residency (dev26) {#warm-preparation-progress-and-evidence-residency}
+## Warm preparation, progress and evidence residency (dev27) {#warm-preparation-progress-and-evidence-residency}
 
 `run.warmup(view, spec, parameters=None)` prepares the exact current JAX
 Plan/parameter/View topology and executable signatures for an existing Direct,
-quantity or Optimization declaration. Omitted parameters use the Plan baseline.
+quantity, Sensitivity or Optimization declaration. Omitted parameters use the Plan baseline.
 It returns an immutable preparation summary; it does not solve a network, run
 Newton, choose an Optimization winner, create a checkpoint or claim a stored
-successful result. Preparation lowers and compiles declared pure field/View
-and fused assembly signatures from shape/dtype descriptors; it never executes
-those assembly functions as a trial evaluation. Sparse factor/solve callbacks,
-implicit AD blocks and Newton/continuation execution remain lazy. Repeating an
-exact signature reuses its prepared entry; later shape or stage signatures are
-not invented or padded. Matching runtime reuse must consume the same admitted
-transformable program and assembly variant, rather than differentiate an AOT
-executable or merely retain an unrelated compiled handle. Actual device and
-canonical program/dtype identity scope the explicit Run holder. Warmup alone
-admits immutable transformable programs and prepared handles; matching ordinary
-operations borrow existing entries without admitting every candidate or stage.
-Primal assembly consumes the prepared binary while derivatives retain the
-original callable. Point arrays, tapes and factors are not held there. Optimization
+successful result. Preparation lowers and compiles exact shape/dtype signatures
+without executing assembly, sparse solve callbacks, Newton or continuation.
+Raw aggregate transforms, candidate preparation and high-level frequency chunks
+are separate variants. Only a matching producer callable/key, shape, dtype,
+device and capability partition establishes a warm hit; a raw aggregate compile
+cannot be reported as chunk reuse. The main bucket follows `execution_policy.frequency_chunk_size` (default eight);
+the stable tail bucket is one, with a single variant when both are one. Summaries
+identify those signatures and declared root/coupling checked-value signatures
+separately from lazy unrequested transforms or future shapes. Abstract root
+packet acquisition supplies coupling argument shapes without running Newton.
+Sensitivity and explicitly requested derivatives also prepare the actual checked
+candidate and joint-branch linearization producers. Their frame consumers stay
+lazy unless the same cached producer exposes its exact Partial static structure;
+a fresh abstract linearization with matching array shapes is insufficient.
+The summary records the requested checked Sensitivity kind separately from
+explicit raw transformations. Each Sensitivity expression leaf retains its own
+View rather than inheriting one imposed warmup View.
+Mapped scalar root primals carry their checked Error and actual packet through
+the finite sequential boundary. The owned archive bridge preserves equation
+site, role/order, occurrence dependency and mapped-lane presence/code payloads;
+scalar first-failure control does not erase those lane facts. Raw use leaves
+that debug bridge inert; a high-level checked call owns certificate projection
+and typed failure. This is not universal certification of arbitrary caller AD.
+Native AD uses the transformable callable rather than differentiating an AOT
+executable. Static programs and prepared handles follow bounded Run-local
+admission and active pins; point arrays, tapes and factors do not belong there.
+Optimization
 warmup lowers raw objective quantities without resolving a baseline-dependent
 loss scale or evaluating a baseline. Warm entries belong to the Run;
 operation-local candidate state is released at operation end. Shared executable
@@ -109,8 +123,11 @@ sections, sparse pattern and shapes. Runtime physical coordinates remain
 operands rather than executable-cache keys. Candidate frames, factors, prepared
 wave packets and derivative work are call-local and released after synchronized
 consumption. The stage cache keeps operation-spool references to actual numerical
-evidence, not a history of numerical frames. Only explicit warmup admits static
-programs and prepared executables to the Run. Ordinary sweeps retain their
+evidence, not a history of numerical frames. Warmup explicitly prepares static
+programs and executables; ordinary native acquisition can admit matching static
+cores through the same bounded owner. Admission never retains candidate arrays,
+factors or linearization frames. All-pinned or unadmitted items remain
+operation-owned. Ordinary sweeps retain their
 declared dynamic/fixed/grouped discretization behavior and reuse matching static
 variants; a new actual shape can require compilation. This policy does not
 promise immediate allocator/RSS return or prescribe a global cache clear.
@@ -243,8 +260,15 @@ and submits ordered numerical work through the operation resource owner. JAX
 uses the shared parent PJRT pool and runtime coefficients/indices. Native sparse
 work shares the declared budget through the fair gate; no missing candidate is
 padded and no process-actor implementation is selected. The common ObjectiveProgram
-computes loss and checked derivatives in the same physical frame, while the
-coordinator owns scheduling, publication and controller state.
+composes finalized ordered loss with the same native physical callable. Actual
+JAX reverse differentiates the complete cost, while same-frame checked
+projection preserves numerical failure and derivative-unavailable distinctions.
+A zero-target squared magnitude uses raw real/imaginary components on the cost
+path; its diagnostic magnitude is not an invented abs-at-zero subgradient.
+There is no optimizer-only physical evaluator or Python AD interpreter. The
+coordinator owns scheduling, publication and controller state. Native derivative
+and timing observations bind their actual installed candidate; source cutover
+alone is not evidence of their completion.
 
 For an integer CPU declaration, `threadpoolctl==3.7.0` establishes BLAS1 in the
 coordinator and at worker initialization. Managed limits remain in force until
@@ -291,11 +315,20 @@ boundaries, while API wall and inclusive CPU/phase costs describe different,
 potentially overlapping intervals. Recompilation and retained native memory
 must be reported as observations, without a fixed RSS or speed threshold.
 
-Current Benchmark records operation timing, phase aggregates and work counters;
-it is not an automatic OS memory sampler. OS measurements collected during
-development remain separate evidence. Their platform, process or cgroup scope,
-units, timestamps, actual sampling cadence and unavailable fields must be
-explicit; they are not additional numerical-result or checkpoint authorities.
+Current Benchmark records operation timing, phase aggregates, work counters and
+best-effort current-process memory snapshots at operation start and end. Root
+`details.process_memory` retains the platform, boundary, monotonic sample time
+and each metric's source, byte unit and measured or unavailable status. Linux
+snapshots report RSS, smaps PSS, private clean/dirty and swap where available;
+macOS snapshots report physical footprint through libproc. Process peak RSS is
+the OS lifetime high-water mark, not an operation-only or sampled peak. Missing
+platform counters remain unavailable rather than substituting another metric.
+
+These two boundary samples do not provide periodic or process-tree profiling.
+Private development measurements remain separate evidence and must identify
+platform, process or cgroup scope, units, timestamps, actual sampling cadence
+and unavailable fields. Neither record is an additional numerical-result or
+checkpoint authority.
 
 | Measurement | Meaning and limits |
 |---|---|
@@ -303,7 +336,7 @@ explicit; they are not additional numerical-result or checkpoint authorities.
 | Linux smaps PSS, private clean/dirty and swap | Distinguish proportional shared-page accounting, private resident pages and swapped pages. These do not identify Python live references or immediately reclaimable allocator bytes. |
 | Process RSS/HWM | Resident pages and the process high-water mark; neither proves that retained bytes are still owned by live candidate objects. |
 | Linux virtual size and VMA count | Address-space and mapping pressure, not physical memory usage. |
-| macOS `phys_footprint` | A task memory-accounting ledger metric, reported separately from RSS. A later macOS measurement must bind its actual source and scope; Linux observations do not establish it. |
+| macOS `phys_footprint` | A task memory-accounting ledger metric, reported separately from RSS. The normal boundary snapshot binds its libproc source and current-process scope; private periodic measurements must bind their own source and scope. Linux observations do not establish it. |
 | Sampled maximum | The greatest value actually observed at the recorded cadence; a spike between samples may be missed. It is distinct from kernel high-water or cgroup peak accounting. |
 
 These metrics overlap and must not be summed into one memory total or treated
@@ -391,7 +424,7 @@ Plan leaf, including SQLite journal state; readonly open performs no recovery.
 Explicit Julia retains its existing native evidence files and verification
 contract; this operation-store replacement does not rewrite native receipts.
 
-## Current Workspace storage (dev26 CONVERGING)
+## Current Workspace storage (dev27 CONVERGING)
 
 OperationStore version7 retains DELETE/EXTRA and rejects older operation
 Workspaces; use a new Workspace and recompute, without migration or deletion.
@@ -592,7 +625,8 @@ execution by relabeling. Historical files retain their original execution
 identities, but current readers reject older operation Workspaces: use a new
 Workspace and recompute, without migration or deletion. Current native Julia
 result-file contracts remain unchanged.
-Sparse assembly uses at most eight systems per chunk with an exact tail; each
+Frequency work uses the configured main bucket (default eight) and a stable
+size-one tail; each
 system has a call-local CPU SuperLU factor reused for its actual RHS solves.
 Retained roots factor only the eliminated block and form the selected Schur
 operator and analytic derivative; they never invert the full singular root
@@ -633,16 +667,17 @@ operator arrays preserve `[frequency, row, column]` order, with the request grid
 as their frequency authority. Native Julia algorithm identifiers remain unchanged;
 JAX quantity and transitive Optimization identities distinguish this candidate.
 
-The dev26 JAX request layer binds one physical-program algorithm identity per
-operation: `scnsim.jax.physical_program.direct.v1`,
-`scnsim.jax.physical_program.evaluate.v1`,
-`scnsim.jax.physical_program.optimize.v1` and
-`scnsim.jax.physical_program.sensitivity.v1`. Quantity declarations, leaf Views,
+The dev27 JAX request layer binds one physical-program algorithm identity per
+operation: `scnsim.jax.native_physical.direct.v1`,
+`scnsim.jax.native_physical.evaluate.v1`,
+`scnsim.jax.native_physical.optimize.v1` and
+`scnsim.jax.native_physical.sensitivity.v1`. Quantity declarations, leaf Views,
 active derivative coordinates and fixed-mesh planning remain separate recorded
 inputs. Numerical source/executable identities record the actual implementation
 and arithmetic; an operation identity is not an accuracy certificate. Earlier
-per-family `scnsim.jax.sparse_superlu.*`, transitive CMA and aggregate v8 records
-retain their historical identities and are not current dev26 request authority.
+`scnsim.jax.physical_program.*`, per-family `scnsim.jax.sparse_superlu.*`,
+transitive CMA and aggregate v8 records
+retain their historical identities and are not current dev27 request authority.
 The shared
 selected-state factorization of the eliminated block Qee uses SuperLU
 `MMD_AT_PLUS_A` structural ordering. One factor supplies both the Schur solve

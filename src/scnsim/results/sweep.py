@@ -57,7 +57,8 @@ class ParameterPointAccessor(Sequence[ParameterPointOutcome]):
     """Read-only lazy point accessor retaining source-space indexing."""
 
     __slots__ = (
-        "_loader", "_count", "_kind", "_shape", "_axis_parameters", "_ordinals"
+        "_loader", "_count", "_kind", "_shape", "_axis_parameters", "_ordinals",
+        "_source_loader", "_plot_loader",
     )
 
     def __init__(self) -> None:
@@ -105,6 +106,19 @@ class ParameterPointAccessor(Sequence[ParameterPointOutcome]):
 
     def __getitem__(self, index: object) -> ParameterPointOutcome:
         return self._loader(self._ordinal(index))
+
+    def _source_point(self, ordinal: int) -> tuple[ParameterSet, int | tuple[int, ...]]:
+        """Read a point's declared coordinates without opening its result body."""
+        if self._source_loader is None:
+            point = self._loader(ordinal)
+            return point.parameters, point.source_index
+        return self._source_loader(ordinal)
+
+    def _plot_rows(self):
+        """Return compact sealed statuses paired with request-derived coordinates."""
+        if self._plot_loader is None:
+            return None
+        return self._plot_loader(self._ordinals)
 
     def __iter__(self) -> Iterator[ParameterPointOutcome]:
         ordinals = range(self._count) if self._ordinals is None else self._ordinals
@@ -244,26 +258,30 @@ class ParameterSweepResult(AnalysisResult):
         if requested:
             if not len(self.points):
                 raise ValueError("selection contains a parameter outside this sweep")
-            available = self.points._loader(0).parameters.values
+            available = self.points._source_point(0)[0].values
             for parameter in requested:
                 match = next((current for current in available if current == parameter), None)
                 if match is None or match._definition_record() != parameter._definition_record():
                     raise ValueError("selection contains a parameter outside this sweep")
         ordinals: list[int] = []
         wanted_bytes_by_parameter: dict[ParameterRef, bytes] = {}
-        for ordinal, point in enumerate(self.points):
-            available = point.parameters.values
-            for parameter, wanted in requested.items():
-                matches = next((current for current in available if current == parameter), None)
-                if matches is None or matches._definition_record() != parameter._definition_record():
-                    raise TypeError("verified parameter batch has inconsistent definitions")
-                available_bytes = _parameter_value_bytes(available[matches], matches)
-                if parameter not in wanted_bytes_by_parameter:
-                    wanted_bytes_by_parameter[parameter] = _parameter_value_bytes(wanted, parameter)
-                if available_bytes != wanted_bytes_by_parameter[parameter]:
-                    break
-            else:
-                ordinals.append(ordinal)
+        if not requested:
+            ordinals.extend(range(len(self.points)))
+        else:
+            for ordinal in range(len(self.points)):
+                point_parameters, _ = self.points._source_point(ordinal)
+                available = point_parameters.values
+                for parameter, wanted in requested.items():
+                    matches = next((current for current in available if current == parameter), None)
+                    if matches is None or matches._definition_record() != parameter._definition_record():
+                        raise TypeError("verified parameter batch has inconsistent definitions")
+                    available_bytes = _parameter_value_bytes(available[matches], matches)
+                    if parameter not in wanted_bytes_by_parameter:
+                        wanted_bytes_by_parameter[parameter] = _parameter_value_bytes(wanted, parameter)
+                    if available_bytes != wanted_bytes_by_parameter[parameter]:
+                        break
+                else:
+                    ordinals.append(ordinal)
         selection = object.__new__(ParameterSweepSelection)
         object.__setattr__(selection, "_parent", self)
         object.__setattr__(selection, "points", _point_accessor(
@@ -273,6 +291,7 @@ class ParameterSweepResult(AnalysisResult):
             self.points._shape,
             self.points._axis_parameters,
             tuple(ordinals),
+            source_loader=self.points._source_loader,
         ))
         return selection
 
@@ -371,6 +390,9 @@ def _point_accessor(
     shape: tuple[int, ...],
     axis_parameters: tuple[ParameterRef, ...],
     ordinals: tuple[int, ...] | None = None,
+    *,
+    source_loader: Callable[[int], tuple[ParameterSet, int | tuple[int, ...]]] | None = None,
+    plot_loader: Callable[[tuple[int, ...] | None], Sequence[Mapping[str, object]]] | None = None,
 ) -> ParameterPointAccessor:
     result = object.__new__(ParameterPointAccessor)
     object.__setattr__(result, "_loader", loader)
@@ -379,6 +401,8 @@ def _point_accessor(
     object.__setattr__(result, "_shape", shape)
     object.__setattr__(result, "_axis_parameters", axis_parameters)
     object.__setattr__(result, "_ordinals", ordinals)
+    object.__setattr__(result, "_source_loader", source_loader)
+    object.__setattr__(result, "_plot_loader", plot_loader)
     return result
 
 def _point_outcome(

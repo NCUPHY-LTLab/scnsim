@@ -4,6 +4,8 @@ The existing compiler supplies only initial topology/physical validation here.
 Every candidate coefficient is rebuilt by the same traced field/stamp program;
 no host-realized candidate coefficients or mutable compiler cache are captured.
 Global matrices remain sparse slots. Dense operands are local conductor groups.
+Consecutive equal-shape station arithmetic is batched per exact line material;
+compiled scans preserve the original sparse addition order.
 """
 from __future__ import annotations
 
@@ -20,6 +22,11 @@ from .models import MeshSpec
 from .program import FieldProgram, MeshPlan, SparsePattern, compile_fields, _indices
 from ..canonical import canonical_json_bytes
 from ..numeric_encoding import record_data, record_document
+
+
+class PhysicalChecks(NamedTuple):
+    status: Any
+    failed_field: Any
 
 
 class ModelPayload(NamedTuple):
@@ -50,9 +57,38 @@ class LineStamp:
     blocks: tuple
     material: int
     stations: tuple
+    station_groups: tuple
     declared_lossless: bool
     electrical_resolution: bool
     resolution_policy: tuple[int, float] | None
+
+
+class PackedSeries(NamedTuple):
+    """Runtime banks and incidence values; static section order stays in layout."""
+    R: Any
+    L: Any
+    material_indices: Any
+    weights: Any
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SeriesLayout:
+    width: int
+    line_indices: tuple[int, ...]
+    material_indices: Any
+    weights: Any
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class StationGroup:
+    """Consecutive same-shape stations for ONE material/length dependency.
+
+    Group order and the leading station axis preserve compiler stamping order;
+    only local matrix arithmetic is batched, never conflicting sparse sums.
+    """
+    C_slots: Any
+    G_slots: Any
+    local: Any
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -72,6 +108,7 @@ class ModelProgram:
     patterns: tuple[SparsePattern, SparsePattern, SparsePattern, SparsePattern]
     stamps: tuple[Stamp, ...]
     lines: tuple[LineStamp, ...]
+    series_layouts: tuple[SeriesLayout, ...]
     inductors: tuple[InductanceGroup, ...]
     B_values: Any
     port_resistance: Any
@@ -138,6 +175,58 @@ class ModelProgram:
                 raise InvalidCandidatePhysicalParameter("complete reciprocal inductance matrix is not positive definite", stage="physical_validation") from error
         return fields
 
+    def physical_checks(self, theta):
+        """Array-only form of the existing ORIGINAL binary64 physical domain.
+
+        Preparation chooses a finite route partition; this callable reports a
+        future runtime point outside that domain without host bool conversion.
+        Numerical selected-dtype certificates are a separate responsibility.
+        """
+        import jax
+        import jax.numpy as jnp
+        with jax.enable_x64(True):
+            fields = self.fields.apply(jnp.asarray(theta, dtype=jnp.float64), xp=jnp, check_support=True)
+            status = jnp.where(fields.status != 0, jnp.int32(1), jnp.int32(0))
+            failed = fields.failed_field
+            def check(bad, field):
+                nonlocal status, failed
+                owns = (status == 0) & bad
+                failed = jnp.where(owns, jnp.int32(field), failed)
+                status = jnp.where(owns, jnp.int32(2), status)
+            for index, nonnegative in self.scalar_domains:
+                value = fields.scalars[index]
+                check((~jnp.isfinite(value)) | ((value < 0) if nonnegative else (value <= 0)), index)
+            for line in self.lines:
+                R, L, G, C = fields.materials[line.material]
+                factor = jnp.linalg.cholesky(L)
+                capacitance_factor = jnp.linalg.cholesky(C)
+                check((~jnp.all(jnp.isfinite(factor))) | (~jnp.all(jnp.isfinite(capacitance_factor))) |
+                      (jnp.linalg.eigvalsh(R)[0] < 0) | (jnp.linalg.eigvalsh(G)[0] < 0), line.field)
+                if line.electrical_resolution:
+                    check(jnp.any(R != 0) | jnp.any(G != 0), line.field)
+                    eigenvalues = jnp.linalg.eigvalsh(factor.T @ C @ factor)
+                    check((~jnp.all(jnp.isfinite(eigenvalues))) | (~jnp.all(eigenvalues > 0)), line.field)
+                    delays = jnp.sqrt(eigenvalues)
+                    samples, maximum_frequency = line.resolution_policy
+                    hmax = 1 / (samples * maximum_frequency * jnp.max(delays))
+                    ratio = fields.scalars[line.field] / hmax
+                    check((~jnp.all(jnp.isfinite(1 / delays))) | (~jnp.isfinite(hmax)) | (hmax <= 0) |
+                          (~jnp.isfinite(ratio)) | (ratio > jnp.iinfo(jnp.int64).max), line.field)
+                dx = fields.scalars[line.field] / line.sections
+                scaled = tuple(material * dx for material in (R, L, G, C))
+                check((~jnp.isfinite(dx)) | (dx <= 0) |
+                      ~jnp.all(jnp.stack(tuple(jnp.all(jnp.isfinite(value)) for value in scaled))), line.field)
+                check((~jnp.all(jnp.isfinite(jnp.linalg.cholesky(scaled[1])))) |
+                      (~jnp.all(jnp.isfinite(jnp.linalg.cholesky(scaled[3])))), line.field)
+            for group in self.inductors:
+                diagonal = fields.scalars[jnp.asarray(group.fields)]
+                L = jnp.diag(diagonal)
+                for a, b, k in group.couplings:
+                    mutual = k * jnp.sqrt(diagonal[a] * diagonal[b])
+                    L = L.at[a, b].set(mutual).at[b, a].set(mutual)
+                check(~jnp.all(jnp.isfinite(jnp.linalg.cholesky(L))), group.fields[0])
+            return PhysicalChecks(status, failed)
+
     def point_discretization(self, fields):
         """Refresh measured grid metadata without planning a different mesh.
 
@@ -175,6 +264,7 @@ class ModelProgram:
         return result
 
     def __call__(self, theta):
+        import jax
         import jax.numpy as jnp
         fields = self.fields(theta)
         coefficients = {name: jnp.zeros((len(pattern.rows),), dtype=theta.dtype)
@@ -185,16 +275,34 @@ class ModelProgram:
             value = 1 / value if stamp.reciprocal else value
             coefficients[stamp.target] = coefficients[stamp.target].at[jnp.asarray(stamp.slots)].add(
                 jnp.asarray(stamp.weights, dtype=theta.dtype) * value)
-        series = []
+        line_materials = []
         for line in self.lines:
             dx = fields.scalars[line.field] / jnp.asarray(line.sections, dtype=theta.dtype)
             R, L, G, C = fields.materials[line.material]
-            for slots, local in line.stations:
-                local = jnp.asarray(local, dtype=theta.dtype)
-                for name, material in (('C', C), ('G', G)):
-                    value = local @ (material * jnp.asarray(0.5, dtype=theta.dtype)) @ local.T
-                    coefficients[name] = coefficients[name].at[jnp.asarray(slots[0 if name == 'C' else 1])].add(value.ravel() * dx)
-            series.extend((incidence, R * dx, L * dx) for incidence in line.blocks)
+            half = jnp.asarray(0.5, dtype=theta.dtype)
+            for group in line.station_groups:
+                local = jnp.asarray(group.local, dtype=theta.dtype)
+                # vmap keeps the same local dot contraction per station. The
+                # sparse accumulator is an ordered loop, not an unordered
+                # batched scatter/reduction across overlapping stations.
+                def local_value(binding, material):
+                    return (binding @ (material * half) @ binding.T).ravel() * dx
+                c_values = jax.vmap(local_value, in_axes=(0, None))(local, C)
+                g_values = jax.vmap(local_value, in_axes=(0, None))(local, G)
+                def add_station(carry, station):
+                    c, g = carry
+                    c_slots, g_slots, c_value, g_value = station
+                    return (c.at[c_slots].add(c_value), g.at[g_slots].add(g_value)), None
+                (coefficients['C'], coefficients['G']), _ = jax.lax.scan(
+                    add_station, (coefficients['C'], coefficients['G']),
+                    (jnp.asarray(group.C_slots), jnp.asarray(group.G_slots), c_values, g_values))
+            section_R, section_L = R * dx, L * dx
+            line_materials.append((section_R, section_L))
+        series = tuple(PackedSeries(
+            jnp.stack(tuple(line_materials[index][0] for index in group.line_indices)),
+            jnp.stack(tuple(line_materials[index][1] for index in group.line_indices)),
+            jnp.asarray(group.material_indices), jnp.asarray(group.weights, dtype=theta.dtype))
+            for group in self.series_layouts)
         for group in self.inductors:
             diagonal = fields.scalars[jnp.asarray(group.fields)]
             L = jnp.diag(diagonal)
@@ -221,6 +329,44 @@ class ModelProgram:
 def _immutable(value):
     array = np.asarray(value)
     return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
+
+
+
+
+def _series_layouts(lines):
+    """One realized material bank per line, sections remain ordered gathers."""
+    groups = {}
+    for line_index, line in enumerate(lines):
+        width = line.blocks[0][3][1]
+        groups.setdefault(width, []).append(line_index)
+    result = []
+    for width, line_indices in groups.items():
+        material_indices, weights = [], []
+        for bank_index, line_index in enumerate(line_indices):
+            for incidence in lines[line_index].blocks:
+                material_indices.append(bank_index)
+                weights.extend(incidence[2])
+        result.append(SeriesLayout(width, tuple(line_indices), _indices(material_indices),
+                                   _immutable(np.asarray(weights, dtype=np.float64))))
+    return tuple(result)
+
+
+def _station_groups(stations):
+    """Freeze contiguous shape runs without changing station/material order."""
+    groups = []
+    start = 0
+    while start < len(stations):
+        stop = start + 1
+        shape = stations[start][1].shape
+        while stop < len(stations) and stations[stop][1].shape == shape:
+            stop += 1
+        run = stations[start:stop]
+        groups.append(StationGroup(
+            _immutable(np.stack(tuple(slots[0] for slots, _ in run))),
+            _immutable(np.stack(tuple(slots[1] for slots, _ in run))),
+            _immutable(np.stack(tuple(local for _, local in run)))))
+        start = stop
+    return tuple(groups)
 
 
 def _material_envelope(binding, bounds):
@@ -373,7 +519,7 @@ def compile_model_program(plan, parameters, *, mesh=None, bounds=None,
                     stations.append(((slots('C', support), slots('G', support)), _immutable(local)))
             lines.append(LineStamp(source, count, tuple(blocks),
                                    next(index for index, material in enumerate(fields.structured) if material.key == (path, 'rlgc')),
-                                   tuple(stations),
+                                   tuple(stations), _station_groups(stations),
                                    next(material.declared_lossless for material in fields.structured if material.key == (path, 'rlgc')),
                                    'discretization' in leaf['model_metadata'],
                                    (leaf['model_metadata']['discretization']['sections_per_wavelength'],
@@ -420,7 +566,7 @@ def compile_model_program(plan, parameters, *, mesh=None, bounds=None,
     B = np.zeros(len(patterns[3].rows))
     np.add.at(B, raw_maps[3], raw.B.values)
     return ModelProgram(fields, mesh, raw.node_ids, raw.port_ids, tuple(patterns), tuple(stamps),
-                         tuple(lines), tuple(groups), _immutable(B), _immutable(raw.R),
+                         tuple(lines), _series_layouts(lines), tuple(groups), _immutable(B), _immutable(raw.R),
                          tuple(domains), canonical_json_bytes({
                              'original_coordinates': [row['compiler_node_id'] for row in plan['connectivity']['node_coordinates']],
                              # Keep the actual fixed compilation's grid records,

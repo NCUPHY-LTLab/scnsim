@@ -60,8 +60,8 @@ def _validate_matrix_arguments(
 def _matrix_table(view: Any, *, family: str, frequency: Quantity) -> Any:
     go, _, _ = _plotly()
     index = _frequency_index(view, frequency)
-    values = _matrix_values(view)[index]
-    unit = str(view.matrix.units)
+    values = _matrix_plane(view, family=family, frequency_index=index)
+    unit = _matrix_unit(view)
     shown_frequency = frequency.to_compact()
     headers = [
         f"output \\ input<br>{shown_frequency:~P}",
@@ -80,7 +80,10 @@ def _matrix_heatmap(view: Any, *, family: str, frequency: Quantity, component: C
     go, _, _ = _plotly()
     index = _frequency_index(view, frequency)
     values, _ = _component_values(
-        _matrix_values(view)[index], component, family=family, magnitude=magnitude
+        _matrix_plane(view, family=family, frequency_index=index),
+        component,
+        family=family,
+        magnitude=magnitude,
     )
     unit = _unit_label(view, family, component, magnitude)
     return go.Heatmap(
@@ -90,6 +93,36 @@ def _matrix_heatmap(view: Any, *, family: str, frequency: Quantity, component: C
         colorbar={"title": unit},
         hovertemplate="output=%{y}<br>input=%{x}<br>value=%{z}<br>unit=" + unit + "<extra></extra>",
     )
+
+
+def _matrix_unit(view: Any) -> str:
+    from .common import _matrix_unit as matrix_unit
+
+    return matrix_unit(view)
+
+
+def _matrix_plane(view: Any, *, family: str, frequency_index: int) -> np.ndarray:
+    """Read only one requested matrix plane from a fixed Direct result."""
+    reader = getattr(view, "_fixed_reader", None)
+    if reader is None:
+        return _matrix_values(view)[frequency_index]
+    selected_frequency = slice(frequency_index, frequency_index + 1)
+    first = np.asarray(reader.project_matrix(
+        family, view.input_channels[0], view.output_channels[0], selected_frequency
+    )["values"])
+    plane = np.empty(
+        (len(view.output_channels), len(view.input_channels)), dtype=first.dtype
+    )
+    plane[0, 0] = first[0]
+    for output_index, output_channel in enumerate(view.output_channels):
+        for input_index, input_channel in enumerate(view.input_channels):
+            if output_index == 0 and input_index == 0:
+                continue
+            selected = reader.project_matrix(
+                family, input_channel, output_channel, selected_frequency
+            )
+            plane[output_index, input_index] = np.asarray(selected["values"])[0]
+    return plane
 
 
 def matrix_plot(

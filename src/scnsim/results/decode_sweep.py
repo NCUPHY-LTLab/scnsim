@@ -82,16 +82,10 @@ def _decode_parameter_sweep_operation(
             stage="result_decode",
         )
     chunks = tuple(raw_chunks)
-    chunk_cache: dict[int, Mapping[str, object]] = {}
-    outcome_cache: dict[int, ParameterPointOutcome] = {}
-
     def chunk_for(ordinal: int) -> Mapping[str, object]:
         chunk_ordinal = ordinal // 64
         if chunk_ordinal < 0 or chunk_ordinal >= len(chunks):
             raise IndexError("parameter point index is out of range")
-        cached = chunk_cache.get(chunk_ordinal)
-        if cached is not None:
-            return cached
         link = chunks[chunk_ordinal]
         if not isinstance(link, Mapping):
             raise EvidenceIntegrityError(
@@ -119,13 +113,9 @@ def _decode_parameter_sweep_operation(
                 "parameter sweep chunk identity is malformed",
                 stage="result_decode",
             )
-        chunk_cache[chunk_ordinal] = chunk
         return chunk
 
     def load_point(ordinal: int) -> ParameterPointOutcome:
-        cached = outcome_cache.get(ordinal)
-        if cached is not None:
-            return cached
         chunk = chunk_for(ordinal)
         offset = ordinal - int(chunk["first_point"])
         points = chunk["points"]
@@ -230,7 +220,6 @@ def _decode_parameter_sweep_operation(
                 "parameter sweep point status is malformed",
                 stage="result_decode",
             )
-        outcome_cache[ordinal] = outcome
         return outcome
 
     kind = str(source["kind"])

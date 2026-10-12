@@ -29,6 +29,22 @@ from .config import get_runtime_configuration, runtime_resource_identity
 _POSITIVE_INFINITY_CANDIDATE_COST = "7ff0000000000000"
 
 
+def _native_identity_operation(operation):
+    """Map the request envelope to its one current native operation identity."""
+    identities = {
+        "solve_direct": "direct",
+        "evaluate_direct": "evaluate",
+        "optimize_direct": "optimize",
+        "sensitivity": "sensitivity",
+    }
+    try:
+        return identities[operation]
+    except KeyError as error:
+        raise RuntimePreparationError(
+            "Request has no current native physical identity", stage="runtime_prepare",
+        ) from error
+
+
 def _candidate_cost_from_hex(value: str) -> float:
     """Decode the optimizer's existing failed-candidate cost sentinel.
 
@@ -116,32 +132,71 @@ def resolve_jax_operation(*, binding, prepared_analysis=None, decoder, bound_spe
     return result
 
 
+def _sensitivity_host(value):
+    """Detach checked JAX/dataclass facts into the existing numeric record codec."""
+    import numpy as np
+    from dataclasses import fields, is_dataclass
+    if isinstance(value, np.ndarray):
+        return value.item() if value.ndim == 0 else tuple(
+            _sensitivity_host(item) for item in value.tolist()
+        )
+    if isinstance(value, np.generic):
+        return value.item()
+    if is_dataclass(value):
+        return {field.name: _sensitivity_host(getattr(value, field.name))
+                for field in fields(value)}
+    if isinstance(value, Mapping):
+        return {key: _sensitivity_host(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return tuple(_sensitivity_host(item) for item in value)
+    return value
+
+
+def _sensitivity_certificate_records(certificates):
+    """Preserve every actual equation certificate, including mapped basis axes."""
+    return tuple(_sensitivity_host(certificate) for certificate in certificates)
+
+
 def _sensitivity_reason(aux, *, observable_index=None):
     """Detach the checked derivative-unavailable facts for one saved block."""
-    import numpy as np
     from ..numerics.evidence import evidence_bytes
 
-    def host(value):
-        array = np.asarray(value)
-        return array.item() if array.ndim == 0 else array.tolist()
-
-    certificates = []
-    for certificate in aux.certificates:
-        fields = getattr(certificate, "_fields", None)
-        if fields is None:
-            certificates.append(host(certificate))
-        else:
-            certificates.append({name: host(getattr(certificate, name)) for name in fields})
     observable_reasons = ()
     if observable_index is not None:
-        observable_reasons = tuple(aux.observable_reasons[observable_index])
+        observable_reasons = _sensitivity_host(aux.observable_reasons[observable_index])
     return record_document(evidence_bytes({
-        "status": host(aux.status),
-        "failed_site": host(aux.failed_site),
-        "derivative_reasons": tuple(aux.derivative_reasons),
+        "status": _sensitivity_host(aux.status),
+        "failed_site": _sensitivity_host(aux.failed_site),
+        "derivative_reasons": _sensitivity_host(aux.derivative_reasons),
         "observable_reasons": observable_reasons,
-        "certificates": tuple(certificates),
     }))
+
+
+def _sensitivity_equation_evidence(quantity_program, request, derivative_outcome):
+    """Build one shared body for actual primal and transformed equation facts."""
+    import numpy as np
+
+    aux = derivative_outcome.aux
+    metadata = quantity_program.quantity_metadata()
+    return {
+        "program_sha256": quantity_program.program_sha256,
+        "derivative_kind": request["spec"]["derivative"]["type"],
+        "wrt": request["spec"]["wrt"],
+        "output_layout": quantity_program.output_layout.compact_record(),
+        "certificates": _sensitivity_certificate_records(aux.certificates),
+        "derivative_available": bool(np.asarray(aux.derivative_available)),
+        "derivative_reasons": _sensitivity_host(aux.derivative_reasons),
+        "observables": tuple({
+            "quantity_id": row["key"],
+            "observable_index": row["observable_index"],
+            "derivative_available": bool(np.asarray(
+                aux.observable_available[row["observable_index"]]
+            )),
+            "derivative_reasons": _sensitivity_host(
+                aux.observable_reasons[row["observable_index"]]
+            ),
+        } for row in metadata),
+    }
 
 
 def _sensitivity_blocks(quantity_program, prepared_analysis, request, derivative_outcome):
@@ -153,10 +208,11 @@ def _sensitivity_blocks(quantity_program, prepared_analysis, request, derivative
     derivative_spec = spec["derivative"]
     derivative_kind = derivative_spec["type"]
     quantity_metadata = quantity_program.quantity_metadata()
-    output_rows = quantity_program.output_layout.rows
-    rows_by_quantity = {
-        row["key"]: tuple(item for item in output_rows if item.quantity_key == row["key"])
-        for row in quantity_metadata
+    # Keep the compiler's factorized output blocks. Expanding every scalar
+    # OutputRow here duplicates O(F·P²) Python metadata during readback.
+    output_blocks = {
+        block.quantity_key: block
+        for block in quantity_program.output_layout.blocks
     }
     quantity_layout = [
         {"id": row["key"], "label": row["key"], "unit": row["si_unit"], "axes": row["axes"]}
@@ -180,7 +236,7 @@ def _sensitivity_blocks(quantity_program, prepared_analysis, request, derivative
             "block_id": block_id,
             "kind": "primal",
             "quantity_id": key,
-            "output_slice": {"start": 0, "stop": len(rows_by_quantity[key])},
+            "output_slice": {"start": 0, "stop": output_blocks[key].row_count},
             "parameter_slice": None,
             "summary_json": {"value_unit": row["si_unit"], "axes": row["axes"]},
             "primal_blocks": [],
@@ -206,7 +262,7 @@ def _sensitivity_blocks(quantity_program, prepared_analysis, request, derivative
             "kind": "derivative",
             "quantity_id": key,
             "output_slice": (None if key is None else
-                             {"start": 0, "stop": len(rows_by_quantity[key])}),
+                             {"start": 0, "stop": output_blocks[key].row_count}),
             "parameter_slice": parameter_slice,
             "summary_json": summary,
             "primal_blocks": list(primal_links),
@@ -217,12 +273,17 @@ def _sensitivity_blocks(quantity_program, prepared_analysis, request, derivative
 
     if derivative_kind == "jacobian":
         payload = derivative_outcome.derivative
-        row_positions = {row_index: index for index, row_index in enumerate(payload.row_indices)}
-        matrix = np.asarray(payload.values)
+        if payload is None:
+            row_positions = {}
+            matrix = None
+        else:
+            row_positions = {row_index: index for index, row_index in enumerate(payload.row_indices)}
+            matrix = np.asarray(payload.values)
         for row in quantity_metadata:
             key = row["key"]
-            expected_rows = rows_by_quantity[key]
-            selected_positions = [row_positions.get(item.row) for item in expected_rows]
+            block = output_blocks[key]
+            selected_positions = [row_positions.get(index)
+                                  for index in range(block.offset, block.offset + block.row_count)]
             reason = None
             if (not bool(np.asarray(aux.observable_available[row["observable_index"]]))
                     or any(position is None for position in selected_positions)):
@@ -239,7 +300,8 @@ def _sensitivity_blocks(quantity_program, prepared_analysis, request, derivative
     elif derivative_kind == "jvp":
         for row in quantity_metadata:
             key = row["key"]
-            value = derivative_outcome.derivative[row["observable_index"]]
+            value = (None if derivative_outcome.derivative is None else
+                     derivative_outcome.derivative[row["observable_index"]])
             reason = None
             if (not bool(np.asarray(aux.observable_available[row["observable_index"]]))
                     or value is None):
@@ -255,11 +317,10 @@ def _sensitivity_blocks(quantity_program, prepared_analysis, request, derivative
         if derivative_status != 0 or value is None:
             reason = _sensitivity_reason(aux)
         if reason is None:
-            import jax.numpy as jnp
             indices = quantity_program.program.model_program.fields.layout.input_indices(
                 prepared_analysis.active_keys
             )
-            values = np.asarray(value.theta[jnp.asarray(indices, dtype=jnp.int32)])
+            values = np.asarray(value)[np.asarray(indices, dtype=np.intp)]
         else:
             values = None
         append_derivative(
@@ -289,13 +350,45 @@ def _sensitivity_blocks(quantity_program, prepared_analysis, request, derivative
                     "derivative_kind": derivative_kind,
                     "derivative_status": derivative_status,
                     "derivative_available": derivative_available},
+        "equation_evidence": _sensitivity_equation_evidence(
+            quantity_program, request, derivative_outcome,
+        ),
     }
+
+
+def _native_sensitivity_transform(quantity_program, inputs, prepared_analysis, *,
+                                  derivative_kind, backend, program_owner,
+                                  execution_policy, frame_owner):
+    """Run one bounded native derivative on the actual prepared point."""
+    import jax.numpy as jnp
+    from .native_ad import sensitivity_derivative
+
+    native = quantity_program.native_program(
+        inputs, program_owner=program_owner, admit_core=False,
+    )
+    omega_source_indices = tuple(native.input_layout['omega']['source_indices'])
+    with backend.jax.enable_x64(True), backend.jax.default_device(backend.device):
+        theta = jnp.asarray(inputs.theta, dtype=jnp.float64)
+        omega_source = jnp.asarray(inputs.omega_rad_s, dtype=backend.complex_dtype)
+        omega = omega_source[jnp.asarray(omega_source_indices, dtype=jnp.int32)]
+        seeds = jnp.asarray(inputs.branch_starts_rad_s, dtype=backend.complex_dtype)
+    arguments = theta, omega, seeds
+    return sensitivity_derivative(
+        native, arguments, derivative_kind=derivative_kind,
+        quantity_program=quantity_program, inputs=inputs,
+        prepared_analysis=prepared_analysis, backend=backend,
+        program_owner=program_owner, execution_policy=execution_policy,
+        frame_owner=frame_owner,
+    )
 
 
 def execute_sensitivity_operation(*, binding, plan_document, prepared_analysis, decoder,
                                    bound_spec, trace, precision, backend="jax",
-                                   program_owner=None):
+                                   program_owner=None, execution_policy=None):
     """Execute one checked Sensitivity program and atomically seal its result blocks."""
+    from .policy import ExecutionPolicy
+
+    execution_policy = ExecutionPolicy() if execution_policy is None else execution_policy
     request = prepared_analysis.request()
     request_sha = prepared_analysis.request_sha256
     if backend != "jax" or precision != request["runtime_semantic"]["precision"]:
@@ -340,6 +433,8 @@ def execute_sensitivity_operation(*, binding, plan_document, prepared_analysis, 
                     operation_resources=operation_resource, diagnostics=True,
                 )
             primary = None
+            from .compile_owner import CompileOwner
+            frame_owner = CompileOwner(policy=execution_policy)
             try:
                 return _execute_sensitivity_with_backend(
                     binding=binding, plan_document=plan_document,
@@ -347,26 +442,39 @@ def execute_sensitivity_operation(*, binding, plan_document, prepared_analysis, 
                     bound_spec=bound_spec, trace=trace, request=request,
                     request_sha=request_sha, precision=precision, resources=resources,
                     backend=numerical_backend, operation_resource=operation_resource,
-                    program_owner=program_owner,
+                    program_owner=program_owner, execution_policy=execution_policy,
+                    frame_owner=frame_owner,
                 )
             except BaseException as error:
                 primary = error
                 raise
             finally:
-                try:
-                    numerical_backend.close()
-                except BaseException as cleanup_error:
-                    if primary is None:
-                        raise
-                    primary.add_note(
-                        "Sensitivity backend cleanup also failed: "
-                        f"{type(cleanup_error).__name__}: {cleanup_error}"
-                    )
+                cleanup_error = None
+                for cleanup, label in (
+                    (frame_owner.clear, "Sensitivity operation-local compilation cleanup"),
+                    (numerical_backend.close, "Sensitivity backend cleanup"),
+                ):
+                    try:
+                        cleanup()
+                    except BaseException as error:
+                        if primary is not None:
+                            primary.add_note(
+                                f"{label} also failed: {type(error).__name__}: {error}"
+                            )
+                        elif cleanup_error is None:
+                            cleanup_error = error
+                        else:
+                            cleanup_error.add_note(
+                                f"{label} also failed: {type(error).__name__}: {error}"
+                            )
+                if primary is None and cleanup_error is not None:
+                    raise cleanup_error
 
 
 def _execute_sensitivity_with_backend(*, binding, plan_document, prepared_analysis, decoder,
                                      bound_spec, trace, request, request_sha, precision,
-                                     resources, backend, operation_resource, program_owner=None):
+                                     resources, backend, operation_resource, program_owner=None,
+                                     execution_policy=None, frame_owner):
     from ..compilation.compiler import parameter_key
     from ..compilation.quantity_program import compile_quantity_program
 
@@ -385,7 +493,7 @@ def _execute_sensitivity_with_backend(*, binding, plan_document, prepared_analys
         arm = f"{trace.method}/jax/{precision}/none"
         environment = environment_snapshot(
             arm=arm, device="cpu", cpu_threads=resources["cpu_threads"],
-            backend=backend.identity(),
+            backend=backend.native_program_identity("sensitivity"),
         )
         environment["runtime_semantic"] = request["runtime_semantic"]
         environment["resources"] = resources
@@ -445,34 +553,13 @@ def _execute_sensitivity_with_backend(*, binding, plan_document, prepared_analys
         inputs = quantity_program.inputs(point)
         derivative_spec = spec["derivative"]
         derivative_kind = derivative_spec["type"]
-        input_indices = quantity_program.program.model_program.fields.layout.input_indices(
-            prepared_analysis.active_keys
-        )
         with trace.span("sensitivity_evaluation", details={"derivative": derivative_kind}):
-            if derivative_kind == "jacobian":
-                derivative_outcome = backend.execute(
-                    quantity_program.program, "jacobian", inputs,
-                    input_indices=input_indices, sparse_runner=trace.sparse_runner,
-                )
-            elif derivative_kind == "jvp":
-                from json import loads
-                direction = quantity_program.direction_inputs(
-                    inputs, loads(prepared_analysis.direction_bytes),
-                )
-                derivative_outcome = backend.execute(
-                    quantity_program.program, "jvp", inputs, direction,
-                    sparse_runner=trace.sparse_runner,
-                )
-            elif derivative_kind == "vjp":
-                from json import loads
-                weights = quantity_program.weight_vector(loads(prepared_analysis.weights_bytes))
-                derivative_outcome = backend.execute(
-                    quantity_program.program, "vjp", inputs, weights,
-                    sparse_runner=trace.sparse_runner,
-                )
-            else:
-                raise TypeError(f"unsupported Sensitivity derivative {derivative_kind!r}")
-            quantity_program.require_primal(derivative_outcome)
+            derivative_outcome = _native_sensitivity_transform(
+                quantity_program, inputs, prepared_analysis,
+                derivative_kind=derivative_kind, backend=backend,
+                program_owner=scoped_program_owner,
+                execution_policy=execution_policy, frame_owner=frame_owner,
+            )
 
         publication = _sensitivity_blocks(
             quantity_program, prepared_analysis, request, derivative_outcome,
@@ -485,6 +572,7 @@ def _execute_sensitivity_with_backend(*, binding, plan_document, prepared_analys
                     attempt_id=attempt_id, manifest=publication["manifest"],
                     result_summary=publication["summary"], blocks=publication["blocks"],
                     outcome=publication["outcome"],
+                    equation_evidence=publication["equation_evidence"],
                 )
             ack = published["ack"]
             if ack.get("committed") is not True or ack.get("outcome") != publication["outcome"]:
@@ -663,16 +751,21 @@ def _execute_physical_optimization(*, binding, plan_document, prepared_analysis,
                                    checkpoint_policy, resume_from, restart_from,
                                    commit_every_generations, program_owner, trace, request,
                                    request_sha, precision, resources, runtime_configuration,
-                                   backend, operation_resource):
+                                   backend, operation_resource, execution_policy):
     """Register, run, and seal the one current JAX physical optimizer."""
     from .operation_spool import OperationSpool
     from .physical_optimization import run_physical_optimization
+    from .policy import ExecutionPolicy
+    from .compile_owner import CompileOwner
+
+    execution_policy = ExecutionPolicy() if execution_policy is None else execution_policy
+    frame_owner = CompileOwner(policy=execution_policy)
 
     workspace = storage.operation_workspace(binding)
     arm = f"{trace.method}/jax/{precision}/{checkpoint_policy}"
     environment = environment_snapshot(
         arm=arm, device="cpu", cpu_threads=resources["cpu_threads"],
-        backend=backend.identity(),
+        backend=backend.native_program_identity("optimize"),
     )
     environment["runtime_semantic"] = request["runtime_semantic"]
     environment["resources"] = resources
@@ -934,6 +1027,7 @@ def _execute_physical_optimization(*, binding, plan_document, prepared_analysis,
     trace.set_attempt(attempt_id)
 
     spool = OperationSpool(workspace, trace.operation_id, lease_root=binding.root)
+    primary_error = None
     try:
         registration_attempted = True
         with binding.writer():
@@ -967,6 +1061,7 @@ def _execute_physical_optimization(*, binding, plan_document, prepared_analysis,
                 commit_every_generations=commit_every_generations,
                 publish_batch=publish_batch, observe_progress=observe_progress,
                 on_acknowledged=on_acknowledged, spool=spool,
+                execution_policy=execution_policy, frame_owner=frame_owner,
             )
 
         with trace.span("physical_optimization_terminal"):
@@ -1014,6 +1109,7 @@ def _execute_physical_optimization(*, binding, plan_document, prepared_analysis,
             observe_progress(**values)
         return result
     except BaseException as error:
+        primary_error = error
         if not registration_committed and registration_attempted:
             outcome = getattr(error, "operation_registration_outcome", None)
             if outcome is None:
@@ -1080,24 +1176,34 @@ def _execute_physical_optimization(*, binding, plan_document, prepared_analysis,
                 )
         raise
     finally:
-        try:
-            spool.close()
-        except BaseException as cleanup_error:
-            active = sys.exception()
-            if active is not None:
-                active.add_note(
-                    f"Optimization spool cleanup also failed: "
-                    f"{type(cleanup_error).__name__}: {cleanup_error}"
-                )
-            else:
-                raise
+        active = primary_error
+        cleanup_error = None
+        for cleanup, label in (
+            (spool.close, "Optimization spool cleanup"),
+            (frame_owner.clear, "Optimization operation-local compilation cleanup"),
+        ):
+            try:
+                cleanup()
+            except BaseException as error:
+                if active is not None:
+                    active.add_note(
+                        f"{label} also failed: {type(error).__name__}: {error}"
+                    )
+                elif cleanup_error is None:
+                    cleanup_error = error
+                else:
+                    cleanup_error.add_note(
+                        f"{label} also failed: {type(error).__name__}: {error}"
+                    )
+        if active is None and cleanup_error is not None:
+            raise cleanup_error
 
 
 def execute_jax_operation(*, binding, plan_document, prepared_analysis, decoder, bound_spec,
                           on_progress=None, progress_observer=None,
                           checkpoint_policy="generation", resume_from=None,
                           restart_from=None, commit_every_generations=1,
-                          program_owner=None, trace):
+                          program_owner=None, execution_policy=None, trace):
     """Execute or reuse one request while serializing its exact result authority."""
     with request_execution_lease(binding, prepared_analysis.request_sha256):
         return _execute_jax_operation(
@@ -1113,6 +1219,7 @@ def execute_jax_operation(*, binding, plan_document, prepared_analysis, decoder,
             restart_from=restart_from,
             commit_every_generations=commit_every_generations,
             program_owner=program_owner,
+            execution_policy=execution_policy,
             trace=trace,
         )
 
@@ -1121,7 +1228,7 @@ def _execute_jax_operation(*, binding, plan_document, prepared_analysis, decoder
                            on_progress=None, progress_observer=None,
                            checkpoint_policy="generation", resume_from=None,
                            restart_from=None, commit_every_generations=1,
-                           program_owner=None, trace):
+                           program_owner=None, execution_policy=None, trace):
     """Execute or reuse one request with callbacks outside Workspace locks."""
     request = prepared_analysis.request()
     request_sha = prepared_analysis.request_sha256
@@ -1258,6 +1365,7 @@ def _execute_jax_operation(*, binding, plan_document, prepared_analysis, decoder
                     request_sha=request_sha, precision=precision, resources=resources,
                     runtime_configuration=runtime_configuration, backend=backend,
                     operation_resource=operation_resource,
+                    execution_policy=execution_policy,
                 )
             except BaseException as error:
                 primary = error
@@ -1278,16 +1386,20 @@ def _execute_jax_operation(*, binding, plan_document, prepared_analysis, decoder
             decoder=decoder, bound_spec=bound_spec, checkpoint_policy=checkpoint_policy,
             commit_every_generations=commit_every_generations, trace=trace,
             request=request, request_sha=request_sha, precision=precision,
-            resources=resources, backend=backend, backend_identity=backend.identity(),
+            resources=resources, backend=backend,
+            backend_identity=backend.native_program_identity(
+                _native_identity_operation(request["operation"]),
+            ),
             operation_resource=operation_resource,
             program_owner=program_owner,
+            execution_policy=execution_policy,
         )
 
 
 def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder, bound_spec,
                           checkpoint_policy, commit_every_generations, trace, request,
                           request_sha, precision, resources, backend, backend_identity,
-                          operation_resource, program_owner=None):
+                          operation_resource, program_owner=None, execution_policy=None):
     """Run one ordinary JAX analysis through its task and result lifecycle."""
     from .python_host import execute_analysis
 
@@ -1296,6 +1408,11 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
     registration_attempted = False
     registration_committed = False
     completed = False
+    terminal_attempted = False
+    terminal_acknowledged = False
+    chunk_domain = _chunked_operation_domain(request)
+    spool = None
+    result_sink = None
     workspace = storage.operation_workspace(binding)
     details = {
         "cache_hit": False,
@@ -1353,6 +1470,17 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
                 workspace, binding=binding, operation_id=trace.operation_id,
                 task_id=task_id, attempt_id=attempt_id, diagnostics="boundary",
             )
+        if chunk_domain is not None:
+            from .operation_spool import OperationSpool
+            from .physical_analysis import ChunkedResultSink
+            from .policy import ExecutionPolicy
+
+            policy = ExecutionPolicy() if execution_policy is None else execution_policy
+            spool = OperationSpool(workspace, trace.operation_id, lease_root=binding.root)
+            result_sink = ChunkedResultSink(
+                spool, domain=chunk_domain,
+                scratch_budget_bytes=policy.scratch_budget_bytes,
+            )
 
         def emit(kind, payload):
             value = {**payload, "attempt_id": attempt_id}
@@ -1363,6 +1491,31 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
                     details={"stage": payload["stage"], "counts": payload.get("counts", {})},
                 )
                 return None
+            if result_sink is not None:
+                if kind == "baseline_ready":
+                    result_sink.merge_summary({"root_anchor": payload})
+                    return None
+                if kind == "direct_chunk":
+                    result_sink.append_direct_record(payload)
+                    return None
+                if kind == "evaluation":
+                    if chunk_domain == "sweep":
+                        origin = payload.get("origin")
+                        if origin == "baseline":
+                            return None
+                        if origin == "root_continuation":
+                            result_sink.append_sweep_continuation(
+                                payload["source_index"], payload,
+                            )
+                            return None
+                        if origin == "requested_point":
+                            return result_sink.append_sweep_point(payload)
+                    raise RuntimeError(
+                        f"{chunk_domain} execution emitted a non-chunk evaluation body"
+                    )
+                raise RuntimeError(
+                    f"{chunk_domain} execution emitted unsupported task event {kind!r}"
+                )
             if kind == "baseline_ready":
                 _, ack = storage.commit_barrier(
                     workspace, writer=writer, kind=kind, payload=value,
@@ -1381,17 +1534,50 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
                     workspace, task_id=task_id, kind=kind, payload=value, writer=writer,
                 )
 
-        terminal = execute_analysis(
-            plan_document, prepared_analysis, backend=backend, emit=emit, trace=trace,
-            checkpoint=None, checkpoint_policy=checkpoint_policy,
-            operation_resources=operation_resource, program_owner=program_owner,
-        )
-        with trace.span("result_publish"):
-            with binding.writer():
-                result_ref, _ = storage.complete_operation(
-                    binding, writer=writer, terminal_bytes=record_bytes(terminal),
-                )
-                completed = True
+        spool_scope = nullcontext() if spool is None else spool.activate()
+        with spool_scope:
+            terminal = execute_analysis(
+                plan_document, prepared_analysis, backend=backend, emit=emit, trace=trace,
+                checkpoint=None, checkpoint_policy=checkpoint_policy,
+                operation_resources=operation_resource, program_owner=program_owner,
+                execution_policy=execution_policy, result_sink=result_sink,
+            )
+            with trace.span("result_publish"):
+                with binding.writer():
+                    if result_sink is None:
+                        publication = storage.complete_operation(
+                            binding, writer=writer, terminal_bytes=record_bytes(terminal),
+                        )
+                    else:
+                        publish = (storage.complete_direct_operation if chunk_domain == "direct"
+                                   else storage.complete_sweep_operation)
+                        terminal_attempted = True
+                        publication = publish(
+                            binding, operation_id=trace.operation_id,
+                            task_id=task_id, attempt_id=attempt_id,
+                            metadata=result_sink.metadata, chunks=result_sink.chunks(),
+                            summary=result_sink.summary(),
+                        )
+                    if result_sink is None:
+                        result_ref = publication[0]
+                        ack = None
+                    else:
+                        result_ref = publication["result_ref"]
+                        ack = publication["ack"]
+                        terminal_acknowledged = (
+                            isinstance(ack, Mapping) and ack.get("committed") is True
+                        )
+                        if terminal_acknowledged:
+                            completed = True
+                        if ack.get("committed") is not True or ack.get("outcome") != "success":
+                            raise EvidenceIntegrityError(
+                                "Chunked operation completion was not durably acknowledged.",
+                                stage="operation_store",
+                                evidence={"operation_id": trace.operation_id,
+                                          "attempt_id": attempt_id,
+                                          "outcome": None if ack is None else ack.get("outcome")},
+                            )
+                    completed = True
         trace.add_numerical_ref(result_ref)
         with trace.span("result_decode"):
             with binding.reader():
@@ -1403,89 +1589,156 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
                     ),
                 )
     except BaseException as error:
+        terminal_outcome = getattr(error, "operation_transaction_outcome", None)
+        terminal_status = (terminal_outcome.get("status")
+                           if isinstance(terminal_outcome, Mapping) else None)
+        terminal_commit_reconciled = (
+            result_sink is not None and terminal_attempted and terminal_status == "committed"
+        )
+        terminal_commit_unknown = (
+            result_sink is not None and terminal_attempted and terminal_status == "unknown"
+        )
+        if terminal_commit_reconciled:
+            # The store reconciles a raised COMMIT against its exact transaction
+            # marker. A known commit owns the terminal status even when the
+            # publisher did not return its ACK to this caller.
+            completed = True
         if attempt_id is not None and not completed:
-            try:
-                if not registration_committed and registration_attempted:
-                    outcome = getattr(error, "operation_registration_outcome", None)
-                    if outcome is None:
-                        outcome = getattr(error, "operation_transaction_outcome", None)
-                    registration_committed = (
-                        isinstance(outcome, dict) and outcome.get("status") == "committed"
-                    )
-                    if (not registration_committed and isinstance(outcome, dict)
-                            and outcome.get("status") == "unknown"):
-                        error.add_note(
-                            "Execution registration outcome is unknown; no task failure update was retried."
-                        )
-                    if not registration_committed:
-                        trace.bind(operation=request["operation"], request_sha256=request_sha,
-                                   task_id=None, environment_sha256=None, attempt_id=None,
-                                   details=details)
-                    else:
-                        committed_registration = getattr(error, "operation_registration_result", None)
-                        if isinstance(committed_registration, dict):
-                            details["request"] = committed_registration["request_ref"]
-                            attempt_binding = committed_registration["attempt_binding"]
-                            trace.bind(operation=request["operation"], request_sha256=request_sha,
-                                       task_id=attempt_binding["task_id"],
-                                       environment_sha256=attempt_binding["environment_sha256"],
-                                       attempt_id=attempt_binding["attempt_id"], details=details)
-                if registration_committed and writer is None:
-                    try:
-                        with binding.writer():
-                            writer = storage.begin_task_writer(
-                                workspace, binding=binding, operation_id=trace.operation_id,
-                                task_id=task_id, attempt_id=attempt_id, diagnostics="boundary",
-                            )
-                    except BaseException as writer_setup_error:
-                        error.add_note(
-                            "Task writer initialization also failed after execution registration: "
-                            f"{type(writer_setup_error).__name__}: {writer_setup_error}"
-                        )
-                if registration_committed:
-                    failure = storage.error_document(error)
-                    interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
-                    if writer is not None:
-                        with binding.writer():
-                            storage.append_event(
-                                workspace, task_id=task_id,
-                                kind="interrupted" if interrupted else "failed",
-                                payload={"attempt_id": attempt_id,
-                                         "interruption" if interrupted else "failure": failure},
-                                writer=writer, force=True,
-                            )
-                            storage.update_attempt(
-                                workspace, binding=binding, operation_id=trace.operation_id,
-                                task_id=task_id, attempt_id=attempt_id,
-                                status="interrupted" if interrupted else "failure",
-                                interruption=failure if interrupted else None,
-                                failure=None if interrupted else failure,
-                            )
-                    else:
-                        with binding.writer():
-                            storage.update_attempt(
-                                workspace, binding=binding, operation_id=trace.operation_id,
-                                task_id=task_id, attempt_id=attempt_id,
-                                status="interrupted" if interrupted else "failure",
-                                interruption=failure if interrupted else None,
-                                failure=None if interrupted else failure,
-                            )
-            except BaseException as recording_error:
+            if terminal_commit_unknown:
                 error.add_note(
-                    f"Operation failure recording also failed: "
-                    f"{type(recording_error).__name__}: {recording_error}"
+                    "Chunked terminal publication outcome is unknown; no attempt status was overwritten."
                 )
+            else:
+                try:
+                    if not registration_committed and registration_attempted:
+                        outcome = getattr(error, "operation_registration_outcome", None)
+                        if outcome is None:
+                            outcome = getattr(error, "operation_transaction_outcome", None)
+                        registration_committed = (
+                            isinstance(outcome, dict) and outcome.get("status") == "committed"
+                        )
+                        if (not registration_committed and isinstance(outcome, dict)
+                                and outcome.get("status") == "unknown"):
+                            error.add_note(
+                                "Execution registration outcome is unknown; no task failure update was retried."
+                            )
+                        if not registration_committed:
+                            trace.bind(operation=request["operation"], request_sha256=request_sha,
+                                       task_id=None, environment_sha256=None, attempt_id=None,
+                                       details=details)
+                        else:
+                            committed_registration = getattr(error, "operation_registration_result", None)
+                            if isinstance(committed_registration, dict):
+                                details["request"] = committed_registration["request_ref"]
+                                attempt_binding = committed_registration["attempt_binding"]
+                                trace.bind(operation=request["operation"], request_sha256=request_sha,
+                                           task_id=attempt_binding["task_id"],
+                                           environment_sha256=attempt_binding["environment_sha256"],
+                                           attempt_id=attempt_binding["attempt_id"], details=details)
+                    if registration_committed:
+                        if writer is None:
+                            try:
+                                with binding.writer():
+                                    writer = storage.begin_task_writer(
+                                        workspace, binding=binding, operation_id=trace.operation_id,
+                                        task_id=task_id, attempt_id=attempt_id,
+                                        diagnostics="boundary",
+                                    )
+                            except BaseException as writer_setup_error:
+                                error.add_note(
+                                    "Task writer initialization also failed after execution registration: "
+                                    f"{type(writer_setup_error).__name__}: {writer_setup_error}"
+                                )
+                        failure = storage.error_document(error)
+                        interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
+                        if writer is not None:
+                            with binding.writer():
+                                storage.append_event(
+                                    workspace, task_id=task_id,
+                                    kind="interrupted" if interrupted else "failed",
+                                    payload={"attempt_id": attempt_id,
+                                             "interruption" if interrupted else "failure": failure},
+                                    writer=writer, force=True,
+                                )
+                                storage.update_attempt(
+                                    workspace, binding=binding, operation_id=trace.operation_id,
+                                    task_id=task_id, attempt_id=attempt_id,
+                                    status="interrupted" if interrupted else "failure",
+                                    interruption=failure if interrupted else None,
+                                    failure=None if interrupted else failure,
+                                )
+                        else:
+                            with binding.writer():
+                                storage.update_attempt(
+                                    workspace, binding=binding, operation_id=trace.operation_id,
+                                    task_id=task_id, attempt_id=attempt_id,
+                                    status="interrupted" if interrupted else "failure",
+                                    interruption=failure if interrupted else None,
+                                    failure=None if interrupted else failure,
+                                )
+                except BaseException as recording_error:
+                    error.add_note(
+                        f"Operation failure recording also failed: "
+                        f"{type(recording_error).__name__}: {recording_error}"
+                    )
+        if terminal_commit_reconciled:
+            error.add_note(
+                "Chunked terminal publication was reconciled as committed; its successful "
+                "attempt status was preserved."
+            )
+        elif terminal_acknowledged:
+            error.add_note(
+                "Chunked terminal publication was acknowledged; its committed attempt status was preserved."
+            )
         raise
     finally:
         primary = sys.exception()
+        cleanup_error = None
+        if spool is not None:
+            try:
+                spool.close()
+            except BaseException as spool_cleanup_error:
+                if primary is None:
+                    cleanup_error = spool_cleanup_error
+                else:
+                    primary.add_note(
+                        "Operation spool cleanup also failed: "
+                        f"{type(spool_cleanup_error).__name__}: {spool_cleanup_error}"
+                    )
         if backend is not None:
             try:
                 backend.close()
-            except BaseException as cleanup_error:
-                if primary is None:
-                    raise
-                primary.add_note(
-                    f"Operation finalization also failed: "
-                    f"{type(cleanup_error).__name__}: {cleanup_error}"
-                )
+            except BaseException as backend_cleanup_error:
+                if primary is not None:
+                    primary.add_note(
+                        f"Operation finalization also failed: "
+                        f"{type(backend_cleanup_error).__name__}: {backend_cleanup_error}"
+                    )
+                elif cleanup_error is None:
+                    cleanup_error = backend_cleanup_error
+                else:
+                    cleanup_error.add_note(
+                        f"Backend cleanup also failed: "
+                        f"{type(backend_cleanup_error).__name__}: {backend_cleanup_error}"
+                    )
+        if primary is None and cleanup_error is not None:
+            raise cleanup_error
+
+
+def _chunked_operation_domain(request):
+    """Return the sealed Direct/Sweep storage domain for the exact request."""
+    operation = request.get("operation")
+    source = request.get("parameter_source")
+    if not isinstance(source, Mapping):
+        return None
+    source_kind = source.get("kind")
+    if operation == "solve_direct" and source_kind == "point":
+        return "direct"
+    spec = request.get("spec")
+    if (operation == "solve_direct" and source_kind == "points"
+            and isinstance(spec, Mapping) and spec.get("type") == "direct_solve"):
+        return "sweep"
+    if operation == "evaluate_direct" and source_kind in {"grid", "points"}:
+        return "sweep"
+    return None
 

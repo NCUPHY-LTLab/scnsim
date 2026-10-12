@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 def _freeze(value: object) -> object:
     """Detach mutable decoder payloads before exposing a Result surface."""
 
+    if isinstance(value, _LazyResultMapping):
+        return value
     if isinstance(value, np.ndarray):
         return immutable_array(value)
     if isinstance(value, Quantity):
@@ -34,6 +36,17 @@ def _freeze(value: object) -> object:
     if isinstance(value, (set, frozenset)):
         return frozenset(_freeze(item) for item in value)
     return value
+
+
+class _LazyResultMapping(Mapping):
+    """Internal immutable mapping whose selected values are read on demand.
+
+    Decoder-owned subclasses retain only a fixed reader and compact selector
+    metadata.  They deliberately do not memoize hydrated bodies on the parent
+    Result; a caller that requests a value owns that detached value.
+    """
+
+    __slots__ = ()
 
 def _sha256(value: object, *, name: str) -> str:
     if not isinstance(value, str) or len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
@@ -175,13 +188,51 @@ class MatrixView:
     input_channels: tuple[tuple[str, tuple[int, ...]], ...] = ()
     output_channels: tuple[tuple[str, tuple[int, ...]], ...] = ()
     probe_loads: Mapping[str, Literal["raw", "compensated"]] = field(default_factory=dict)
+    _fixed_reader: object | None = field(default=None, repr=False, compare=False)
+    _matrix_family: str | None = field(default=None, repr=False, compare=False)
+    _matrix_unit: str | None = field(default=None, repr=False, compare=False)
     _quantity_fields = frozenset({"matrix", "frequencies"})
 
     def __init__(self) -> None:
         unavailable("MatrixView construction")
 
     def __getattribute__(self, name: str) -> object:
+        if name == "matrix":
+            reader = getattr(self, "_fixed_reader", None)
+            if reader is not None:
+                from .. import units
+                from ..value_storage import immutable_quantity
+
+                family = getattr(self, "_matrix_family", None)
+                unit = getattr(self, "_matrix_unit", None)
+                if not isinstance(family, str) or not isinstance(unit, str):
+                    raise TypeError("lazy matrix view lacks its family or unit")
+                values = reader.read_family(family)
+                return quantity_view(immutable_quantity(units.registry.Quantity(values, unit)))
         return _fresh_quantity_attribute(self, name)
+
+    def __repr__(self) -> str:
+        reader = getattr(self, "_fixed_reader", None)
+        stored_matrix = object.__getattribute__(self, "matrix")
+        frequencies = object.__getattribute__(self, "frequencies")
+        coordinates = object.__getattribute__(self, "coordinates")
+        matrix_unit = getattr(self, "_matrix_unit", None)
+        if reader is not None:
+            shape = (
+                len(frequencies.magnitude),
+                len(object.__getattribute__(self, "output_channels")),
+                len(object.__getattribute__(self, "input_channels")),
+            )
+            return (
+                f"MatrixView(matrix=<lazy shape={shape} unit={matrix_unit}>, "
+                f"frequency_count={len(frequencies.magnitude)}, coordinates={coordinates!r})"
+            )
+        matrix = stored_matrix
+        shape = tuple(np.asarray(matrix.magnitude).shape) if isinstance(matrix, Quantity) else None
+        return (
+            f"MatrixView(matrix=<shape={shape} unit={matrix.units if isinstance(matrix, Quantity) else None}>, "
+            f"frequency_count={len(frequencies.magnitude)}, coordinates={coordinates!r})"
+        )
 
 @dataclass(frozen=True, slots=True)
 class MatrixFamilyResult(Result):

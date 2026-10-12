@@ -87,6 +87,26 @@ def read_success(root, snapshot, descriptor, *, attempt_id=None, selection=None,
                 snapshot, binding_identity, descriptor=descriptor, attempt_id=attempt_id,
                 completion_ref=completion_ref, result_ref=result_ref, selection=selection,
             )
+    elif (request.get("runtime_semantic", {}).get("backend") == "jax"
+          and request.get("parameter_source", {}).get("kind") in {"grid", "points"}):
+        from ..workspace.results import read_sweep_success
+
+        success = read_sweep_success(
+            snapshot, binding_identity, descriptor=descriptor,
+            attempt_id=attempt_id, selection=selection,
+        )
+        if success is None:
+            return None
+    elif (request.get("operation") == "solve_direct"
+          and request.get("runtime_semantic", {}).get("backend") == "jax"):
+        from ..workspace.results import read_direct_success
+
+        success = read_direct_success(
+            snapshot, binding_identity, descriptor=descriptor,
+            attempt_id=attempt_id, selection=selection,
+        )
+        if success is None:
+            return None
     else:
         task = _materialize_task(root, snapshot, descriptor)
         from .task_history import operation_success_from_task

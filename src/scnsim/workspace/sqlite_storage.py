@@ -1062,7 +1062,8 @@ def complete_operation(binding,*,writer,terminal_bytes):
 
 
 def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id,
-                                    manifest, result_summary, blocks, outcome):
+                                    manifest, result_summary, blocks, outcome,
+                                    equation_evidence):
     """Publish one complete or explicitly partial Sensitivity terminal atomically.
 
     Block bodies are serialized and inserted one at a time inside the same
@@ -1122,6 +1123,24 @@ def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id
         raise _error("Sensitivity terminal summary is malformed.")
     from .validation.common import _valid_sha
     _valid_sha(manifest["program_sha256"])
+    evidence_fields = {
+        "program_sha256", "derivative_kind", "wrt", "output_layout", "certificates",
+        "derivative_available", "derivative_reasons", "observables",
+    }
+    if not isinstance(equation_evidence, Mapping) or set(equation_evidence) != evidence_fields:
+        raise _error("Sensitivity equation evidence has an unsupported field set.")
+    derivative_layout = manifest["derivative_layout"]
+    if (equation_evidence.get("program_sha256") != manifest["program_sha256"]
+            or not isinstance(derivative_layout, Mapping)
+            or equation_evidence.get("derivative_kind") != derivative_layout.get("kind")
+            or equation_evidence.get("wrt") != derivative_layout.get("parameters")
+            or not isinstance(equation_evidence.get("output_layout"), Mapping)
+            or not isinstance(equation_evidence.get("certificates"), (tuple, list))
+            or type(equation_evidence.get("derivative_available")) is not bool
+            or not isinstance(equation_evidence.get("derivative_reasons"), (tuple, list))
+            or not isinstance(equation_evidence.get("observables"), (tuple, list))):
+        raise _error("Sensitivity equation evidence differs from its derivative declaration.")
+    _valid_sha(equation_evidence["program_sha256"])
     manifest_body = {
         "schema": "scnsim.sensitivity_manifest", "schema_version": 1,
         "workspace_instance_id": workspace_instance_id, "plan_sha256": plan_sha256,
@@ -1132,10 +1151,18 @@ def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id
         "derivative_layout": manifest["derivative_layout"],
     }
     manifest_raw = record_bytes(manifest_body)
+    equation_evidence_body = {
+        "schema": "scnsim.sensitivity_equation_evidence", "schema_version": 1,
+        "workspace_instance_id": workspace_instance_id, "plan_sha256": plan_sha256,
+        "request_sha256": request_sha256, "task_id": task_id, "attempt_id": attempt_id,
+        **dict(equation_evidence),
+    }
+    equation_evidence_raw = record_bytes(equation_evidence_body)
     transaction_id = str(uuid4())
     blocks_index = []
     primal_refs = {}
     result_ref = manifest_ref = index_root_ref = completion_ref = attempt_ref = None
+    equation_evidence_ref = None
     with store.transaction(transaction_id, expected_revisions={_stream(task_id): revision}) as tx:
         current_association = _pointer(tx, _association_pointer(operation_id))
         current_attempt = tx.read_pointer(f"attempt/{task_id}/{attempt_id}")
@@ -1148,6 +1175,9 @@ def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id
             raise _error("Sensitivity attempt binding changed before terminal publication.",
                          operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
         manifest_ref = tx.put_object(manifest_raw, role="sensitivity_manifest")
+        equation_evidence_ref = tx.put_object(
+            equation_evidence_raw, role="sensitivity_equation_evidence",
+        )
         for ordinal, source in enumerate(blocks):
             if not isinstance(source, Mapping):
                 raise _error("Sensitivity block descriptor is malformed.", ordinal=ordinal)
@@ -1212,13 +1242,17 @@ def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id
                 "summary_json": dict(summary),
             })
 
+        result_summary_body = dict(result_summary)
+        if "equation_evidence_ref" in result_summary_body:
+            raise _error("Sensitivity result summary cannot replace its equation evidence reference.")
+        result_summary_body["equation_evidence_ref"] = equation_evidence_ref
         result_body = {
             "schema": "scnsim.sensitivity_result", "schema_version": 1,
             "outcome": outcome, "workspace_instance_id": workspace_instance_id,
             "plan_sha256": plan_sha256, "request_sha256": request_sha256,
             "task_id": task_id, "attempt_id": attempt_id,
             "manifest_ref": manifest_ref, "block_count": len(blocks_index),
-            "summary": dict(result_summary),
+            "summary": result_summary_body,
         }
         result_ref = tx.put_object(record_bytes(result_body), role="operation_result")
         index_root = {
@@ -1232,7 +1266,7 @@ def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id
         index_root_ref = tx.put_object(record_bytes(index_root), role="sensitivity_index_root")
         terminal_attempt = dict(attempt)
         terminal_artifacts = list(attempt.get("artifacts", ()))
-        for artifact in (result_ref, manifest_ref, index_root_ref):
+        for artifact in (result_ref, manifest_ref, index_root_ref, equation_evidence_ref):
             if artifact not in terminal_artifacts:
                 terminal_artifacts.append(artifact)
         terminal_attempt.update(status=outcome, failure=None, interruption=None,
@@ -1255,11 +1289,13 @@ def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id
                       "kind": "sensitivity_terminal", "payload": event_payload}
         tx.append_with_ref(_stream(task_id), "task_change",
                            record_bytes({"kind": "event", "event": task_event,
-                                         "artifacts": [result_ref, completion_ref]}))
+                                         "artifacts": [result_ref, completion_ref,
+                                                       equation_evidence_ref]}))
         attempt_change = {"kind": "attempt_update", "attempt_id": attempt_id,
                           "status": outcome, "failure": None, "interruption": None,
                           "checkpoint": None, "artifacts": [result_ref, manifest_ref,
-                                                                 index_root_ref, completion_ref]}
+                                                                 index_root_ref, completion_ref,
+                                                                 equation_evidence_ref]}
         _, state_ref = tx.append_with_ref(_stream(task_id), "task_change", record_bytes(attempt_change))
         tx.set_pointer(f"attempt/{task_id}/{attempt_id}", attempt_ref)
         tx.set_pointer(f"current_attempt/{task_id}", attempt_ref)
@@ -1279,10 +1315,388 @@ def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id
     return {
         "result_ref": result_ref, "manifest_ref": manifest_ref,
         "index_root_ref": index_root_ref, "completion_ref": completion_ref,
-        "attempt_ref": attempt_ref,
+        "attempt_ref": attempt_ref, "equation_evidence_ref": equation_evidence_ref,
         "ack": {"committed": True, "transaction_id": transaction_id,
                 "outcome": outcome, "block_count": len(blocks_index)},
     }
+
+
+def _complete_chunked_operation(binding, *, domain, operation_id, task_id, attempt_id,
+                                metadata, chunks, summary):
+    """Atomically seal one streamed Direct or parameter-sweep result."""
+    if domain not in {"direct", "sweep"}:
+        raise _error("Chunked result domain is unsupported.", domain=domain)
+    if not isinstance(metadata, Mapping) or not isinstance(summary, Mapping):
+        raise _error("Chunked result terminal metadata is malformed.", domain=domain)
+    store = _bound(binding)
+    with _snapshot(store) as snapshot:
+        descriptor = _descriptor(snapshot, task_id)
+        association = _pointer(snapshot, _association_pointer(operation_id))
+        descriptor_pointer = snapshot.read_pointer(f"task/{task_id}")
+        attempt_pointer = snapshot.read_pointer(f"attempt/{task_id}/{attempt_id}")
+        current_pointer = snapshot.read_pointer(f"current_attempt/{task_id}")
+        if (association is None or association.get("operation_id") != operation_id
+                or association.get("task_id") != task_id
+                or association.get("attempt_id") != attempt_id
+                or attempt_pointer is None or current_pointer is None
+                or current_pointer.get("reference") != attempt_pointer.get("reference")):
+            raise _error("Chunked result is not bound to the current operation attempt.",
+                         operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
+        attempt = _decode(snapshot, attempt_pointer["reference"])
+        if attempt.get("attempt_id") != attempt_id or attempt.get("status") not in {"allocated", "running"}:
+            raise _error("Chunked result attempt is not in a publishable state.",
+                         task_id=task_id, attempt_id=attempt_id)
+        request_ref = next((item for item in descriptor.get("artifacts", ())
+                            if item.get("role") == "operation_request"), None)
+        if (not isinstance(request_ref, Mapping)
+                or request_ref.get("sha256") != descriptor.get("request_sha256")):
+            raise _error("Chunked result task lacks its canonical request reference.",
+                         task_id=task_id)
+        request_raw = snapshot.get_object(request_ref)
+        request = record_document(request_raw)
+        source = request.get("parameter_source") if isinstance(request, Mapping) else None
+        spec = request.get("spec") if isinstance(request, Mapping) else None
+        is_sweep = isinstance(source, Mapping) and source.get("kind") in {"grid", "points"}
+        is_direct_points = (
+            isinstance(source, Mapping) and source.get("kind") == "points"
+            and isinstance(spec, Mapping) and spec.get("type") == "direct_solve"
+        )
+        if (not isinstance(request, dict) or record_bytes(request) != request_raw
+                or request.get("runtime_semantic", {}).get("backend") != "jax"
+                or (domain == "direct" and (
+                    request.get("operation") != "solve_direct"
+                    or not isinstance(source, Mapping) or source.get("kind") != "point"
+                ))
+                or (domain == "sweep" and (
+                    not (
+                        request.get("operation") == "evaluate_direct" and is_sweep
+                        or request.get("operation") == "solve_direct" and is_direct_points
+                    )
+                ))):
+            raise _error("Chunked result domain differs from its canonical request.",
+                         domain=domain, task_id=task_id)
+        expected_sweep_points = None
+        if domain == "sweep":
+            from .validation.sweeps import _parameter_source_points
+
+            expected_sweep_points = iter(_parameter_source_points(source))
+        stream = _stream(task_id)
+        revision = snapshot.stream_revision(stream)
+        sequence_pointer = snapshot.read_pointer("event_sequence/" + task_id)
+        sequence = (0 if sequence_pointer is None else
+                    _decode(snapshot, sequence_pointer["reference"]).get("next_sequence"))
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
+            raise _error("Chunked result task event sequence is malformed.", task_id=task_id)
+
+    identity = {
+        "workspace_instance_id": store.workspace_instance_id,
+        "plan_sha256": store.plan_sha256,
+        "request_sha256": descriptor["request_sha256"],
+        "task_id": task_id,
+        "attempt_id": attempt_id,
+        "outcome": "success",
+    }
+    from .validation.common import _valid_sha
+    if domain == "direct":
+        if not isinstance(metadata.get("program_sha256"), str):
+            raise _error("Direct result metadata lacks its physical program identity.",
+                         domain=domain)
+        _valid_sha(metadata["program_sha256"])
+    elif (metadata.get("program_identity_scope") != "per_point"
+          or metadata.get("program_sha256") is not None):
+        raise _error("Sweep metadata must identify its per-point physical programs.",
+                     domain=domain)
+    manifest_ref = result_ref = index_root_ref = completion_ref = attempt_ref = None
+    chunk_rows = []
+    point_count = 0
+    status_counts = {}
+    transaction_id = str(uuid4())
+    with store.transaction(transaction_id, expected_revisions={_stream(task_id): revision}) as tx:
+        current_association = _pointer(tx, _association_pointer(operation_id))
+        current_attempt = tx.read_pointer(f"attempt/{task_id}/{attempt_id}")
+        current_task = tx.read_pointer(f"task/{task_id}")
+        if (descriptor_pointer is None or current_task is None
+                or current_task.get("reference") != descriptor_pointer.get("reference")
+                or current_association != association
+                or current_attempt is None
+                or current_attempt.get("reference") != attempt_pointer.get("reference")):
+            raise _error("Chunked result binding changed before terminal publication.",
+                         operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
+        manifest_body = {
+            "schema": f"scnsim.{domain}_manifest", "schema_version": 1,
+            **identity, "request_ref": dict(request_ref), "metadata": dict(metadata),
+        }
+        manifest_ref = tx.put_object(record_bytes(manifest_body), role=f"{domain}_manifest")
+        for ordinal, source_chunk in enumerate(chunks):
+            if not isinstance(source_chunk, Mapping):
+                raise _error("Chunk source is malformed.", domain=domain, ordinal=ordinal)
+            count = source_chunk.get("point_count")
+            payload = source_chunk.get("payload")
+            chunk_summary = source_chunk.get("summary_json")
+            if (not isinstance(count, int) or isinstance(count, bool) or count <= 0
+                    or not isinstance(payload, Mapping) or not isinstance(chunk_summary, Mapping)):
+                raise _error("Chunk source has incomplete rows or payload.",
+                             domain=domain, ordinal=ordinal)
+            first_point = point_count
+            if domain == "direct":
+                if (not isinstance(payload.get("frequencies_hz"), Mapping)
+                        or not isinstance(payload.get("families"), Mapping)
+                        or set(payload["families"]) != {"S", "Y", "Z"}):
+                    raise _error("Direct chunk payload lacks its three actual matrix families.",
+                                 ordinal=ordinal)
+            else:
+                points = payload.get("points")
+                if not isinstance(points, list) or len(points) != count:
+                    raise _error("Sweep chunk point count differs from its payload.",
+                                 ordinal=ordinal)
+                from ..authoring.identity import canonical_parameters_sha256
+                occurrence_summaries = []
+                stored_points = []
+                for offset, point in enumerate(points):
+                    if not isinstance(point, Mapping) or point.get("ordinal") != first_point + offset:
+                        raise _error("Sweep point ordinal differs from its sealed chunk position.",
+                                     ordinal=ordinal, offset=offset)
+                    try:
+                        expected_source_index, expected_parameters = next(expected_sweep_points)
+                    except StopIteration as error:
+                        raise _error("Sweep chunks contain more points than their request.",
+                                     ordinal=ordinal, offset=offset) from error
+                    if (point.get("source_index") != expected_source_index
+                            or point.get("parameters") != expected_parameters
+                            or point.get("parameters_sha256")
+                            != canonical_parameters_sha256(expected_parameters)):
+                        raise _error("Sweep point differs from its exact request position.",
+                                     ordinal=ordinal, offset=offset)
+                    status = point.get("status")
+                    if status not in {"success", "failure"}:
+                        raise _error("Sweep point status is malformed.",
+                                     ordinal=ordinal, offset=offset)
+                    program_sha256 = point.get("program_sha256")
+                    discretization = point.get("discretization")
+                    if not isinstance(program_sha256, str) or not isinstance(discretization, list):
+                        raise _error("Sweep point lacks its actual program and mesh identity.",
+                                     ordinal=ordinal, offset=offset)
+                    _valid_sha(program_sha256)
+                    status_counts[status] = status_counts.get(status, 0) + 1
+                    occurrence = {
+                        "ordinal": point["ordinal"],
+                        "source_index": expected_source_index,
+                        "parameters_sha256": canonical_parameters_sha256(expected_parameters),
+                        "status": status,
+                        "program_sha256": program_sha256,
+                        "discretization": discretization,
+                    }
+                    if status == "failure":
+                        failure = point.get("failure")
+                        if (not isinstance(failure, Mapping)
+                                or any(not isinstance(failure.get(key), str) or not failure[key]
+                                       for key in ("kind", "stage", "detail"))):
+                            raise _error("Sweep point failure summary is malformed.",
+                                         ordinal=ordinal, offset=offset)
+                        occurrence["failure"] = {
+                            "kind": failure["kind"], "stage": failure["stage"],
+                            "message": failure["detail"],
+                        }
+                    occurrence_summaries.append(occurrence)
+                    stored_points.append(_externalize_sweep_point(tx, point))
+                chunk_summary = {"occurrences": occurrence_summaries}
+                payload = {**payload, "points": stored_points}
+            reserved = {"schema", "schema_version", *identity.keys(), "ordinal", "first_point", "point_count"}
+            if reserved.intersection(payload):
+                raise _error("Chunk payload repeats its immutable envelope fields.",
+                             domain=domain, ordinal=ordinal)
+            body = {
+                "schema": f"scnsim.{domain}_chunk", "schema_version": 1,
+                **identity, "ordinal": ordinal, "first_point": first_point,
+                "point_count": count, **dict(payload),
+            }
+            reference = tx.put_object(record_bytes(body), role=f"{domain}_chunk")
+            chunk_rows.append({
+                "ordinal": ordinal, "first_point": first_point, "point_count": count,
+                "chunk_ref": reference, "summary_json": dict(chunk_summary),
+            })
+            point_count += count
+
+        if domain == "direct":
+            expected = request["spec"].get("frequencies", ())
+            if point_count != len(expected):
+                raise _error("Direct chunk rows differ from the canonical frequency count.",
+                             expected=len(expected), actual=point_count)
+        elif source.get("kind") == "points":
+            expected = len(source["points"])
+            if point_count != expected:
+                raise _error("Sweep chunk rows differ from the canonical point count.",
+                             expected=expected, actual=point_count)
+        else:
+            expected = 1
+            for dimension in source["shape"]:
+                expected *= dimension
+            if point_count != expected:
+                raise _error("Sweep chunk rows differ from the canonical grid size.",
+                             expected=expected, actual=point_count)
+        if domain == "sweep":
+            try:
+                next(expected_sweep_points)
+            except StopIteration:
+                pass
+            else:
+                raise _error("Sweep chunks omit request-declared points.",
+                             actual=point_count)
+
+        result_body = {
+            "schema": f"scnsim.{domain}_result", "schema_version": 1,
+            **identity, "type": domain, "manifest_ref": manifest_ref,
+            "point_count": point_count, "chunk_count": len(chunk_rows),
+            "summary": _externalize_sweep_summary(tx, summary)
+            if domain == "sweep" else dict(summary),
+        }
+        result_ref = tx.put_object(record_bytes(result_body), role="operation_result")
+        root_body = {
+            "schema": f"scnsim.{domain}_index_root", "schema_version": 1,
+            **identity, "result_ref": result_ref, "manifest_ref": manifest_ref,
+            "request_ref": dict(request_ref), "point_count": point_count,
+            "chunk_count": len(chunk_rows), "chunks": chunk_rows,
+        }
+        if domain == "sweep":
+            root_body["status_summary"] = status_counts
+        index_root_ref = tx.put_object(record_bytes(root_body), role=f"{domain}_index_root")
+        terminal_attempt = dict(attempt)
+        artifacts = list(terminal_attempt.get("artifacts", ()))
+        for reference in (result_ref, manifest_ref, index_root_ref):
+            if reference not in artifacts:
+                artifacts.append(reference)
+        terminal_attempt.update(status="success", failure=None, interruption=None,
+                                artifacts=artifacts)
+        attempt_ref = tx.put_object(record_bytes(terminal_attempt), role="attempt")
+        completion_body = {
+            "schema": f"scnsim.{domain}_completion", "schema_version": 1,
+            **identity, "result_ref": result_ref, "manifest_ref": manifest_ref,
+            "index_root_ref": index_root_ref, "terminal_attempt_ref": attempt_ref,
+            "point_count": point_count, "chunk_count": len(chunk_rows),
+        }
+        completion_ref = tx.put_object(record_bytes(completion_body), role=f"{domain}_completion")
+        event = {"task_id": task_id, "sequence": sequence,
+                 "kind": f"{domain}_terminal",
+                 "payload": {"attempt_id": attempt_id, "outcome": "success",
+                             "result": result_ref, f"{domain}_completion": completion_ref}}
+        tx.append_with_ref(
+            _stream(task_id), "task_change",
+            record_bytes({"kind": "event", "event": event,
+                          "artifacts": [result_ref, completion_ref]}),
+        )
+        attempt_change = {"kind": "attempt_update", "attempt_id": attempt_id,
+                          "status": "success", "failure": None, "interruption": None,
+                          "checkpoint": None,
+                          "artifacts": [result_ref, manifest_ref, index_root_ref, completion_ref]}
+        _, state_ref = tx.append_with_ref(_stream(task_id), "task_change",
+                                          record_bytes(attempt_change))
+        tx.set_pointer(f"attempt/{task_id}/{attempt_id}", attempt_ref)
+        tx.set_pointer(f"current_attempt/{task_id}", attempt_ref)
+        tx.set_pointer(_attempt_state_pointer(task_id, attempt_id), state_ref)
+        tx.set_pointer(f"completion/{task_id}/{attempt_id}", completion_ref)
+        next_ref = tx.put_object(record_bytes({"next_sequence": sequence + 1}), role="event_sequence")
+        tx.set_pointer("event_sequence/" + task_id, next_ref)
+        selector = {
+            "event": "request_success_selected", "request_sha256": descriptor["request_sha256"],
+            "task_id": task_id, "attempt_id": attempt_id, "result_ref": result_ref,
+            f"{domain}_completion": completion_ref,
+        }
+        selector_ref = tx.put_object(record_bytes(selector), role="success_selection")
+        tx.select_first("success/" + descriptor["request_sha256"], selector_ref)
+    return {
+        "result_ref": result_ref, "manifest_ref": manifest_ref,
+        "index_root_ref": index_root_ref, "completion_ref": completion_ref,
+        "attempt_ref": attempt_ref,
+        "ack": {"committed": True, "transaction_id": transaction_id,
+                "outcome": "success", "point_count": point_count,
+                "chunk_count": len(chunk_rows)},
+    }
+
+
+def _externalize_sweep_point(tx, point):
+    """Store immutable dependency/evidence bodies once, leaving point locators.
+
+    The public fixed reader hydrates these exact references when a single point
+    is selected. Compact sweep indexes never read or duplicate numerical bodies.
+    """
+    if not isinstance(point, Mapping):
+        raise _error("Sweep point is malformed while externalizing its bodies.")
+    stored = dict(point)
+    _externalize_sweep_record(tx, stored)
+    continuations = stored.get("continuations")
+    if continuations is not None:
+        if not isinstance(continuations, list):
+            raise _error("Sweep continuation records are malformed.")
+        stored["continuations"] = [
+            _externalize_sweep_record(tx, continuation)
+            for continuation in continuations
+        ]
+    return stored
+
+
+def _externalize_sweep_summary(tx, summary):
+    stored = dict(summary)
+    anchor = stored.get("root_anchor")
+    if anchor is None:
+        return stored
+    if not isinstance(anchor, Mapping):
+        raise _error("Sweep root-anchor summary is malformed.")
+    anchor_record = dict(anchor)
+    baseline = anchor_record.get("baseline")
+    if not isinstance(baseline, Mapping):
+        raise _error("Sweep root-anchor baseline is malformed.")
+    anchor_record["baseline"] = _externalize_sweep_record(tx, baseline)
+    stored["root_anchor"] = anchor_record
+    return stored
+
+
+def _externalize_sweep_record(tx, record):
+    if not isinstance(record, Mapping):
+        raise _error("Sweep evidence record is malformed.")
+    stored = dict(record)
+    if "evidence" in stored:
+        if "evidence_ref" in stored:
+            raise _error("Sweep evidence record repeats inline and referenced evidence.")
+        evidence = stored.pop("evidence")
+        if not isinstance(evidence, Mapping):
+            raise _error("Sweep evidence body is malformed.")
+        stored["evidence_ref"] = tx.put_object(record_bytes(evidence), role="benchmark_value")
+    if "dependencies" in stored:
+        if "dependency_refs" in stored:
+            raise _error("Sweep point repeats inline and referenced dependencies.")
+        dependencies = stored.pop("dependencies")
+        stored["dependency_refs"] = _physical_dependency_references(tx, dependencies)
+    failure = stored.get("failure")
+    if isinstance(failure, Mapping) and "evidence" in failure:
+        if "evidence_ref" in failure:
+            raise _error("Sweep failure repeats inline and referenced evidence.")
+        failure_record = dict(failure)
+        evidence = failure_record.pop("evidence")
+        if not isinstance(evidence, Mapping):
+            raise _error("Sweep failure evidence body is malformed.")
+        failure_record["evidence_ref"] = tx.put_object(
+            record_bytes(evidence), role="benchmark_value"
+        )
+        stored["failure"] = failure_record
+    return stored
+
+
+def complete_direct_operation(binding, *, operation_id, task_id, attempt_id,
+                               metadata, chunks, summary=None):
+    return _complete_chunked_operation(
+        binding, domain="direct", operation_id=operation_id, task_id=task_id,
+        attempt_id=attempt_id, metadata=metadata, chunks=chunks,
+        summary={} if summary is None else summary,
+    )
+
+
+def complete_sweep_operation(binding, *, operation_id, task_id, attempt_id,
+                             metadata, chunks, summary=None):
+    return _complete_chunked_operation(
+        binding, domain="sweep", operation_id=operation_id, task_id=task_id,
+        attempt_id=attempt_id, metadata=metadata, chunks=chunks,
+        summary={} if summary is None else summary,
+    )
 
 
 def _physical_stage_stream(task_id, attempt_id):

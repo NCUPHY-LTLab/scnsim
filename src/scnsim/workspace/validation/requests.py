@@ -42,10 +42,10 @@ _JAX_RUNTIME_SEMANTIC_FIELDS = frozenset({
     "jax_version", "jaxlib_version", "cmaes_version", "resources",
 })
 _JAX_ALGORITHMS = {
-    "solve_direct": "scnsim.jax.physical_program.direct.v1",
-    "evaluate_direct": "scnsim.jax.physical_program.evaluate.v1",
-    "optimize_direct": "scnsim.jax.physical_program.optimize.v1",
-    "sensitivity": "scnsim.jax.physical_program.sensitivity.v1",
+    "solve_direct": "scnsim.jax.native_physical.direct.v1",
+    "evaluate_direct": "scnsim.jax.native_physical.evaluate.v1",
+    "optimize_direct": "scnsim.jax.native_physical.optimize.v1",
+    "sensitivity": "scnsim.jax.native_physical.sensitivity.v1",
 }
 _JAX_RESOURCE_FIELDS = frozenset({
     "cpu_threads", "pjrt_nproc", "allocation_policy", "optimization_workers",
@@ -790,13 +790,11 @@ def _verify_v1_direct_spec(spec: object, terminal: list[str], port_realizable: b
     frequencies = spec.get("frequencies")
     if not isinstance(frequencies, list) or not frequencies:
         raise _integrity("Direct solve frequency grid is malformed.")
-    previous = 0.0
     for frequency in frequencies:
         _verify_quantity_role(frequency, complex_value=False, unit="hertz", dimensionality="inverse_time")
         value = _f64_value(frequency["si_value_f64"])
-        if value <= previous:
-            raise _integrity("Direct solve frequency grid is not strictly positive and increasing.")
-        previous = value
+        if value <= 0.0:
+            raise _integrity("Direct solve frequency must be strictly positive.")
     traces = spec.get("traces")
     if not isinstance(traces, list):
         raise _integrity("Direct trace declarations are malformed.")

@@ -12,6 +12,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
+import sys
 from threading import Lock, RLock, local
 from time import perf_counter_ns
 from typing import Callable, Iterator, Mapping, Sequence
@@ -222,6 +223,7 @@ class OperationRecorder:
         self._operation: str | None = None
         self._numerical_refs: list[dict[str, object]] = []
         self._details: dict[str, object] = {}
+        self._process_memory: dict[str, object] = {}
         self._end_tick_ns: int | None = None
         self._status = "running"
 
@@ -229,6 +231,20 @@ class OperationRecorder:
         if self._entered:
             raise RuntimeError("operation recorder cannot be entered twice")
         self._entered = True
+        from .memory import process_memory_snapshot
+
+        try:
+            self._process_memory["start"] = process_memory_snapshot(
+                boundary="operation_start"
+            )
+        except Exception as error:
+            self._process_memory["start"] = {
+                "scope": "current_process",
+                "platform": sys.platform,
+                "boundary": "operation_start",
+                "metrics": {},
+                "sample_error": type(error).__name__,
+            }
         from ..workspace.evidence import start_operation
 
         with self.binding.writer():  # type: ignore[attr-defined]
@@ -240,6 +256,20 @@ class OperationRecorder:
         if self._closed:
             return False
         self._closed = True
+        from .memory import process_memory_snapshot
+
+        try:
+            self._process_memory["end"] = process_memory_snapshot(
+                boundary="operation_end"
+            )
+        except Exception as caught:
+            self._process_memory["end"] = {
+                "scope": "current_process",
+                "platform": sys.platform,
+                "boundary": "operation_end",
+                "metrics": {},
+                "sample_error": type(caught).__name__,
+            }
         status = "success" if error is None else (
             "interrupted" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "failure"
         )
@@ -701,6 +731,13 @@ class OperationRecorder:
                 pass
 
     def root_row(self) -> dict[str, object]:
+        details = dict(self._details)
+        if self._process_memory:
+            details["process_memory"] = {
+                "schema": "scnsim.process_memory_snapshot_pair",
+                "schema_version": 1,
+                "samples": dict(self._process_memory),
+            }
         return {
             "operation_id": self.operation_id,
             "method": self.method,
@@ -720,7 +757,7 @@ class OperationRecorder:
             "end_ns": (
                 None if self._end_tick_ns is None else self._end_tick_ns - self._origin_ns
             ),
-            "details": dict(self._details),
+            "details": details,
             "numerical_refs": [dict(item) for item in self._numerical_refs],
         }
 

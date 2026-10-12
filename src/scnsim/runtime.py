@@ -17,6 +17,9 @@ from time import perf_counter_ns
 from weakref import ref as weakref
 from uuid import uuid4
 
+from .execution.prepared_function import PreparedFunction
+from .execution.policy import ExecutionPolicy
+from .execution.compile_owner import CompileOwner
 from .workspace.operation_lease import operation_lease
 
 from .execution.run_lifecycle import RunLifecycle, run_activity
@@ -90,6 +93,7 @@ from .specs import (
     OptimizationSpec,
     CMAESSpec,
     SensitivitySpec,
+    FixedMeshSpec,
     AcceptedIterateSelection,
     LBFGSBSpec,
     HybridSpec,
@@ -275,6 +279,7 @@ class CircuitRun:
         "_affine_plan",
         "_source_provenance",
         "_warm_executables",
+        "_execution_policy",
     )
 
     def __init__(
@@ -286,6 +291,7 @@ class CircuitRun:
         backend: str = "jax",
         precision: str = "float64",
         timing: str = "aggregate",
+        execution_policy: ExecutionPolicy | None = None,
     ) -> None:
         if not isinstance(plan, CircuitPlan):
             raise TypeError("plan must be a CircuitPlan")
@@ -294,8 +300,11 @@ class CircuitRun:
         self._backend, self._precision = self._backend_options(backend, precision)
         self._timing = self._timing_options(timing)
         self._lifecycle = RunLifecycle()
+        if execution_policy is not None and not isinstance(execution_policy, ExecutionPolicy):
+            raise TypeError("execution_policy must be ExecutionPolicy or None")
+        self._execution_policy = ExecutionPolicy() if execution_policy is None else execution_policy
         # Run-owned executable entries exclude Plan/coefficient/result bodies.
-        self._warm_executables = {}
+        self._warm_executables = CompileOwner(policy=self._execution_policy)
         with plan._run_seal_preparation() as seal_token:
             self._prepare_run(
                 plan=plan,
@@ -649,10 +658,46 @@ class CircuitRun:
         return tuple({"id": label, "quantity": bind(quantity)} for label, quantity in quantities.items())
 
     @run_activity
+    def prepare(
+        self, *, quantities: Mapping[str, object],
+        parameters: ParameterSet | None = None,
+        wrt: Sequence[ParameterRef] | None = None,
+        discretization: FixedMeshSpec | None = None,
+        precision: str | None = None,
+    ) -> PreparedFunction:
+        """Acquire a detached physical callable; do not solve or publish Results.
+
+        Compilation expands ordered structured continuous coordinates. Omitted
+        wrt selects its canonical captured continuous order. Remaining effective
+        point values are constants, without any Run/Workspace closure capture.
+        """
+        from .compilation.prepared_function import compile_prepared_function
+
+        backend, selected_precision = self._selected_backend(None, precision)
+        if backend != "jax":
+            raise RuntimePreparationError("CircuitRun.prepare requires the JAX backend", stage="runtime_prepare")
+        declarations = self._sensitivity_quantities(quantities, encoded=True)
+        point = self._complete_parameters(parameters)
+        active = None if wrt is None else tuple(
+            _parameter_key(self._compatible_parameter(parameter)) for parameter in wrt
+        )
+        if discretization is not None and not isinstance(discretization, FixedMeshSpec):
+            raise TypeError("discretization must be FixedMeshSpec or None")
+        return compile_prepared_function(
+            plan_document=self._plan_document,
+            quantity_declarations=declarations,
+            parameter_record=point.parameter_record,
+            wrt=active,
+            mesh=None if discretization is None else discretization._canonical_record(),
+            precision=selected_precision,
+            program_owner=self._warm_executables,
+        )
+
+    @run_activity
     def dependencies(self, *, quantities: Mapping[str, object]):
         """Read declared physical consumers without mesh or device preparation."""
         from .compilation.dependencies import describe_dependencies
-        declarations = self._sensitivity_quantities(quantities, encoded=False)
+        declarations = self._sensitivity_quantities(quantities, encoded=True)
         return describe_dependencies(self._plan_document, declarations,
                                      self._baseline_point.parameter_record)
 
@@ -695,32 +740,51 @@ class CircuitRun:
                 bound_spec=spec, trace=trace,
                 precision=precision, backend=backend,
                 program_owner=self._warm_executables,
+                execution_policy=self._execution_policy,
             )
 
     @run_activity
     def warmup(
         self,
-        view: NetworkViewRef,
-        spec: object,
+        view: NetworkViewRef | PreparedFunction,
+        spec: object | None = None,
         *,
         parameters: ParameterSet | None = None,
+        transforms: Sequence[str] = ("value",),
+        batch_shapes: Sequence[tuple[int, ...]] = (),
     ):
-        """Prepare exact JAX signatures without solving or storing success."""
-        from .execution.warmup import prepare_warmup
+        """Compile declared signatures from detached or view/spec acquisition.
+
+        batch_shapes declare leading theta point-batch dimensions. Compilation
+        performs no solve or successful evidence publication.
+        """
+        from .execution.warmup import prepare_warmup, warm_prepared
 
         if self._backend != "jax":
             raise RuntimePreparationError('CircuitRun.warmup requires backend="jax"', stage="warmup")
+        if isinstance(view, PreparedFunction):
+            if spec is not None or parameters is not None:
+                raise TypeError("prepared warmup does not take a spec or parameters")
+            with operation_lease(self._binding, str(uuid4())):
+                return warm_prepared(view, executable_owner=self._warm_executables,
+                                     transforms=transforms, batch_shapes=batch_shapes)
         self._require_ref(view)
-        self._require_backend_spec("jax", self._precision, spec)
-        operation = ("optimize_direct" if isinstance(spec, OptimizationSpec) else
-                     "solve_direct" if isinstance(spec, DirectSolveSpec) else "evaluate_direct")
-        prepared = self._prepare_analysis(operation, view, spec, parameters,
-                                          backend="jax", precision=self._precision)
+        if isinstance(spec, SensitivitySpec):
+            # Each finalized expression leaf owns its exact View; this argument
+            # verifies Run ownership rather than imposing a single leaf View.
+            prepared = self._prepare_sensitivity(spec, parameters, precision=self._precision)
+        else:
+            self._require_backend_spec("jax", self._precision, spec)
+            operation = ("optimize_direct" if isinstance(spec, OptimizationSpec) else
+                         "solve_direct" if isinstance(spec, DirectSolveSpec) else "evaluate_direct")
+            prepared = self._prepare_analysis(operation, view, spec, parameters,
+                                              backend="jax", precision=self._precision)
         with operation_lease(self._binding, str(uuid4())):
             return prepare_warmup(
                 plan_document=self._plan_document, analysis=prepared,
                 precision=self._precision, executable_owner=self._warm_executables,
                 baseline_parameters=self._baseline_point.parameter_record,
+                transforms=transforms, batch_shapes=batch_shapes,
             )
 
     @run_activity
@@ -1758,6 +1822,7 @@ class CircuitRun:
                 checkpoint_policy=checkpoint_policy, resume_from=resume_from, restart_from=restart_from,
                 commit_every_generations=commit_every_generations, trace=trace,
                 program_owner=self._warm_executables,
+                execution_policy=self._execution_policy,
             )
         from .execution.coordinator import execute_prepared
 

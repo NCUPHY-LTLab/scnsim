@@ -8,9 +8,10 @@ The reader-facing [Simulation conventions](concepts/simulation-conventions.qmd)
 connect these version-bound rules to the canonical phasor, wave-reference, and
 linewidth definitions without adding a second runtime contract.
 
-## Differentiable physical program target (dev26) {#physical-program-target}
+## JAX-native physical program target (dev27) {#physical-program-target}
 
-This is the **CONVERGING dev26 source candidate**. Its interfaces are implemented;
+This is the **CONVERGING dev27 candidate**. The native callable replacement is
+being implemented; previous observations retain their original identities;
 source implementation does not establish native coverage, accuracy or Human acceptance. One physical program maps ordered
 real scalar parameter coordinates to physical quantities. Direct evaluation,
 sweeps, dependency queries, Sensitivity and Optimization consume that same
@@ -31,8 +32,101 @@ $(i,j)$ has units $q_i/\theta_j$, with ordered input/output axes. Explicit scale
 and optimizer coordinate chain rules are recorded separately from physical
 derivatives. Only the requested derivative mode is stored; reading JVP/VJP
 never executes a missing full Jacobian.
+Each output expression uses its own ordered leaf mapping into the shared
+physical frame. Repeated leaves, mixed Views and real/imaginary projections
+retain the declared occurrence and unit; a local leaf ordinal is not a global
+observable index. Primal and derivative public projection share this mapping.
+
+### Detached callable and scheduling ownership
+
+`run.prepare(quantities=..., parameters=..., wrt=..., discretization=...,
+precision=...)` acquires a detached `PreparedFunction` from the same physical
+Quantity/View declarations. Omitted `wrt` selects captured continuous parameters
+in canonical order. Remaining supplied point values are constants. Its
+`numeric_function(theta_SI, omega_rad_per_s, seeds)` returns packed values and
+fixed-shape auxiliary status. Immutable layouts bind units, axes, real/imaginary
+components, fixed mesh, branch controls and selected dtype. The caller-held
+function remains usable after `Run.close()` without retaining Run or Workspace.
+Raw outputs have no certified Result or publication authority. High-level checked
+Sensitivity retains separate primal and derivative failures; successful primal
+auxiliary status cannot hide a failed tangent or adjoint. Native transforms use
+the original callable, never an AOT executable. The replacement has no parallel
+physical evaluator or generic Python AD interpreter.
+
+`CircuitRun(..., execution_policy=ExecutionPolicy())` supplies optional resource
+settings; omission uses the same defaults. ExecutionPolicy is separate from
+numerical request identity. Defaults
+are eight-frequency chunks, in-flight work resolved from worker capacity,
+the optional `max_in_flight` setting and scratch estimates, a 256 MiB scratch target,
+and owner-local compile limits of
+16 static entries, 16 variants and 256 MiB known bytes. The configured positive
+`frequency_chunk_size` selects the main bucket; warmup uses that same bucket
+and a stable size-one tail, deduplicated when the main bucket is one.
+Unknown per-frequency scratch estimates use one ready slot. The scratch target
+also bounds operation-local output batching; neither role promises an OS
+residency limit. A legitimate individual item exceeding the scratch target is not
+rejected, remeshed or silently recast. One primary parallel axis governs frequency
+or candidate work. Estimate-based frequency admission is required by this
+candidate contract. Current native factor fill and backend working-set totals
+are unknown, so admission uses one slot; known matrix-output bytes are a
+diagnostic lower bound, not a total estimate. Actual resource observations
+remain bound to their installed candidate. Static entries and prepared handles are pinned through actual
+synchronization; finite owner-local eviction releases unused entries. All-pinned
+overflow remains operation-owned. Unknown byte counts remain unknown; no global
+cache purge is performed. `run.warmup(prepared, transforms=("value", "jvp", "vjp"))` and the existing
+`run.warmup(view, spec, parameters=...)` form use the same preparation authority,
+report prepared versus lazy signatures, and do not solve or publish success.
+Raw aggregate transforms and high-level candidate/frequency-chunk variants are
+distinct compiled signatures. A raw aggregate compile does not establish a
+chunk warm hit: reuse requires the same provider callable/key, shape, dtype,
+device and fixed capability partition. Known main/tail chunks and declared root/coupling value signatures are
+reported separately. Root packet shapes come from abstract evaluation, and
+compilation does not run Newton or sparse solves. Unrequested derivative or
+future signatures stay lazy. Known checked candidate/joint-branch linearization
+producers may also prepare for Sensitivity or explicit derivative transforms.
+Their frame consumers remain lazy until the SAME cached producer supplies its
+exact Partial static metadata; matching array shapes alone do not establish
+reuse. Sensitivity warmup binds its finalized leaf Views, point, active
+coordinates and discretization through the existing Sensitivity producer.
+Explicit `batch_shapes` are leading theta point-batch dimensions. Warmup
+reports compile time, reuse, admission and cache counts; generated code bytes
+do not establish total executable residency, which remains unknown. Native
+transform and resource observations remain pending for this candidate.
 
 ### Fixed discretization and derivative boundaries
+
+The checked Sensitivity host chooses forward Jacobian columns when the active
+input count does not exceed the packed real output count, otherwise reverse
+rows. It reuses one linearization or pullback and maps directions in blocks of
+eight; this is an execution strategy, not a scientific size limit. Explicit JVP
+and VJP keep their requested direction or cotangent and do not materialize a
+missing full Jacobian. Sparse, dense and paired equation primitives carry actual
+primal/tangent/mixed/adjoint role, derivative order, occurrence dependency and
+performed certificate facts. A successful primal certificate does not certify
+an unavailable or failed derivative equation.
+Mapped roots execute scalar primal control sequentially under the pinned JAX
+checkify boundary, preserving Newton early exit, status and iteration policy.
+The scalar checked Error and packet cross that mapping together; owned checks
+are reintroduced outside its opaque call rather than replaced by status alone.
+The finite archive bridge retains owned equation site/role/order/dependency and
+mapped-lane presence/code payloads while exposing scalar first-failure control.
+Raw callers do not acquire high-level certification from that debug bridge.
+Their implicit derivative remains the closed local equation; this mapping is
+not a promise of parallel root searches or reverse AD through Newton history.
+Blocked directions carry ordered check payloads associated with their actual
+basis column or output row; the outer primal check remains separate. Successful
+Sensitivity publication seals one shared equation-evidence body in the same
+completion transaction. Quantities reference that body rather than duplicating
+its certificates. Unavailable reasons are compact descriptors, not retained
+check objects or numerical frames.
+
+High-level response derivatives use bounded residual state for the selected
+chunk. Reverse composition across frequencies may require explicit bounded
+replay of chunk work after a compact output projection; this is not a promise
+of zero recomputation or a whole-response retained tape. A caller-held raw
+PreparedFunction has different ownership: JAX transformations may retain their
+own residuals, which remain the caller's responsibility rather than a certified
+high-level resource or Result guarantee.
 
 A Sensitivity point or any optimization stage, including CMA-ES, binds realized sections, sparse pattern, matrix shapes,
 coordinate order and retained/eliminated partition. Finite declared length
@@ -189,7 +283,7 @@ implementation responsibilities without a parallel physical-program contract.
 
 ## Package ownership and lifecycle {#package-lifecycle}
 
-The dev26 **CONVERGING source candidate** retains the ownership and lazy
+The dev27 **CONVERGING source candidate** retains the ownership and lazy
 Result boundary established in dev24 and uses SQLite operation evidence v7.
 The physical-program section above owns the new derivative and optimizer
 semantics; this section owns lifecycle and storage responsibilities.
@@ -1865,9 +1959,13 @@ Y_{\mathrm{circ}}(\omega)
 $$
 
 `DirectSolveSpec.frequencies` is one SCNSim-registry frequency Quantity whose
-magnitude is a non-empty, one-dimensional, finite, strictly increasing,
-duplicate-free grid with every $f>0$. The first slice rejects scalar, ragged,
-unordered, repeated, zero, and negative grids before starting an attempt.
+magnitude is a non-empty, one-dimensional, finite grid with every $f>0$.
+Direct and Operator response requests retain the exact declared occurrence
+order, including repeated frequencies and reverse grids. Shared fixed-frequency
+work may reuse an identical declared equation, but the returned axes gather
+every original occurrence. Scalar, ragged, zero, and negative grids remain
+invalid. Frozen Julia reference execution retains its own grid capability
+boundary; this JAX response contract does not change HB frequency ordering.
 
 At each grid point the angular frequency used in $D(\omega)$ and
 $Y_{\mathrm{circ}}(\omega)$ is $\omega=2\pi f$ after coherent-SI conversion.
@@ -2076,21 +2174,22 @@ evidenced.
 
 ## Optimization and numerical scaling
 
-The dev26 CONVERGING preparation/display and generation-owner boundary is documented in
+The dev27 CONVERGING preparation/display and resource-owner boundary is documented in
 [Execution backends](implementation/benchmark-and-backends.qmd#warm-preparation-progress-and-evidence-residency).
 `CircuitRun.warmup(view, spec, *, parameters=None)` prepares JAX signatures and
 returns immutable preparation facts without numerical execution or stored
-success. Its real preparation-only path obtains exact pure assembly callables
-and shape/dtype descriptors, then lowers/compiles them without calling assembly,
-sparse solve, Newton or a trial optimizer evaluation. Sparse and implicit AD
-signatures remain lazy; prepared arithmetic is not an all-operation warmness
-or performance claim. The explicit warm holder is scoped by actual device and
-canonical program identity, including dtype. Only warmup admits static
-transformable programs and prepared assembly handles. Later matching numerical
-operations may borrow them; unmatched candidate/stage programs remain
-operation-owned and are not automatically added to the Run. Prepared binaries
-serve primal assembly while AD transforms the original callable, not an AOT
-executable. Point operands, tapes, factors and Results are not warm entries. `optimize(progress=True)` adds a transient observer distinct from the
+success. Its preparation-only path lowers exact shape/dtype signatures without executing
+assembly, a sparse solve, Newton or a trial optimizer evaluation. The summary
+identifies raw `PreparedFunction` transforms separately from high-level candidate
+and frequency-chunk variants. Only an identical producer key and signature can
+be reported as a later warm hit; aggregate compilation is not evidence of chunk
+reuse. Explicit transforms and batch shapes are compiled as declared; unknown
+sparse/implicit derivative shapes and future stage shapes remain lazy. The warm
+holder follows actual device, canonical structural identity, dtype and fixed
+capability partition. Static transformable programs and prepared handles use
+bounded owner-local admission and active pins. Transient point operands, tapes,
+factors and Results stay operation-owned. AD transforms the original callable,
+never an AOT executable. `optimize(progress=True)` adds a transient observer distinct from the
 durable callback; it cannot change numeric request identity or commit policy.
 Display failures warn and disable display, while durable callback failures keep
 their existing error contract. Private uncommitted-generation scratch is not a
@@ -2100,8 +2199,8 @@ the synchronized result is observed, before recursion. The current stage owns
 its fixed-model physical program and prepared variants; call-local frames,
 factors, outcomes and ready-batch packets end after ordered consumption.
 Candidate caches keep lightweight spool references rather than numerical
-frames or full histories. Only explicit warmup retains admitted static programs
-and prepared handles on the Run; unmatched operation programs remain
+frames or full histories. Only bounded static programs and prepared handles
+belong to the Run compile owner; unmatched transient operation state remains
 operation-owned. Static shape changes between declared models may incur
 recompilation. Native allocator or mapped-memory retention differs from live
 owner references; releasing references does not guarantee immediate RSS return.

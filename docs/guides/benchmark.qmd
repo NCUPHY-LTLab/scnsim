@@ -223,6 +223,14 @@ The operation status describes whether the public call completed; per-point
 statuses describe numerical outcomes. A completed sweep is not a claim that all
 points succeeded. Single-point numerical failures still raise typed errors.
 
+ExecutionPolicy chunking, in-flight capacity, scratch estimates and compile-owner
+cache hits, misses, pins, eviction and known/unknown retained bytes describe
+resource choices independently of the numerical request. Timing rows carry
+compact contexts, not scientific bodies or task-span copies. A missing or
+unmeasured interval remains unknown, rather than zero. Aggregated frequency
+spans cannot reconstruct a per-event timeline. Cache residency and sampled
+memory are not scientific success or forward-accuracy evidence.
+
 The timeline shows operation roots below their actual child details, with zoom,
 collapse, cursor inspection, counts and filters. It distinguishes compilation
 from verified result reuse and references ordered numerical evidence without

@@ -34,10 +34,28 @@ def finish_operation(binding, row, *, failure=None):
 
 
 def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id,
-                                    manifest, result_summary, blocks, outcome):
+                                    manifest, result_summary, blocks, outcome,
+                                    equation_evidence):
     return _store().complete_sensitivity_operation(
         binding, operation_id=operation_id, task_id=task_id, attempt_id=attempt_id,
         manifest=manifest, result_summary=result_summary, blocks=blocks, outcome=outcome,
+        equation_evidence=equation_evidence,
+    )
+
+
+def complete_direct_operation(binding, *, operation_id, task_id, attempt_id,
+                               metadata, chunks, summary=None):
+    return _store().complete_direct_operation(
+        binding, operation_id=operation_id, task_id=task_id, attempt_id=attempt_id,
+        metadata=metadata, chunks=chunks, summary=summary,
+    )
+
+
+def complete_sweep_operation(binding, *, operation_id, task_id, attempt_id,
+                             metadata, chunks, summary=None):
+    return _store().complete_sweep_operation(
+        binding, operation_id=operation_id, task_id=task_id, attempt_id=attempt_id,
+        metadata=metadata, chunks=chunks, summary=summary,
     )
 
 

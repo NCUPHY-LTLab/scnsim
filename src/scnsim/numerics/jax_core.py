@@ -171,16 +171,18 @@ def _assemble_standard(data, omega, *, loaded, derivative):
     return Q, Qp, bound, status
 
 
-def _assemble_compensated(data, omega, *, loaded, derivative):
+def _assemble_compensated(data, omega, *, loaded, derivative, arithmetic=None):
     """Retained-Z-only indexed expansion, after selected-dtype input casts.
 
     Local inverse coefficients and their status retain C2 authority. Subsequent
     products and coalescing keep same-dtype arithmetic residues; no symmetry
     projection, alternate precision or full-node dense matrix is introduced.
     """
-    from . import compensated as cp
-    barrier = jax.lax.optimization_barrier
-    kw = dict(xp=jnp, barrier=barrier)
+    if arithmetic is None:
+        from . import compensated as cp
+        kw = dict(xp=jnp, barrier=jax.lax.optimization_barrier)
+    else:
+        cp, kw = arithmetic, {}
     def pair(value):
         return cp.from_value(jnp.asarray(value, dtype=omega.dtype), xp=jnp)
     def scatter(values, indices, size):

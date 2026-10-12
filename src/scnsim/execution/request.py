@@ -30,17 +30,17 @@ _JAX_ALGORITHMS = {
     # the coarse operation name; they deliberately resolve to that same
     # operation identity rather than preserving the superseded per-quantity
     # identities.
-    "solve_direct": "scnsim.jax.physical_program.direct.v1",
-    "evaluate_direct": "scnsim.jax.physical_program.evaluate.v1",
-    "diagonal_root": "scnsim.jax.physical_program.evaluate.v1",
-    "response_element": "scnsim.jax.physical_program.evaluate.v1",
-    "operator_element_root": "scnsim.jax.physical_program.evaluate.v1",
-    "hybridized_pole": "scnsim.jax.physical_program.evaluate.v1",
-    "transfer_zero": "scnsim.jax.physical_program.evaluate.v1",
-    "residue_normalized_coupling": "scnsim.jax.physical_program.evaluate.v1",
-    "operator": "scnsim.jax.physical_program.evaluate.v1",
-    "optimize_direct": "scnsim.jax.physical_program.optimize.v1",
-    "sensitivity": "scnsim.jax.physical_program.sensitivity.v1",
+    "solve_direct": "scnsim.jax.native_physical.direct.v1",
+    "evaluate_direct": "scnsim.jax.native_physical.evaluate.v1",
+    "diagonal_root": "scnsim.jax.native_physical.evaluate.v1",
+    "response_element": "scnsim.jax.native_physical.evaluate.v1",
+    "operator_element_root": "scnsim.jax.native_physical.evaluate.v1",
+    "hybridized_pole": "scnsim.jax.native_physical.evaluate.v1",
+    "transfer_zero": "scnsim.jax.native_physical.evaluate.v1",
+    "residue_normalized_coupling": "scnsim.jax.native_physical.evaluate.v1",
+    "operator": "scnsim.jax.native_physical.evaluate.v1",
+    "optimize_direct": "scnsim.jax.native_physical.optimize.v1",
+    "sensitivity": "scnsim.jax.native_physical.sensitivity.v1",
 }
 
 

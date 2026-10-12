@@ -182,7 +182,7 @@ def _quantity_magnitudes(quantity: Quantity) -> tuple[float, ...]:
     return values
 
 
-def _validate_frequency_grid(quantity: Quantity) -> None:
+def _validate_frequency_grid(quantity: Quantity, *, preserve_occurrences: bool = False) -> None:
     if not isinstance(quantity, Quantity) or quantity._REGISTRY is not units.registry:
         raise TypeError("frequencies must use the scnsim.units registry")
     try:
@@ -192,7 +192,7 @@ def _validate_frequency_grid(quantity: Quantity) -> None:
     values = _quantity_magnitudes(coherent)
     if any(value <= 0.0 for value in values):
         raise ValueError("frequencies must be strictly positive")
-    if any(right <= left for left, right in zip(values, values[1:])):
+    if not preserve_occurrences and any(right <= left for left, right in zip(values, values[1:])):
         raise ValueError("frequencies must be strictly increasing without duplicates")
 
 
@@ -328,7 +328,7 @@ class DirectSolveSpec:
     traces: tuple[SParameterTrace, ...] = ()
 
     def __init__(self, *, frequencies: Quantity, traces: Sequence[SParameterTrace] = ()) -> None:
-        _validate_frequency_grid(frequencies)
+        _validate_frequency_grid(frequencies, preserve_occurrences=True)
         checked = tuple(traces)
         if any(not isinstance(trace, SParameterTrace) for trace in checked):
             raise TypeError("traces must contain SParameterTrace values")
@@ -639,7 +639,7 @@ class OperatorSpec:
     frequencies: Quantity
 
     def __init__(self, *, frequencies: Quantity) -> None:
-        _validate_frequency_grid(frequencies)
+        _validate_frequency_grid(frequencies, preserve_occurrences=True)
         object.__setattr__(self, "frequencies", _detached_quantity(frequencies))
 
     @property

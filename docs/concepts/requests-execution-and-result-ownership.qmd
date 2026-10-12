@@ -75,6 +75,17 @@ The broader `Result` role also covers derived explanations, diagrams, and
 reports. Those values preserve their explicit inputs but do not fabricate an
 analysis-operation receipt.
 
+## Detached preparation and saved ownership
+
+`run.prepare` acquires a caller-owned transformable numeric function and exact
+immutable layouts. It cannot publish a Result and holds no Run or Workspace.
+Its lifetime may extend beyond `Run.close()`. High-level operations separately
+retain activity registration, synchronization, checked failure handling and
+atomic publication. A Direct/Sweep Result fixes its completion and chunk
+references; it neither retains that callable nor replays a task to load values.
+Owner-local compile-cache eviction releases unused static resources, not saved
+numerical evidence.
+
 ## Bodies, occurrences and completed generations
 
 A current JAX numerical body owns scientific values, intrinsic parameters,

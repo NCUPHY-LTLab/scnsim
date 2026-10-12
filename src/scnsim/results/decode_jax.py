@@ -37,6 +37,7 @@ from .matrix import (
     OperatorResult,
     ScatteringMatrixResult,
 )
+from .lazy_direct import DirectTraceMapping
 from .optimization_projection import decode_staged_optimization
 from .sweep import _parameter_sweep_result, _point_accessor, _point_outcome
 
@@ -293,6 +294,122 @@ def _point_result(identity, record, request):
     )
 
 
+def _direct_solve(identity, request, fixed_reader):
+    """Construct a Direct Result from compact axes and a fixed body reader."""
+    if fixed_reader is None:
+        raise EvidenceIntegrityError(
+            "Direct Solve decoding requires its exact fixed result reader",
+            stage="result_decode",
+        )
+    selection = getattr(fixed_reader, "selection", None)
+    metadata = getattr(fixed_reader, "metadata", None)
+    if (
+        selection is None
+        or not isinstance(metadata, Mapping)
+        or getattr(selection, "plan_sha256", None) != identity.plan_sha256
+        or getattr(selection, "request_sha256", None) != identity.request_sha256
+        or getattr(selection, "outcome", None) != "success"
+        or metadata.get("operation") != "solve_direct"
+    ):
+        raise EvidenceIntegrityError(
+            "Direct Solve reader is not bound to this exact successful request",
+            stage="result_decode",
+        )
+    if (
+        request.get("operation") != "solve_direct"
+        or request.get("parameter_source", {}).get("kind") != "point"
+    ):
+        raise EvidenceIntegrityError(
+            "Direct Solve request does not have its declared point source",
+            stage="result_decode",
+        )
+    frequencies = np.asarray(metadata["frequencies_hz"], dtype=np.float64)
+    if frequencies.ndim != 1 or frequencies.size != metadata["frequency_count"]:
+        raise EvidenceIntegrityError(
+            "Direct Solve frequency axis differs from its fixed metadata",
+            stage="result_decode",
+        )
+    coordinates = tuple(metadata["terminal_ids"])
+    channels = tuple(metadata["input_channels"])
+    output_channels = tuple(metadata["output_channels"])
+    units_by_family = metadata["family_units"]
+    if not isinstance(units_by_family, Mapping):
+        raise EvidenceIntegrityError(
+            "Direct Solve family units are missing from fixed metadata",
+            stage="result_decode",
+        )
+    identity_metadata = (
+        metadata.get("workspace_instance_id"),
+        metadata.get("plan_sha256"),
+        metadata.get("request_sha256"),
+        metadata.get("task_id"),
+        metadata.get("attempt_id"),
+    )
+    selected_identity = (
+        getattr(selection, "workspace_instance_id", None),
+        getattr(selection, "plan_sha256", None),
+        getattr(selection, "request_sha256", None),
+        getattr(selection, "task_id", None),
+        getattr(selection, "attempt_id", None),
+    )
+    if identity_metadata != selected_identity:
+        raise EvidenceIntegrityError(
+            "Direct Solve fixed metadata differs from its selected completion",
+            stage="result_decode",
+        )
+    if len(channels) != len(coordinates) or len(output_channels) != len(coordinates):
+        raise EvidenceIntegrityError(
+            "Direct Solve channels differ from its fixed terminal axis",
+            stage="result_decode",
+        )
+    presentation = {
+        "view": metadata["view"],
+        "ref_lineage": metadata["lineage"],
+        "spec": request["spec"],
+    }
+    frequency_quantity = units.registry.Quantity(frequencies, "hertz")
+
+    def family_result(name, result_type):
+        unit = units_by_family[name]
+        view = _verified_result(
+            MatrixView,
+            matrix=None,
+            frequencies=frequency_quantity,
+            coordinates=coordinates,
+            input_channels=channels,
+            output_channels=output_channels,
+            probe_loads=metadata["probe_loads"],
+            _fixed_reader=fixed_reader,
+            _matrix_family=name,
+            _matrix_unit=unit,
+        )
+        return _verified_result(
+            result_type,
+            view=view,
+            _parent_identity=identity,
+            _presentation=dict(presentation, family=name),
+        )
+
+    traces = DirectTraceMapping(
+        reader=fixed_reader,
+        channels=channels,
+        declarations=tuple(request["spec"]["traces"]),
+        frequencies=frequencies,
+        identity=identity,
+        presentation=presentation,
+    )
+    return _verified_result(
+        DirectSolveResult,
+        identity=identity,
+        discretization=_discretization(metadata["discretization"]),
+        frequencies=frequency_quantity,
+        s=family_result("S", ScatteringMatrixResult),
+        y=family_result("Y", MatrixFamilyResult),
+        z=family_result("Z", MatrixFamilyResult),
+        traces=traces,
+    )
+
+
 def _term_unit(selector):
     selector_type = selector["type"]
     if selector_type in {
@@ -443,6 +560,301 @@ def _sweep(decoder, identity, records, request):
         selector_encoder=selector_encoder, allowed_selectors=allowed)
 
 
+def _merge_source_parameters(base, overlay):
+    """Apply one sparse listed-point overlay in the declared binding order."""
+    def key(reference):
+        return reference["definitions_id"], reference["parameter_id"]
+
+    bindings = {key(row["parameter"]): dict(row) for row in base["bindings"]}
+    order = [key(row["parameter"]) for row in base["bindings"]]
+    for row in overlay["bindings"]:
+        parameter_key = key(row["parameter"])
+        if parameter_key not in bindings:
+            raise EvidenceIntegrityError(
+                "Listed sweep point references a parameter outside its baseline",
+                stage="result_decode",
+            )
+        bindings[parameter_key] = dict(row)
+    authorizations = {
+        key(reference): dict(reference)
+        for reference in (*base["allow_extrapolation"], *overlay["allow_extrapolation"])
+    }
+    return {
+        "type": "parameter_set_v2",
+        "bindings": [bindings[parameter_key] for parameter_key in order],
+        "allow_extrapolation": [authorizations[parameter_key] for parameter_key in sorted(authorizations)],
+    }
+
+
+def _declared_sweep_point(source, ordinal):
+    """Project one exact source position without consulting a stored point body."""
+    if isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal < 0:
+        raise IndexError(ordinal)
+    if source["kind"] == "points":
+        if ordinal >= len(source["points"]):
+            raise IndexError(ordinal)
+        return ordinal, _merge_source_parameters(
+            source["baseline_parameters"], source["points"][ordinal]
+        )
+    shape = tuple(source["shape"])
+    count = 1
+    for size in shape:
+        count *= size
+    if ordinal >= count:
+        raise IndexError(ordinal)
+    remainder = ordinal
+    indices = [0] * len(shape)
+    for axis_index in range(len(shape) - 1, -1, -1):
+        size = shape[axis_index]
+        indices[axis_index] = remainder % size
+        remainder //= size
+    overlay = {
+        "type": "parameter_set_v2",
+        "bindings": [
+            {"parameter": axis["parameter"], "value": axis["values"][indices[index]]}
+            for index, axis in enumerate(source["axes"])
+        ],
+        "allow_extrapolation": [],
+    }
+    return tuple(indices), _merge_source_parameters(source["base_parameters"], overlay)
+
+
+def _fixed_sweep(decoder, identity, request, projection, fixed_reader):
+    """Construct a lazy batch over one exact sealed Sweep selection."""
+    if fixed_reader is None:
+        raise EvidenceIntegrityError(
+            "JAX Sweep decoding requires its exact fixed result reader",
+            stage="result_decode",
+        )
+    selection = getattr(fixed_reader, "selection", None)
+    metadata = getattr(fixed_reader, "metadata", None)
+    source = request.get("parameter_source")
+    operation = request.get("operation")
+    spec = request.get("spec")
+    direct_points = (
+        operation == "solve_direct"
+        and isinstance(source, Mapping)
+        and source.get("kind") == "points"
+        and isinstance(spec, Mapping)
+        and spec.get("type") == "direct_solve"
+    )
+    evaluation_sweep = (
+        operation == "evaluate_direct"
+        and isinstance(source, Mapping)
+        and source.get("kind") in {"grid", "points"}
+    )
+    if (
+        selection is None
+        or not isinstance(metadata, Mapping)
+        or not isinstance(source, Mapping)
+        or source.get("kind") not in {"grid", "points"}
+        or not (direct_points or evaluation_sweep)
+        or getattr(selection, "outcome", None) != "success"
+        or metadata.get("operation") != operation
+        or metadata.get("source_kind") != source.get("kind")
+        or getattr(selection, "plan_sha256", None) != identity.plan_sha256
+        or getattr(selection, "request_sha256", None) != identity.request_sha256
+        or metadata.get("plan_sha256") != identity.plan_sha256
+        or metadata.get("request_sha256") != identity.request_sha256
+        or metadata.get("task_id") != getattr(selection, "task_id", None)
+        or metadata.get("attempt_id") != getattr(selection, "attempt_id", None)
+    ):
+        raise EvidenceIntegrityError(
+            "Sweep reader is not bound to this exact successful request",
+            stage="result_decode",
+        )
+    terminal = projection.get("terminal")
+    if (
+        not isinstance(terminal, Mapping)
+        or terminal.get("point_count") != selection.point_count
+        or metadata.get("point_count") != selection.point_count
+    ):
+        raise EvidenceIntegrityError(
+            "Sweep terminal point count differs from its fixed selection",
+            stage="result_decode",
+        )
+
+    kind = source["kind"]
+    shape = tuple(source["shape"]) if kind == "grid" else ()
+    point_request = {"spec": request["spec"], "view": request["view"]}
+    axes = (
+        tuple(decoder._decode_parameter_ref(axis["parameter"]) for axis in source["axes"])
+        if kind == "grid"
+        else ()
+    )
+
+    def source_point(ordinal):
+        source_index, parameter_record = _declared_sweep_point(source, ordinal)
+        return decoder._decode_parameter_set(parameter_record), source_index
+
+    def plot_rows(ordinals):
+        # The status table is a compact index projection. In particular, do
+        # not hydrate each occurrence body merely to render its status.
+        summary = fixed_reader.project_axis()
+        occurrences = summary.get("occurrences") if isinstance(summary, Mapping) else None
+        if (
+            not isinstance(occurrences, (list, tuple))
+            or len(occurrences) != selection.point_count
+            or summary.get("point_count") != selection.point_count
+        ):
+            raise EvidenceIntegrityError(
+                "Sweep status projection differs from its fixed selection",
+                stage="result_decode",
+            )
+        selected = range(selection.point_count) if ordinals is None else ordinals
+        for ordinal in selected:
+            occurrence = occurrences[ordinal]
+            if (
+                not isinstance(occurrence, Mapping)
+                or occurrence.get("ordinal") != ordinal
+                or occurrence.get("status") not in {"success", "failure"}
+                or not isinstance(occurrence.get("parameters_sha256"), str)
+            ):
+                raise EvidenceIntegrityError(
+                    "Sweep status projection contains a malformed occurrence",
+                    stage="result_decode",
+                    evidence={"ordinal": ordinal},
+                )
+            if occurrence["status"] == "failure":
+                failure = occurrence.get("failure")
+                if (
+                    not isinstance(failure, Mapping)
+                    or not all(
+                        isinstance(failure.get(name), str) and failure[name]
+                        for name in ("kind", "stage", "message")
+                    )
+                ):
+                    raise EvidenceIntegrityError(
+                        "Sweep failure summary is malformed",
+                        stage="result_decode",
+                        evidence={"ordinal": ordinal},
+                    )
+            elif "failure" in occurrence:
+                raise EvidenceIntegrityError(
+                    "Successful Sweep summary unexpectedly contains a failure",
+                    stage="result_decode",
+                    evidence={"ordinal": ordinal},
+                )
+            _, parameter_record = _declared_sweep_point(source, ordinal)
+            binding_records = sorted(
+                parameter_record["bindings"],
+                key=lambda binding: (
+                    binding["parameter"]["definitions_id"],
+                    binding["parameter"]["parameter_id"],
+                ),
+            )
+            yield {
+                "source_index": occurrence["source_index"],
+                "status": occurrence["status"],
+                "parameters_sha256": occurrence["parameters_sha256"],
+                "parameter_values": tuple(
+                    (binding["parameter"], binding["value"])
+                    for binding in binding_records
+                ),
+                "failure": occurrence.get("failure"),
+            }
+
+    def load_point(ordinal):
+        row = fixed_reader.read_point(ordinal)
+        raw_source_index = row["source_index"]
+        source_index = (
+            tuple(raw_source_index) if isinstance(raw_source_index, (list, tuple))
+            else raw_source_index
+        )
+        parameters_record = row["parameters"]
+        parameters_sha256 = row["parameters_sha256"]
+        parameters = decoder._decode_parameter_set(parameters_record)
+        point_identity = _verified_result(
+            ParameterPointIdentity,
+            batch=identity,
+            source_index=source_index,
+            parameters_sha256=parameters_sha256,
+        )
+        if row.get("status") == "failure":
+            return _point_outcome(
+                parameters=parameters,
+                source_index=source_index,
+                identity=point_identity,
+                result=None,
+                failure=_failure(row),
+            )
+        if row.get("status") != "success":
+            raise EvidenceIntegrityError(
+                "Sweep point status is malformed",
+                stage="result_decode",
+                evidence={"ordinal": ordinal},
+            )
+        return _point_outcome(
+            parameters=parameters,
+            source_index=source_index,
+            identity=point_identity,
+            result=lambda: _point_result(point_identity, row, point_request),
+            failure=None,
+        )
+
+    request_spec = request.get("spec")
+    if not isinstance(request_spec, Mapping):
+        raise EvidenceIntegrityError("Sweep Spec is malformed", stage="result_decode")
+    selector_kind = {
+        "diagonal_root": "diagonal_root_projection",
+        "operator_element_root": "operator_element_root_projection",
+        "hybridized_pole": "hybridized_pole_projection",
+        "transfer_zero": "transfer_zero_projection",
+        "residue_normalized_coupling": "residue_coupling_projection",
+        "response_element": "response_element_projection",
+    }.get(request_spec.get("type"))
+    projections = {
+        "diagonal_root": ("frequency", "linewidth"),
+        "operator_element_root": ("frequency",),
+        "hybridized_pole": ("frequency", "linewidth"),
+        "transfer_zero": ("frequency",),
+        "residue_normalized_coupling": ("real", "imag", "magnitude"),
+        "response_element": ("magnitude", "real", "imag"),
+    }.get(request_spec.get("type"), ())
+    allowed = tuple(
+        canonical_json_bytes({"type": selector_kind, "spec": request_spec, "projection": name})
+        for name in projections
+    )
+    derived = {
+        coordinate
+        for transform in point_request["view"].get("transforms", ())
+        if isinstance(transform, Mapping)
+        for coordinate in transform.get("output_coordinates", ())
+        if isinstance(coordinate, str)
+    }
+
+    def selector_encoder(value):
+        if not isinstance(value, QuantitySelector):
+            raise TypeError("quantity must be a QuantitySelector")
+        return canonical_json_bytes(_encode_scalar_expression(
+            value,
+            coordinate_bindings={
+                _coordinate_binding_key(coordinate): (
+                    coordinate
+                    if isinstance(coordinate, str) and coordinate in derived
+                    else decoder._coordinate_id(coordinate)
+                )
+                for coordinate in _quantity_coordinates(value.spec)
+            },
+        ))
+
+    points = _point_accessor(
+        load_point,
+        selection.point_count,
+        kind,
+        shape,
+        axes,
+        source_loader=source_point,
+        plot_loader=plot_rows,
+    )
+    return _parameter_sweep_result(
+        identity=identity,
+        points=points,
+        selector_encoder=selector_encoder,
+        allowed_selectors=allowed,
+    )
+
+
 def decode_jax_operation(decoder, *, projection, request, plan_sha256, request_sha256,
                          attempt_sha256, result_sha256, bound_spec, fixed_reader=None):
     """Decode verified immutable references without a synthetic native receipt."""
@@ -463,6 +875,14 @@ def decode_jax_operation(decoder, *, projection, request, plan_sha256, request_s
         )
     if request["operation"] == "optimize_direct":
         return _optimization(decoder, identity, request, fixed_reader)
+    if (request["operation"] == "solve_direct"
+            and request["parameter_source"]["kind"] == "points"):
+        return _fixed_sweep(decoder, identity, request, projection, fixed_reader)
+    if request["operation"] == "solve_direct":
+        return _direct_solve(identity, request, fixed_reader)
+    if (request["operation"] == "evaluate_direct"
+            and request["parameter_source"]["kind"] in {"grid", "points"}):
+        return _fixed_sweep(decoder, identity, request, projection, fixed_reader)
     records = projection["evaluations"]
     if request["spec"]["type"] in {
         "diagonal_root",

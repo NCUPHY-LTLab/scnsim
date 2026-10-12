@@ -38,6 +38,55 @@ def _candidate_error(error):
     return error
 
 
+def _native_root_branch(program, inputs, start_index, *, backend, owner, stage_id):
+    """Evaluate one declared branch through its exact native provider."""
+    from contextlib import nullcontext
+    from ..numerics.evidence import (
+        native_primal_exception, project_native_root, require_native_candidate,
+    )
+    from ..numerics.native_sparse import SparseEquationCheck, checked_native
+
+    jax = backend.jax
+    jnp = jax.numpy
+    native = program.quantity_program.native_program(
+        inputs, program_owner=owner, admit_core=False,
+    )
+    with owner.hold_exact_core(native.core) if owner is not None else nullcontext():
+        with jax.enable_x64(True), jax.default_device(backend.device):
+            theta = jnp.asarray(inputs.theta, dtype=jnp.float64)
+            seed = jnp.asarray(inputs.branch_starts_rad_s[start_index],
+                               dtype=backend.complex_dtype)
+        candidate_operands = (theta,)
+        candidate_key = native.variant_key(
+            'candidate', device=backend.device, operands=candidate_operands,
+        )
+        candidate = backend.execute_native(
+            native.candidate_function, *candidate_operands,
+            precision=backend.precision, compile_key=candidate_key,
+            owner=owner, phase='physical_optimization_root_candidate',
+            details={'stage_id': stage_id, 'start_index': start_index},
+        )
+        require_native_candidate(candidate)
+        branch = checked_native(native.branch_function(start_index))
+        branch_operands = (candidate, seed)
+        branch_key = native.branch_variant_key(
+            start_index, device=backend.device, operands=branch_operands,
+            transform='checked_value',
+        )
+        error, packet = backend.execute_native(
+            branch, *branch_operands, precision=backend.precision,
+            compile_key=branch_key, owner=owner,
+            phase='physical_optimization_root_branch',
+            details={'stage_id': stage_id, 'start_index': start_index},
+        )
+        exception = native_primal_exception(error)
+        if exception is not None and not isinstance(exception, SparseEquationCheck):
+            error.throw()
+        row = next(row for row in native.root_layout
+                   if row['start_index'] == start_index)
+        return project_native_root(row['declaration'], packet)
+
+
 def _compact_summary(candidate):
     return {'evaluation_ordinal': candidate['evaluation_ordinal'],
         'parameters':candidate['parameters'], 'cost_f64':candidate['cost_f64'],
@@ -65,7 +114,8 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                              backend, operation_resource, trace, program_owner,
                              checkpoint_policy, resume_state,
                              commit_every_generations, publish_batch,
-                             observe_progress, on_acknowledged, spool):
+                             observe_progress, on_acknowledged, spool,
+                             execution_policy, frame_owner):
     """Compute real stage batches; publication ACKs are supplied by the caller.
 
     ``resume_state`` contains exact checkpoint state and verified ``cache_records``
@@ -132,6 +182,8 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                 precision=precision, authorized=frozenset(
                     parameter_key(row) for row in effective_point['allow_extrapolation']),
                 program_owner=owner)
+        if program.precision != backend.precision:
+            raise ValueError('program precision differs from its execution backend')
         model_identity = {'program_sha256': program.program_sha256,
                           'precision': precision,
                           'discretization': program.quantity_program.point_metadata(
@@ -196,16 +248,19 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
             corrected = list(starts)
             for index, row in roots.items():
                 inputs = program.inputs(point, branch_starts_rad_s=corrected)
-                result = backend.execute(program.quantity_program.program, 'evaluate_branch',
-                    inputs, index, sparse_runner=trace.sparse_runner)
+                result = _native_root_branch(
+                    program, inputs, index, backend=backend, owner=owner,
+                    stage_id=stage_id,
+                )
                 if result.failure is None:
                     corrected[index] = result.root_omega_rad_s
                     continue
                 def evaluate(jobs):
-                    return tuple(backend.execute(program.quantity_program.program, 'evaluate_branch',
-                        program.inputs(job.point, branch_starts_rad_s=[
+                    return tuple(_native_root_branch(
+                        program, program.inputs(job.point, branch_starts_rad_s=[
                             job.omega if i == index else omega for i, omega in enumerate(corrected)]),
-                        index, sparse_runner=trace.sparse_runner) for job in jobs)
+                        index, backend=backend, owner=owner, stage_id=stage_id,
+                    ) for job in jobs)
                 def observe(values, actual, observed, t):
                     row_record = quantity_record(observed)
                     row_record.update(parameters=actual, continuation_t_f64=bits(t), start_index=index)
@@ -227,12 +282,32 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
 
         def compute(point, *, gradient=False, prepared=None, anchor=False):
             inputs = program.inputs(point, branch_starts_rad_s=starts)
-            method = 'value_and_gradient' if gradient else 'value'
             options = {'active_keys': tuple(parameter_key(row['parameter']) for row in variables)} if gradient else {'prepared': prepared}
             try:
                 with trace.span('physical_value_gradient' if gradient else 'physical_value', details={'stage_id': stage_id}):
-                    result = backend.execute(program, method, inputs,
-                        sparse_runner=trace.sparse_runner, **options)
+                    if gradient:
+                        from .native_ad import objective_value_and_gradient
+
+                        def native_ad_runner(native, arguments, loss, *, active_keys):
+                            return objective_value_and_gradient(
+                                native, arguments, loss, active_keys=active_keys,
+                                backend=backend, program_owner=owner,
+                                execution_policy=execution_policy,
+                                frame_owner=frame_owner,
+                            )
+
+                        result = program.value_and_gradient(
+                            inputs, active_keys=options['active_keys'],
+                            native_executor=backend.execute_native,
+                            program_owner=owner, device=backend.device,
+                            native_ad_runner=native_ad_runner,
+                        )
+                    else:
+                        result = program.value(
+                            inputs, prepared=prepared,
+                            native_executor=backend.execute_native,
+                            program_owner=owner, device=backend.device,
+                        )
             except SCNSimError as error:
                 if anchor:
                     raise
@@ -244,10 +319,19 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                 corrected = continue_starts(point, error)
                 # A prepared packet binds exact hints; never reuse it after
                 # continuation changes those operands.
-                result = backend.execute(program, method,
-                    program.inputs(point, branch_starts_rad_s=corrected),
-                    sparse_runner=trace.sparse_runner,
-                    **({'active_keys': options['active_keys']} if gradient else {}))
+                corrected_inputs = program.inputs(point, branch_starts_rad_s=corrected)
+                if gradient:
+                    result = program.value_and_gradient(
+                        corrected_inputs, active_keys=options['active_keys'],
+                        native_executor=backend.execute_native,
+                        program_owner=owner, device=backend.device,
+                        native_ad_runner=native_ad_runner,
+                    )
+                else:
+                    result = program.value(
+                        corrected_inputs, native_executor=backend.execute_native,
+                        program_owner=owner, device=backend.device,
+                    )
             # These are the established objective-resolution conditions, not
             # controller acceptance or a new global finiteness policy.
             if not all(math.isfinite(float(value)) for values in
@@ -412,9 +496,10 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                     for offset in range(0, len(uncached), capacity):
                         wave = uncached[offset:offset + capacity]
                         with trace.span('physical_prepare_batch', details={'stage_id':stage_id}), operation_resource.exclusive_assembly():
-                            packets = backend.execute(program, 'prepare_batch',
-                                tuple(program.inputs(point, branch_starts_rad_s=starts) for _,point in wave),
-                                sparse_runner=trace.sparse_runner)
+                            with backend.jax.enable_x64(precision == 'float64'), backend.jax.default_device(backend.device):
+                                packets = program.prepare_batch(
+                                    tuple(program.inputs(point, branch_starts_rad_s=starts) for _,point in wave),
+                                    program_owner=owner)
                         try:
                             yield from operation_resource.map_ordered(worker,
                                 ((index,point,packet) for (index,point),packet in zip(wave,packets,strict=True)),

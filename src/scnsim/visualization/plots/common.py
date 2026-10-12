@@ -9,6 +9,7 @@ from typing import Any, Literal
 import numpy as np
 from pint import Quantity
 
+from ... import units
 from ..presentation import Theme, _Palette, _palette, _require_theme
 
 Channel = str | tuple[str, tuple[int, ...]]
@@ -86,14 +87,21 @@ def show_figure(figure: Any) -> None:
 
 
 def _family(view: Any) -> Literal["S", "Y", "Z"]:
-    matrix = view.matrix
-    if matrix.dimensionless:
+    unit = _matrix_unit(view)
+    if unit == "dimensionless":
         return "S"
-    if matrix.is_compatible_with("siemens"):
+    if unit == "siemens":
         return "Y"
-    if matrix.is_compatible_with("ohm"):
+    if unit == "ohm":
         return "Z"
     raise ValueError("matrix family has no supported S, Y, or Z unit")
+
+
+def _matrix_unit(view: Any) -> str:
+    unit = getattr(view, "_matrix_unit", None)
+    if isinstance(unit, str):
+        return unit
+    return str(view.matrix.units)
 
 
 def _channel_label(channel: tuple[str, tuple[int, ...]]) -> str:
@@ -127,6 +135,32 @@ def _matrix_values(view: Any) -> np.ndarray:
     ):
         raise ValueError("matrix shape disagrees with its stored channel inventory")
     return matrix
+
+
+def _project_matrix_trace(
+    view: Any,
+    *,
+    family: str,
+    input_index: int,
+    output_index: int,
+    frequency_range: slice,
+) -> dict[str, np.ndarray]:
+    """Select one channel pair without hydrating its complete matrix family."""
+    reader = getattr(view, "_fixed_reader", None)
+    if reader is None:
+        frequencies = np.asarray(view.frequencies.magnitude)[frequency_range]
+        values = _matrix_values(view)[frequency_range, output_index, input_index]
+        return {"frequencies": frequencies, "values": values}
+    selected = reader.project_matrix(
+        family,
+        view.input_channels[input_index],
+        view.output_channels[output_index],
+        frequency_range,
+    )
+    return {
+        "frequencies": np.asarray(selected["frequencies"], dtype=np.float64),
+        "values": np.asarray(selected["values"]),
+    }
 
 
 def _display_axis(values: Quantity, unit: str | None = None) -> tuple[np.ndarray, str]:
@@ -245,7 +279,7 @@ def _unit_label(view: Any, family: str, component: Component, magnitude: str) ->
         return "degree (exact zero undefined)"
     if family == "S":
         return "dB" if component == "magnitude" and magnitude == "db" else "dimensionless"
-    return str(view.matrix.units)
+    return _matrix_unit(view)
 
 
 def _set_db_viewport(figure: Any, values: object, *, row: int) -> None:
@@ -271,16 +305,24 @@ def _trace(
     source: Mapping[str, object] | None = None,
 ) -> Any:
     go, _, _ = _plotly()
-    matrix = _matrix_values(view)
+    projected = _project_matrix_trace(
+        view,
+        family=family,
+        input_index=input_index,
+        output_index=output_index,
+        frequency_range=slice(0, np.asarray(view.frequencies.magnitude).size),
+    )
     component_magnitude = magnitude if component == "magnitude" else "linear"
     values, _ = _component_values(
-        matrix[:, output_index, input_index], component, family=family, magnitude=component_magnitude
+        projected["values"], component, family=family, magnitude=component_magnitude
     )
     input_label = _channel_label(view.input_channels[input_index])
     output_label = _channel_label(view.output_channels[output_index])
     unit = _unit_label(view, family, component, component_magnitude)
     label = name or f"{family}[{output_label} <- {input_label}] {component}"
-    frequencies, frequency_unit = _display_axis(view.frequencies, frequency_unit)
+    frequencies, frequency_unit = _display_axis(
+        units.registry.Quantity(projected["frequencies"], "hertz"), frequency_unit
+    )
     y_axis = _response_axis(
         family=family,
         component=component,
@@ -305,7 +347,7 @@ def _matrix_meta(view: Any, family: str, *, selected: Mapping[str, object] | Non
         "scnsim": {
             "kind": "matrix_family",
             "family": family,
-            "matrix_unit": str(view.matrix.units),
+            "matrix_unit": _matrix_unit(view),
             "frequency_unit": str(view.frequencies.units),
             "input_channels": [_channel_record(channel) for channel in view.input_channels],
             "output_channels": [_channel_record(channel) for channel in view.output_channels],

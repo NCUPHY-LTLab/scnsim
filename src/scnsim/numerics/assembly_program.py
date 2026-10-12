@@ -3,6 +3,8 @@
 One pattern serves all values, tangents and mixed jets of a program. Numerical
 coefficients never enter static keys. This adapts the existing assembly kernel,
 including its selected-dtype compensation and local series-RL certificates.
+Packed material banks and incidence gathers avoid per-section runtime stacks;
+static section ordering and section-wise absolute bounds remain unchanged.
 """
 from __future__ import annotations
 
@@ -21,6 +23,9 @@ class SeriesGroup:
     pair_map: Any
     global_map: Any
     pure: tuple[bool, ...]
+    series_group: int
+    weight_sources: Any
+    weight_mask: Any
 
 
 class AssemblyPayload(NamedTuple):
@@ -52,14 +57,13 @@ class AssemblyProgram:
                 jnp.asarray(self.load_slots, dtype=jnp.int32))
         groups = []
         for group in self.groups:
-            blocks = tuple(model.series[index] for index in group.indices)
-            R, L = jnp.stack(tuple(block[1] for block in blocks)), jnp.stack(tuple(block[2] for block in blocks))
-            width = group.columns.shape[1]
-            weights = jnp.stack(tuple(jnp.pad(block[0], (0, width - count))
-                                      for block, count in zip(blocks, group.counts, strict=True)))
+            packed = model.series[group.series_group]
+            R, L = packed.R[packed.material_indices], packed.L[packed.material_indices]
+            weights = packed.weights[jnp.asarray(group.weight_sources, dtype=jnp.int32)]
+            weights = jnp.where(jnp.asarray(group.weight_mask), weights, jnp.zeros_like(weights))
             pure = jnp.asarray(group.pure, dtype=jnp.bool_)
             seed = jnp.zeros_like(L)
-            codes = jnp.zeros((len(blocks),), dtype=jnp.int32)
+            codes = jnp.zeros((len(group.indices),), dtype=jnp.int32)
             groups.append((R, L, weights, jnp.asarray(group.columns, dtype=jnp.int32),
                            jnp.asarray(group.pair_map, dtype=jnp.int32),
                            jnp.asarray(group.global_map, dtype=jnp.int32), pure, seed, codes))
@@ -74,11 +78,32 @@ class AssemblyProgram:
         import jax.numpy as jnp
         from .jax_core import assemble, first
         view = self.view_program(theta, port_realizable=port_realizable)
-        data = self.operands(view)
-        result = assemble(data, omega, loaded=loaded, derivative=True, compensated=compensated)
-        status = first(view.status, result[3] != 0, result[3])
+        return self.assemble_prepared(self.operands(view), omega, view_status=view.status,
+                                      loaded=loaded, compensated=compensated), view
+
+    def assemble_prepared(self, operands, omega, *, view_status, loaded, compensated=False):
+        """Frequency arithmetic over candidate-owned prepared stamp operands.
+
+        Local inverse coefficients and View weights are prepared once by the
+        caller, not once per frequency. The existing stamp kernel remains the
+        sole arithmetic authority, including ordered compensated coalescing.
+        """
+        import jax.numpy as jnp
+        from .jax_core import assemble, first
+        result = assemble(operands, omega, loaded=loaded, derivative=True, compensated=compensated)
+        status = first(view_status, result[3] != 0, result[3])
         low, prime_low = result[4:] if compensated else (jnp.zeros_like(result[0]), jnp.zeros_like(result[1]))
-        return AssemblyPayload(result[0], result[1], result[2], status, low, prime_low), view
+        return AssemblyPayload(result[0], result[1], result[2], status, low, prime_low)
+
+
+    def assemble_prepared_pair(self, operands, omega, *, view_status, loaded):
+        """Same ordered stamp equation with finite physical pair AD rules."""
+        from .jax_core import _assemble_compensated, first
+        from . import native_compensated
+        result = _assemble_compensated(operands, omega, loaded=loaded,
+                                      derivative=True, arithmetic=native_compensated)
+        status = first(view_status, result[3] != 0, result[3])
+        return AssemblyPayload(result[0], result[1], result[2], status, result[4], result[5])
 
 
 _PREPARED_INVERSE = None
@@ -131,14 +156,20 @@ def compile_assembly(view_program):
     for index, block in enumerate(blocks):
         grouped.setdefault(block.shape[1], []).append(index)
     groups = []
-    for width, indices in grouped.items():
+    for series_group, (width, indices) in enumerate(grouped.items()):
         counts = tuple(len(blocks[index].rows) for index in indices)
         count = max(counts)
         columns = np.zeros((len(indices), count), dtype=np.int64)
+        weight_sources = np.zeros((len(indices), count), dtype=np.int64)
+        weight_mask = np.zeros((len(indices), count), dtype=np.bool_)
+        weight_offset = 0
         global_slots, pairs, offset = [], [], 0
         for position, index in enumerate(indices):
             block = blocks[index]
             columns[position, :len(block.cols)] = block.cols
+            weight_sources[position, :len(block.rows)] = weight_offset + np.arange(len(block.rows))
+            weight_mask[position, :len(block.rows)] = True
+            weight_offset += len(block.rows)
             # Padded entries have zero weights. Their row is an existing row,
             # and no extra structural/global slot or matrix dimension is added.
             rows = np.pad(block.rows, (0, count - len(block.rows)), constant_values=int(block.rows[0]))
@@ -153,5 +184,6 @@ def compile_assembly(view_program):
         global_map = np.asarray(global_slots, dtype=np.int64)
         pair_map = np.asarray(pairs).reshape((len(indices), count, count))
         groups.append(SeriesGroup(tuple(indices), counts, _indices(columns), _indices(pair_map),
-                                  _indices(global_map), tuple(pure[index] for index in indices)))
+                                  _indices(global_map), tuple(pure[index] for index in indices),
+                                  series_group, _indices(weight_sources), _immutable(weight_mask)))
     return AssemblyProgram(view_program, pattern, base, _indices(B.cols), _indices(load_slots), tuple(groups))

@@ -3,7 +3,7 @@ title: "Sensitivity of physical quantities"
 subtitle: "Declare Jacobian, JVP and VJP requests on the same Plan and Views"
 ---
 
-This dev26 `CONVERGING` guide describes the current candidate public declarations.
+This dev27 `CONVERGING` guide describes the current candidate public declarations.
 The snippets are source examples, not recorded derivative executions or numerical
 accuracy evidence. The [Runtime Contract](../v1-runtime-contract.qmd#physical-program-target)
 is the authority for execution, ownership and failure behavior.
@@ -188,19 +188,61 @@ Sensitivity differentiates the fixed physical program; it does not differentiate
 integer section-count selection. See [Electrical resolution](../concepts/electrical-resolution.qmd).
 
 `run.warmup(run.original, response_spec)` explicitly admits static transformable
-physical programs and prepared assembly handles on this Run, scoped by actual
-device and canonical identity/dtype. Later matching operations borrow those
-entries; unmatched stage/candidate programs remain operation-owned. Derivatives
-use the original callable rather than differentiating an AOT executable. Warmup does not return a solved physical result, publish a
-success or promise that every later derivative or changed-shape signature is
-already compiled. Generation/stage executable ownership and saved Result
-ownership are separate; released references do not promise an immediate RSS drop.
+physical programs and reports the signatures it compiles on this Run. Raw
+aggregate transforms and high-level candidate/frequency-chunk variants have
+separate keys. A compiled raw aggregate does not prove a checked frequency chunk is warm.
+The main bucket follows `execution_policy.frequency_chunk_size` (default eight),
+with a stable size-one tail. Matching operations reuse only the same callable/key,
+shape, dtype, device and capability partition. Bounded owner-local admission and
+pins govern retention; unused entries may be evicted. Transient candidate frames
+stay operation-owned. Derivatives use the original callable, never an AOT
+executable. Warmup neither solves a physical result nor publishes success, and
+unrequested transforms or future shapes remain lazy. Saved Result ownership is
+separate; released references do not promise an immediate RSS drop.
 
 JAX is the current physical-program and checked-AD path. Julia keeps its existing
 legacy/reference capabilities and native schemas; Sensitivity and new local or
 Hybrid strategies do not select Julia or fall back to it. Requested dtype,
 arithmetic and numerical certification remain distinct from forward accuracy.
-Generic raw `jax.grad` through the public Run is not promised.
+Advanced raw access uses the same detached acquisition:
+
+```python
+prepared = run.prepare(quantities=quantities, wrt=(capacitance,))
+warm = run.warmup(prepared, transforms=("value", "jvp", "vjp"))
+```
+
+The original callable is `prepared.numeric_function(theta_SI,
+omega_rad_per_s, seeds)`. Its immutable `input_layout`, `output_layout` and
+`aux_layout` define ordered coordinates, physical units, shapes, dtype and
+status fields. This API traces neither Run nor Workspace. Raw values/status are
+not certified Results; high-level Sensitivity retains its checked and saved
+result responsibilities. The external caller constructs SI arrays and owns the
+outer JAX transform's precision and basis context. For explicit binary64 use,
+construct inputs and apply outer JAX AD inside `jax.enable_x64(True)` or the
+caller's existing x64 configuration. Prepared acquisition does not globally
+toggle process configuration or recover bits already truncated by caller array
+creation. High-level Run methods own their scoped precision handling; this raw
+usage guidance is not a new eligibility condition or fallback.
+The caller may retain the detached function after Run
+close. Warmup compiles declared signatures only; its summary distinguishes actual
+compilation, cache reuse/admission and lazy variants. `batch_shapes` declares
+leading theta point-batch shapes; it does not change the physical mesh or choose
+a new frequency range. Executable full retained bytes remain unknown when only
+generated-code size is exposed; code bytes are reported separately. Native
+transform coverage and resource/performance conclusions require observations
+of the actual installed dev27 candidate. No Run,
+Workspace, mutable factor or candidate frame belongs to the raw closure.
+
+The existing `run.warmup(view, sensitivity_spec, parameters=...)` form binds the
+same finalized Sensitivity quantities, exact leaf Views, complete point, active
+coordinates and discretization. The supplied View is checked for Run ownership;
+it does not replace independently bound expression-leaf Views. The summary
+separates known value preparation from the requested checked derivative kind.
+Known checked candidate and joint-branch linearization producers can be
+compiled without evaluation. Frame-consuming derivative variants remain in
+`lazy_work` until the SAME cached producer supplies its exact Partial static
+structure; matching array shapes alone cannot establish a warm hit. Explicitly
+requested raw transforms remain a separate scope.
 
 ## Current public paths
 

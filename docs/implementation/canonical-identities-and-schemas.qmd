@@ -33,7 +33,7 @@ still-referenced facts; they are not an alternative target schema.
 
 ## Encode one canonical byte stream
 
-The dev26 [lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle)
+The dev27 [lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle)
 uses SQLite operation evidence v7 with inherited completion/index ownership; it does not change
 the version of every scientific or native envelope. The completion's
 `terminal_attempt_ref` binds the canonical completed attempt document whose
@@ -41,7 +41,12 @@ digest remains `ResultIdentity.attempt_sha256`, rather than the running
 allocation's digest. The Workspace-owned `scnsim.native_result_index` v1 seals
 compact native generation summaries and exact selected-artifact locators before
 success publication. It leaves Julia result bodies and native artifact formats
-unchanged. Both readers fix root metadata first and verify only the selected
+unchanged. JAX Direct/Sweep uses its domain completion/index version 1 binding
+ordered output chunks and factorized axes. ExecutionPolicy and compile-cache
+residency are diagnostic/resource facts, absent numerical request identity; an
+actual changed numerical method or reduction order needs its own algorithm
+identity. Detached PreparedFunction layouts describe the acquired callable and
+do not reconstruct a callable from saved Result storage. Both readers fix root metadata first and verify only the selected
 index/body on each short read; they do not infer identity from an SQL locator or
 an unverified summary.
 

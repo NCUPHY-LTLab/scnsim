@@ -3,7 +3,9 @@
 Coordinate names, retained/eliminated slots and sparse expansion are static.
 Capacitance-cut weights, transformed coefficients and generalized Port maps are
 runtime values of the same physical parameter point. No candidate is frozen as
-an independent View or reconstructed from a saved numerical result.
+an independent View or reconstructed from a saved numerical result. Packed
+series namespaces preserve each section's original expansion order without
+creating one runtime tuple per section.
 """
 from __future__ import annotations
 
@@ -12,7 +14,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .program import SparsePattern, _indices
-from .model_program import ModelPayload, ModelProgram, _immutable
+from .model_program import ModelPayload, ModelProgram, PackedSeries, _immutable
 
 
 class ViewPayload(NamedTuple):
@@ -45,6 +47,25 @@ class Expansion:
             np.add.at(result, self.slots, update)
             return result
         return result.at[jnp.asarray(self.slots)].add(update)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class PackedExpansion:
+    """Independent block namespaces packed in original section order."""
+    size: int
+    sources: Any
+    slots: Any
+    kinds: Any
+
+    def apply(self, values, alpha, beta):
+        import jax.numpy as jnp
+        factors = jnp.stack((jnp.asarray(1, dtype=values.dtype), beta, -alpha))
+        kinds = jnp.asarray(self.kinds)
+        weights = factors[kinds[:, 0]] * factors[kinds[:, 1]]
+        update = values[jnp.asarray(self.sources)] * weights
+        # Offset namespaces never mix different sections. Within each section
+        # this is the identical existing Expansion scatter, not an EFT sum.
+        return jnp.zeros((self.size,), dtype=values.dtype).at[jnp.asarray(self.slots)].add(update)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -104,11 +125,33 @@ class ViewProgram:
         """Actual binary64 physical rank, independent of numerical dtype."""
         return self.lineage(fields)["port_realizable"]
 
-    def __call__(self, theta, *, port_realizable=None) -> ViewPayload:
+    def capability_array(self, physical_model, physical_theta):
+        """Existing matrix-rank rule on ORIGINAL binary64 runtime weights.
+
+        This is a route/domain predicate, not a differentiated matrix-rank
+        observable. The fixed prepared partition reports a switch explicitly.
+        """
         import jax.numpy as jnp
-        payload = self.model_program(theta)
+        if not self.port_realizable:
+            return jnp.bool_(False)
+        point = self.apply_model(physical_model, physical_theta, port_realizable=False)
+        singular = jnp.linalg.svd(point.selected_map, compute_uv=False)
+        tolerance = jnp.max(singular, initial=0) * max(point.selected_map.shape) * jnp.finfo(physical_theta.dtype).eps
+        rank = jnp.sum(singular > tolerance)
+        return rank == len(self.terminal_ids)
+
+    def __call__(self, theta, *, port_realizable=None) -> ViewPayload:
+        return self.apply_model(self.model_program(theta), theta, port_realizable=port_realizable)
+
+    def apply_model(self, payload: ModelPayload, theta, *, port_realizable=None) -> ViewPayload:
+        """Route the SAME candidate fields without rebuilding its physical model.
+
+        The caller owns the array payload. This program retains only immutable
+        routing; parameter-dependent transform weights remain runtime operands.
+        """
+        import jax.numpy as jnp
         matrices = (payload.C, payload.K, payload.G, payload.B)
-        blocks = [(jnp.asarray(incidence[2], dtype=theta.dtype), R, L) for incidence, R, L in payload.series]
+        series = payload.series
         maps = jnp.asarray(self.source_map, dtype=theta.dtype)
         status, site = payload.status, payload.failed_site
         for index, route in enumerate(self.routes):
@@ -121,33 +164,42 @@ class ViewProgram:
             alpha, beta = cl / (cl + cr), cr / (cl + cr)
             matrices = tuple(expansion.apply(value, alpha, beta)
                              for expansion, value in zip(route.expansions, matrices, strict=True))
-            blocks = [(expansion.apply(values, alpha, beta), R, L)
-                      for expansion, (values, R, L) in zip(route.series_expansions, blocks, strict=True)]
+            series = tuple(PackedSeries(group.R, group.L, group.material_indices,
+                                         expansion.apply(group.weights, alpha, beta))
+                           for expansion, group in zip(route.series_expansions, series, strict=True))
             keep = tuple(i for i in range(maps.shape[0]) if i not in (route.map_left, route.map_right))
             maps = jnp.concatenate((maps[jnp.asarray(keep, dtype=jnp.int32)],
                                     (alpha * maps[route.map_left] + beta * maps[route.map_right])[None],
                                     (maps[route.map_left] - maps[route.map_right])[None]), axis=0)
         mask = jnp.asarray(self.port_mask, dtype=theta.dtype)
-        model = ModelPayload(*matrices, payload.R, mask, tuple(blocks), status, site)
+        model = ModelPayload(*matrices, payload.R, mask, series, status, site)
         p = len(self.model_program.port_ids)
         selected_map = maps[jnp.asarray(self.terminal_map_rows)] if self.retained else jnp.eye(p, dtype=theta.dtype)
-        if self.port_realizable if port_realizable is None else port_realizable:
+        def normalized(incoming_status):
             # Principal SPD root is a matrix function; its directional derivative
             # is the Sylvester solve, not an arbitrary eigenvector derivative.
             from ..numerics.matrix_functions import spd_root_checked
             Dp, dp_status = spd_root_checked(payload.R)
             Rk = selected_map @ payload.R @ selected_map.T
             Dk, dk_status = spd_root_checked(Rk)
-            first = (status == 0) & ((dp_status != 0) | (dk_status != 0))
-            status = jnp.where(first, jnp.int32(3), status)
+            first = (incoming_status == 0) & ((dp_status != 0) | (dk_status != 0))
+            branch_status = jnp.where(first, jnp.int32(3), incoming_status)
             Qk = jnp.linalg.solve(Dk, selected_map @ Dp)
             Po = jnp.eye(p, dtype=theta.dtype) - Qk.T @ Qk
             inverse = jnp.linalg.solve(Dp, jnp.eye(p, dtype=theta.dtype))
             Go = inverse @ Po @ jnp.diag(mask) @ Po @ inverse
-        else:
+            return Rk, Dk, Go, branch_status
+        def unnormalized(incoming_status):
             q = len(self.terminal_ids)
             Rk = Dk = jnp.zeros((q, q), dtype=theta.dtype)
             Go = jnp.zeros((p, p), dtype=theta.dtype)
+            return Rk, Dk, Go, incoming_status
+        capability = self.port_realizable if port_realizable is None else port_realizable
+        if isinstance(capability, (bool, np.bool_)):
+            Rk, Dk, Go, status = normalized(status) if capability else unnormalized(status)
+        else:
+            import jax
+            Rk, Dk, Go, status = jax.lax.cond(capability, normalized, unnormalized, status)
         return ViewPayload(model, selected_map, Rk, Dk, Go, status, site)
 
 
@@ -161,6 +213,27 @@ def _expansion(pattern, mapping, size, *, congruence):
     shape = (size, size if congruence else pattern.shape[1])
     result, slots = SparsePattern.from_coo(shape, rows, cols)
     return Expansion(result, _indices(sources), slots, _indices(np.asarray(kinds).reshape((-1, 2))))
+
+
+
+def _packed_series_expansions(patterns, expansions):
+    grouped = {}
+    for index, pattern in enumerate(patterns):
+        grouped.setdefault(pattern.shape[1], []).append(index)
+    result = []
+    for indices in grouped.values():
+        sources, slots, kinds = [], [], []
+        source_offset = target_offset = 0
+        for index in indices:
+            expansion = expansions[index]
+            sources.extend(source_offset + expansion.sources)
+            slots.extend(target_offset + expansion.slots)
+            kinds.extend(expansion.kinds)
+            source_offset += len(patterns[index].rows)
+            target_offset += len(expansion.pattern.rows)
+        result.append(PackedExpansion(target_offset, _indices(sources), _indices(slots),
+                                       _indices(np.asarray(kinds).reshape((-1, 2)))))
+    return tuple(result)
 
 
 def compile_view_program(model_program: ModelProgram, declaration: dict) -> ViewProgram:
@@ -194,7 +267,8 @@ def compile_view_program(model_program: ModelProgram, declaration: dict) -> View
         expanded = tuple(_expansion(p, mapping, len(next_nodes), congruence=k < 3) for k, p in enumerate(patterns))
         expanded_series = tuple(_expansion(p, mapping, len(next_nodes), congruence=False) for p in series)
         ml, mr = names.index(left), names.index(right)
-        routes.append(PairRoute(i, j, cuts, expanded, expanded_series, ml, mr))
+        routes.append(PairRoute(i, j, cuts, expanded,
+                                _packed_series_expansions(series, expanded_series), ml, mr))
         names = tuple(name for name in names if name not in (left, right)) + (common, differential)
         nodes, patterns = next_nodes, tuple(item.pattern for item in expanded)
         series = tuple(item.pattern for item in expanded_series)

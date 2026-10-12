@@ -84,38 +84,42 @@ def _host_transport(*operands, callback, input_tree, specifications,
 def _host_solve(pattern, values, rhs, prior_status, *, stage, mode, ordering, factor=None):
     from scipy.sparse import csc_matrix
     from scipy.sparse.linalg import splu
-    dtype = np.asarray(rhs).dtype
-    real_dtype = np.empty((), dtype=dtype).real.dtype.type
-    status = np.int32(prior_status)
-    unavailable = SolveOutcome(np.zeros_like(rhs), SolveAux(status, real_dtype(np.inf),
-                                                          real_dtype(np.inf), real_dtype(np.inf)))
-    if status:
-        return unavailable
-    if not (np.all(np.isfinite(values)) and np.all(np.isfinite(rhs))):
-        return unavailable._replace(aux=unavailable.aux._replace(status=np.int32(stage)))
-    if pattern.shape[0] == 0:
-        zero = real_dtype(0)
-        return SolveOutcome(np.zeros_like(rhs), SolveAux(np.int32(0), zero, zero, zero))
-    matrix = csc_matrix((np.asarray(values, dtype=dtype), pattern.rows, pattern.indptr), shape=pattern.shape)
     try:
-        if factor is None:
-            factor = splu(matrix) if ordering is None else splu(matrix, permc_spec=ordering)
-    except RuntimeError as error:
-        if str(error) != 'Factor is exactly singular':
-            raise
-        return unavailable._replace(aux=unavailable.aux._replace(status=np.int32(stage)))
-    value = np.asarray(factor.solve(np.asarray(rhs, dtype=dtype), trans=mode), dtype=dtype)
-    actual = matrix if mode == 'N' else matrix.T if mode == 'T' else matrix.conjugate().T
-    error = actual @ value - rhs
-    scale = abs(actual) @ np.abs(value) + np.abs(rhs)
-    num = real_dtype(np.max(np.abs(error), initial=0))
-    den = real_dtype(np.max(np.abs(scale), initial=0))
-    eta = real_dtype(np.inf) if not (np.isfinite(num) and np.isfinite(den)) else (
-        real_dtype(0 if num == 0 else np.inf) if den == 0 else real_dtype(num / den))
-    threshold = real_dtype(256) * real_dtype(pattern.shape[0] + 1) * real_dtype(np.finfo(real_dtype).eps)
-    if not (np.all(np.isfinite(value)) and np.isfinite(eta) and eta <= threshold):
-        status = np.int32(stage)
-    return SolveOutcome(value, SolveAux(status, eta, num, den))
+        dtype = np.asarray(rhs).dtype
+        real_dtype = np.empty((), dtype=dtype).real.dtype.type
+        status = np.int32(prior_status)
+        unavailable = SolveOutcome(np.zeros_like(rhs), SolveAux(status, real_dtype(np.inf),
+                                                              real_dtype(np.inf), real_dtype(np.inf)))
+        if status:
+            return unavailable
+        if not (np.all(np.isfinite(values)) and np.all(np.isfinite(rhs))):
+            return unavailable._replace(aux=unavailable.aux._replace(status=np.int32(stage)))
+        if pattern.shape[0] == 0:
+            zero = real_dtype(0)
+            return SolveOutcome(np.zeros_like(rhs), SolveAux(np.int32(0), zero, zero, zero))
+        matrix = csc_matrix((np.asarray(values, dtype=dtype), pattern.rows, pattern.indptr), shape=pattern.shape)
+        try:
+            if factor is None:
+                factor = splu(matrix) if ordering is None else splu(matrix, permc_spec=ordering)
+        except RuntimeError as error:
+            if str(error) != 'Factor is exactly singular':
+                raise
+            return unavailable._replace(aux=unavailable.aux._replace(status=np.int32(stage)))
+        value = np.asarray(factor.solve(np.asarray(rhs, dtype=dtype), trans=mode), dtype=dtype)
+        actual = matrix if mode == 'N' else matrix.T if mode == 'T' else matrix.conjugate().T
+        error = actual @ value - rhs
+        scale = abs(actual) @ np.abs(value) + np.abs(rhs)
+        num = real_dtype(np.max(np.abs(error), initial=0))
+        den = real_dtype(np.max(np.abs(scale), initial=0))
+        eta = real_dtype(np.inf) if not (np.isfinite(num) and np.isfinite(den)) else (
+            real_dtype(0 if num == 0 else np.inf) if den == 0 else real_dtype(num / den))
+        threshold = real_dtype(256) * real_dtype(pattern.shape[0] + 1) * real_dtype(np.finfo(real_dtype).eps)
+        if not (np.all(np.isfinite(value)) and np.isfinite(eta) and eta <= threshold):
+            status = np.int32(stage)
+        return SolveOutcome(value, SolveAux(status, eta, num, den))
+    finally:
+        # Traceback frames must not extend ownership of a native factor.
+        factor = None
 
 
 def _host_high_equation(pattern, a, b, prior, *, stage, ordering, a_dot, b_dot,
@@ -123,45 +127,50 @@ def _host_high_equation(pattern, a, b, prior, *, stage, ordering, a_dot, b_dot,
     """One local factor for checked primal and directional/mixed equations."""
     from scipy.sparse import csc_matrix
     from scipy.sparse.linalg import splu
-    dtype = np.asarray(b).dtype
-    rd = np.empty((), dtype=dtype).real.dtype.type
-    def failed(code):
-        return SolveOutcome(np.zeros_like(b), SolveAux(np.int32(code), rd(np.inf), rd(np.inf), rd(np.inf)))
-    def unavailable(primal):
-        value = failed(primal.aux.status)
-        return DirectionalOutcome(primal, value) if second is None else MixedOutcome(primal, value, value, value)
-    if prior:
-        return unavailable(failed(prior))
-    if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
-        return unavailable(failed(stage))
-    matrix = csc_matrix((a, pattern.rows, pattern.indptr), shape=pattern.shape)
     factor = None
-    if pattern.shape[0]:
-        try:
-            factor = splu(matrix) if ordering is None else splu(matrix, permc_spec=ordering)
-        except RuntimeError as error:
-            if str(error) != 'Factor is exactly singular':
-                raise
+    try:
+        dtype = np.asarray(b).dtype
+        rd = np.empty((), dtype=dtype).real.dtype.type
+        def failed(code):
+            return SolveOutcome(np.zeros_like(b), SolveAux(np.int32(code), rd(np.inf), rd(np.inf), rd(np.inf)))
+        def unavailable(primal):
+            value = failed(primal.aux.status)
+            return DirectionalOutcome(primal, value) if second is None else MixedOutcome(primal, value, value, value)
+        if prior:
+            return unavailable(failed(prior))
+        if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
             return unavailable(failed(stage))
-    def solve(rhs, code):
-        return _host_solve(pattern, a, np.asarray(rhs, dtype=dtype), 0, stage=code,
-                           mode='N', ordering=ordering, factor=factor)
-    def product(values, x):
-        return csc_matrix((values, pattern.rows, pattern.indptr), shape=pattern.shape) @ x
-    primal = solve(b, stage)
-    if primal.aux.status:
-        return unavailable(primal)
-    first = solve(b_dot - product(a_dot, primal.value), derivative_stage)
-    if second is None:
-        return DirectionalOutcome(primal, first)
-    a2, b2, a12, b12 = second
-    second_value = solve(b2 - product(a2, primal.value), derivative_stage)
-    if first.aux.status or second_value.aux.status:
-        mixed = failed(first.aux.status if first.aux.status else second_value.aux.status)
-    else:
-        rhs = b12 - product(a12, primal.value) - product(a_dot, second_value.value) - product(a2, first.value)
-        mixed = solve(rhs, derivative_stage)
-    return MixedOutcome(primal, first, second_value, mixed)
+        matrix = csc_matrix((a, pattern.rows, pattern.indptr), shape=pattern.shape)
+        factor = None
+        if pattern.shape[0]:
+            try:
+                factor = splu(matrix) if ordering is None else splu(matrix, permc_spec=ordering)
+            except RuntimeError as error:
+                if str(error) != 'Factor is exactly singular':
+                    raise
+                return unavailable(failed(stage))
+        def solve(rhs, code):
+            return _host_solve(pattern, a, np.asarray(rhs, dtype=dtype), 0, stage=code,
+                               mode='N', ordering=ordering, factor=factor)
+        def product(values, x):
+            return csc_matrix((values, pattern.rows, pattern.indptr), shape=pattern.shape) @ x
+        primal = solve(b, stage)
+        if primal.aux.status:
+            return unavailable(primal)
+        first = solve(b_dot - product(a_dot, primal.value), derivative_stage)
+        if second is None:
+            return DirectionalOutcome(primal, first)
+        a2, b2, a12, b12 = second
+        second_value = solve(b2 - product(a2, primal.value), derivative_stage)
+        if first.aux.status or second_value.aux.status:
+            mixed = failed(first.aux.status if first.aux.status else second_value.aux.status)
+        else:
+            rhs = b12 - product(a12, primal.value) - product(a_dot, second_value.value) - product(a2, first.value)
+            mixed = solve(rhs, derivative_stage)
+        return MixedOutcome(primal, first, second_value, mixed)
+    finally:
+        # Traceback frames must not extend ownership of a native factor.
+        factor = None
 
 
 def _host_high_dispatch(pattern, av, bv, code, ad, bd, *more,
@@ -356,84 +365,89 @@ def _host_pair_equation(pattern, a, b, prior, *, stage, ordering, mode='N',
     from scipy.sparse import csc_matrix
     from scipy.sparse.linalg import splu
     from . import compensated as cp
-    def phase(name, equation):
-        return nullcontext() if observer is None else observer(name, equation=equation)
-    dtype = np.asarray(b[0]).dtype
-    rd = np.empty((), dtype=dtype).real.dtype.type
-    status = np.int32(prior)
-    def unavailable(code):
-        return PairSolveOutcome((np.zeros_like(b[0]), np.zeros_like(b[0])),
-                                SolveAux(np.int32(code), rd(np.inf), rd(np.inf), rd(np.inf)))
-    def matrices(pair):
-        pair = tuple(csc_matrix((np.asarray(part, dtype=dtype), pattern.rows, pattern.indptr), shape=pattern.shape)
-                     for part in pair)
-        return pair if mode == 'N' else tuple(part.T if mode == 'T' else part.conjugate().T for part in pair)
-    def failure(value):
-        return (PairMixedOutcome(value, value, value, value) if second is not None else
-                value if a_dot is None else PairDirectionalOutcome(value, value))
-    if status:
-        return failure(unavailable(status))
-    A = matrices(a)
-    if not all(np.all(np.isfinite(part)) for pair in (a, b) for part in pair):
-        value = unavailable(stage)
-        return failure(value)
-    if pattern.shape[0] == 0:
-        value = PairSolveOutcome((np.zeros_like(b[0]), np.zeros_like(b[0])), SolveAux(np.int32(0), rd(0), rd(0), rd(0)))
-        return failure(value)
+    factor = None
     try:
-        high = csc_matrix((np.asarray(a[0], dtype=dtype), pattern.rows, pattern.indptr), shape=pattern.shape)
-        with phase('factor', 'shared'):
-            factor = splu(high) if ordering is None else splu(high, permc_spec=ordering)
-    except RuntimeError as error:
-        if str(error) != 'Factor is exactly singular':
-            raise
-        value = unavailable(stage)
-        return failure(value)
-    csr = tuple(part.tocsr() for part in A)
-    def equation(rhs, code, name):
-        if not all(np.all(np.isfinite(part)) for part in rhs):
-            return unavailable(code)
-        with phase('seed_solve', name):
-            seed = np.asarray(factor.solve(cp.project(rhs, xp=np), trans=mode), dtype=dtype)
-        x = cp.from_value(seed, xp=np)
-        with phase('correction_residual', name):
-            remainder = cp.residual(*csr, x, rhs, execute=_host_pair_product)
-        with phase('correction_solve', name):
-            correction = np.asarray(factor.solve(cp.project(cp.negate(remainder), xp=np), trans=mode), dtype=dtype)
-        with phase('pair_update', name):
-            x = cp.add(x, cp.from_value(correction, xp=np), xp=np)
-        with phase('postverification', name):
-            eta, num, den = cp.solve_certificate(*csr, x, rhs, real_dtype=rd, execute=_host_pair_product)
-        threshold = rd(256) * rd(pattern.shape[0] + 1) * rd(np.finfo(rd).eps)
-        failed = not (all(np.all(np.isfinite(part)) for part in x) and np.isfinite(eta) and eta <= threshold)
-        return PairSolveOutcome(x, SolveAux(np.int32(code if failed else 0), eta, num, den))
-    primal = equation(b, stage, 'primal')
-    if a_dot is None:
-        return primal
-    if primal.aux.status:
-        value = unavailable(primal.aux.status)
-        return PairMixedOutcome(primal, value, value, value) if second is not None else PairDirectionalOutcome(primal, value)
-    Ad = tuple(part.tocsr() for part in matrices(a_dot))
-    with phase('derivative_rhs', 'tangent_first'):
-        rhs = cp.add(b_dot, cp.negate(cp.sparse_matmul(*Ad, primal.value, execute=_host_pair_product)), xp=np)
-    first = equation(rhs, derivative_stage, 'tangent_first')
-    if second is None:
-        return PairDirectionalOutcome(primal, first)
-    a_second, b_second, a_mixed, b_mixed = second
-    def product(pair, x):
-        return cp.sparse_matmul(*(part.tocsr() for part in matrices(pair)), x, execute=_host_pair_product)
-    with phase('derivative_rhs', 'tangent_second'):
-        second_rhs = cp.add(b_second, cp.negate(product(a_second, primal.value)), xp=np)
-    second_value = equation(second_rhs, derivative_stage, 'tangent_second')
-    if first.aux.status or second_value.aux.status:
-        mixed = unavailable(first.aux.status if first.aux.status else second_value.aux.status)
-    else:
-        with phase('derivative_rhs', 'mixed'):
-            mixed_rhs = b_mixed
-            for pair, x in ((a_mixed, primal.value), (a_dot, second_value.value), (a_second, first.value)):
-                mixed_rhs = cp.add(mixed_rhs, cp.negate(product(pair, x)), xp=np)
-        mixed = equation(mixed_rhs, derivative_stage, 'mixed')
-    return PairMixedOutcome(primal, first, second_value, mixed)
+        def phase(name, equation):
+            return nullcontext() if observer is None else observer(name, equation=equation)
+        dtype = np.asarray(b[0]).dtype
+        rd = np.empty((), dtype=dtype).real.dtype.type
+        status = np.int32(prior)
+        def unavailable(code):
+            return PairSolveOutcome((np.zeros_like(b[0]), np.zeros_like(b[0])),
+                                    SolveAux(np.int32(code), rd(np.inf), rd(np.inf), rd(np.inf)))
+        def matrices(pair):
+            pair = tuple(csc_matrix((np.asarray(part, dtype=dtype), pattern.rows, pattern.indptr), shape=pattern.shape)
+                         for part in pair)
+            return pair if mode == 'N' else tuple(part.T if mode == 'T' else part.conjugate().T for part in pair)
+        def failure(value):
+            return (PairMixedOutcome(value, value, value, value) if second is not None else
+                    value if a_dot is None else PairDirectionalOutcome(value, value))
+        if status:
+            return failure(unavailable(status))
+        A = matrices(a)
+        if not all(np.all(np.isfinite(part)) for pair in (a, b) for part in pair):
+            value = unavailable(stage)
+            return failure(value)
+        if pattern.shape[0] == 0:
+            value = PairSolveOutcome((np.zeros_like(b[0]), np.zeros_like(b[0])), SolveAux(np.int32(0), rd(0), rd(0), rd(0)))
+            return failure(value)
+        try:
+            high = csc_matrix((np.asarray(a[0], dtype=dtype), pattern.rows, pattern.indptr), shape=pattern.shape)
+            with phase('factor', 'shared'):
+                factor = splu(high) if ordering is None else splu(high, permc_spec=ordering)
+        except RuntimeError as error:
+            if str(error) != 'Factor is exactly singular':
+                raise
+            value = unavailable(stage)
+            return failure(value)
+        csr = tuple(part.tocsr() for part in A)
+        def equation(rhs, code, name):
+            if not all(np.all(np.isfinite(part)) for part in rhs):
+                return unavailable(code)
+            with phase('seed_solve', name):
+                seed = np.asarray(factor.solve(cp.project(rhs, xp=np), trans=mode), dtype=dtype)
+            x = cp.from_value(seed, xp=np)
+            with phase('correction_residual', name):
+                remainder = cp.residual(*csr, x, rhs, execute=_host_pair_product)
+            with phase('correction_solve', name):
+                correction = np.asarray(factor.solve(cp.project(cp.negate(remainder), xp=np), trans=mode), dtype=dtype)
+            with phase('pair_update', name):
+                x = cp.add(x, cp.from_value(correction, xp=np), xp=np)
+            with phase('postverification', name):
+                eta, num, den = cp.solve_certificate(*csr, x, rhs, real_dtype=rd, execute=_host_pair_product)
+            threshold = rd(256) * rd(pattern.shape[0] + 1) * rd(np.finfo(rd).eps)
+            failed = not (all(np.all(np.isfinite(part)) for part in x) and np.isfinite(eta) and eta <= threshold)
+            return PairSolveOutcome(x, SolveAux(np.int32(code if failed else 0), eta, num, den))
+        primal = equation(b, stage, 'primal')
+        if a_dot is None:
+            return primal
+        if primal.aux.status:
+            value = unavailable(primal.aux.status)
+            return PairMixedOutcome(primal, value, value, value) if second is not None else PairDirectionalOutcome(primal, value)
+        Ad = tuple(part.tocsr() for part in matrices(a_dot))
+        with phase('derivative_rhs', 'tangent_first'):
+            rhs = cp.add(b_dot, cp.negate(cp.sparse_matmul(*Ad, primal.value, execute=_host_pair_product)), xp=np)
+        first = equation(rhs, derivative_stage, 'tangent_first')
+        if second is None:
+            return PairDirectionalOutcome(primal, first)
+        a_second, b_second, a_mixed, b_mixed = second
+        def product(pair, x):
+            return cp.sparse_matmul(*(part.tocsr() for part in matrices(pair)), x, execute=_host_pair_product)
+        with phase('derivative_rhs', 'tangent_second'):
+            second_rhs = cp.add(b_second, cp.negate(product(a_second, primal.value)), xp=np)
+        second_value = equation(second_rhs, derivative_stage, 'tangent_second')
+        if first.aux.status or second_value.aux.status:
+            mixed = unavailable(first.aux.status if first.aux.status else second_value.aux.status)
+        else:
+            with phase('derivative_rhs', 'mixed'):
+                mixed_rhs = b_mixed
+                for pair, x in ((a_mixed, primal.value), (a_dot, second_value.value), (a_second, first.value)):
+                    mixed_rhs = cp.add(mixed_rhs, cp.negate(product(pair, x)), xp=np)
+            mixed = equation(mixed_rhs, derivative_stage, 'mixed')
+        return PairMixedOutcome(primal, first, second_value, mixed)
+    finally:
+        # Traceback frames must not extend ownership of a native factor.
+        factor = None
 
 
 def _host_pair_dispatch(pattern, ah, al, bh, bl, code, *derivatives,

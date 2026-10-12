@@ -96,6 +96,56 @@ class PhysicalOptimizationResultSelection:
                 object.__setattr__(self, name, _freeze(value))
 
 
+@dataclass(frozen=True, slots=True)
+class DirectResultSelection:
+    """Detached identity and compact axes for one sealed Direct result."""
+
+    workspace_instance_id: str
+    plan_sha256: str
+    request_sha256: str
+    task_id: str
+    attempt_id: str
+    outcome: str
+    completion_ref: Mapping[str, Any]
+    result_ref: Mapping[str, Any]
+    manifest_ref: Mapping[str, Any]
+    index_root_ref: Mapping[str, Any]
+    point_count: int
+    chunk_count: int
+    metadata: Mapping[str, Any]
+    manifest_metadata: Mapping[str, Any]
+
+    def __post_init__(self):
+        for name in ("completion_ref", "result_ref", "manifest_ref", "index_root_ref",
+                     "metadata", "manifest_metadata"):
+            object.__setattr__(self, name, _freeze(getattr(self, name)))
+
+
+@dataclass(frozen=True, slots=True)
+class SweepResultSelection:
+    """Detached identity and compact axes for one sealed parameter sweep."""
+
+    workspace_instance_id: str
+    plan_sha256: str
+    request_sha256: str
+    task_id: str
+    attempt_id: str
+    outcome: str
+    completion_ref: Mapping[str, Any]
+    result_ref: Mapping[str, Any]
+    manifest_ref: Mapping[str, Any]
+    index_root_ref: Mapping[str, Any]
+    point_count: int
+    chunk_count: int
+    metadata: Mapping[str, Any]
+    manifest_metadata: Mapping[str, Any]
+
+    def __post_init__(self):
+        for name in ("completion_ref", "result_ref", "manifest_ref", "index_root_ref",
+                     "metadata", "manifest_metadata"):
+            object.__setattr__(self, name, _freeze(getattr(self, name)))
+
+
 def _sensitivity_canonical(snapshot, reference, *, role, schema):
     from .validation.common import _integrity
 
@@ -109,6 +159,25 @@ def _sensitivity_canonical(snapshot, reference, *, role, schema):
         raise _integrity("Sensitivity object is not a canonical supported record.",
                          reference=dict(reference), expected_schema=schema)
     return raw, value
+
+
+def _sensitivity_object_reference(reference, *, role):
+    """Check a sealed reference's current storage shape without reading its body."""
+    from .validation.common import _integrity, _valid_sha
+
+    if (not isinstance(reference, Mapping)
+            or set(reference) != {"schema_version", "storage", "database", "role",
+                                 "sha256", "byte_length"}
+            or reference.get("role") != role
+            or not isinstance(reference.get("byte_length"), int)
+            or isinstance(reference.get("byte_length"), bool)
+            or reference["byte_length"] <= 0):
+        raise _integrity("Sensitivity equation evidence reference is malformed.", expected_role=role)
+    digest = _valid_sha(reference.get("sha256"))
+    if dict(reference) != _reference(digest, role, reference["byte_length"]):
+        raise _integrity("Sensitivity equation evidence reference uses another storage authority.",
+                         expected_role=role)
+    return dict(reference)
 
 
 def _sensitivity_slice(value: object, *, ordinal: int, axis: str) -> None:
@@ -214,6 +283,13 @@ def read_sensitivity_success(snapshot, binding_identity: Mapping[str, Any], *, d
             or result.get("block_count") != completion.get("block_count")):
         raise _integrity("Sensitivity result summary differs from completion.",
                          task_id=task_id, attempt_id=attempt_id)
+    result_summary = result.get("summary")
+    if not isinstance(result_summary, Mapping):
+        raise _integrity("Sensitivity result summary is malformed.",
+                         task_id=task_id, attempt_id=attempt_id)
+    equation_evidence_ref = _sensitivity_object_reference(
+        result_summary.get("equation_evidence_ref"), role="sensitivity_equation_evidence",
+    )
     request_ref = next((item for item in descriptor.get("artifacts", ())
                         if item.get("role") == "operation_request"), None)
     if (request_ref is None or request_ref.get("sha256") != request_sha256
@@ -295,7 +371,8 @@ def read_sensitivity_success(snapshot, binding_identity: Mapping[str, Any], *, d
             or attempt.get("status") != completion["outcome"]
             or result_ref not in attempt.get("artifacts", ())
             or manifest_ref not in attempt.get("artifacts", ())
-            or index_root_ref not in attempt.get("artifacts", ())):
+            or index_root_ref not in attempt.get("artifacts", ())
+            or equation_evidence_ref not in attempt.get("artifacts", ())):
         raise _integrity("Sensitivity terminal attempt differs from its sealed result.",
                          task_id=task_id, attempt_id=attempt_id)
     state_pointer = snapshot.read_pointer(f"attempt_state/{task_id}/{attempt_id}")
@@ -432,6 +509,14 @@ class SensitivityResultReader:
                                  "operation_result", "scnsim.sensitivity_result")
         index_root = self._canonical(snapshot, selected.index_root_ref,
                                      "sensitivity_index_root", "scnsim.sensitivity_index_root")
+        result_summary = result.get("summary")
+        if not isinstance(result_summary, Mapping):
+            raise _integrity("Sensitivity result summary is malformed.",
+                             task_id=selected.task_id, attempt_id=selected.attempt_id)
+        _sensitivity_object_reference(
+            result_summary.get("equation_evidence_ref"),
+            role="sensitivity_equation_evidence",
+        )
         identity = {
             "workspace_instance_id": selected.workspace_instance_id,
             "plan_sha256": selected.plan_sha256,
@@ -1809,3 +1894,824 @@ class FixedResultReader:
                 selected.append({**row, "components": list(components)})
             return selected
         raise AssertionError(kind)
+
+
+def _chunked_canonical(snapshot, reference, *, role: str, schema: str | None):
+    from .validation.common import _integrity
+
+    if not isinstance(reference, Mapping) or reference.get("role") != role:
+        raise _integrity("Chunked result reference has the wrong role.", expected=role)
+    raw = snapshot.get_object(reference)
+    value = record_document(raw)
+    if (not isinstance(value, dict) or record_bytes(value) != raw
+            or (schema is not None and value.get("schema") != schema)
+            or (schema is not None and value.get("schema_version") != 1)):
+        raise _integrity("Chunked result object is not a canonical supported record.",
+                         reference=dict(reference), expected_schema=schema)
+    return value
+
+
+def _chunked_metadata(domain, source_metadata, request, identity, point_count, index_root):
+    metadata = dict(source_metadata)
+    spec = request.get("spec", {})
+    runtime = request.get("runtime_semantic", {})
+    metadata.update({
+        "workspace_instance_id": identity["workspace_instance_id"],
+        "plan_sha256": identity["plan_sha256"],
+        "request_sha256": identity["request_sha256"],
+        "task_id": identity["task_id"],
+        "attempt_id": identity["attempt_id"],
+        "operation": request.get("operation"),
+        "result_kind": metadata.get("result_kind", spec.get("type")),
+        "point_count": point_count,
+        "precision": metadata.get("precision", runtime.get("precision")),
+        "program_sha256": metadata.get("program_sha256"),
+        "program_identity_scope": metadata.get("program_identity_scope"),
+        "view": metadata.get("view", request.get("view")),
+    })
+    program_sha256 = metadata.get("program_sha256")
+    from .validation.common import _valid_sha
+    if domain == "direct":
+        if not isinstance(program_sha256, str):
+            from .validation.common import _integrity
+            raise _integrity("Direct result manifest lacks its physical program identity.",
+                             task_id=identity["task_id"])
+        _valid_sha(program_sha256)
+        from ..canonical import float64_from_hex
+        from .validation.common import _identifiers
+
+        frequency_rows = spec.get("frequencies", ())
+        if not isinstance(frequency_rows, (tuple, list)):
+            from .validation.common import _integrity
+            raise _integrity("Direct request frequencies are malformed.", task_id=identity["task_id"])
+        frequencies = tuple(float64_from_hex(row["si_value_f64"]) for row in frequency_rows)
+        if len(frequencies) != point_count:
+            from .validation.common import _integrity
+            raise _integrity("Direct request frequency count differs from its sealed chunks.",
+                             task_id=identity["task_id"], expected=point_count,
+                             actual=len(frequencies))
+        terminal_ids = _identifiers(metadata.get("terminal_ids"), field="terminal_ids")
+        channels = tuple((coordinate, ()) for coordinate in terminal_ids)
+        metadata.update({
+            "terminal_ids": tuple(terminal_ids), "terminal_count": len(terminal_ids),
+            "input_channels": channels, "output_channels": channels,
+            "probe_loads": metadata.get("probe_loads", {}),
+            "traces": tuple(spec.get("traces", ())),
+            "frequencies_hz": frequencies, "frequency_count": len(frequencies),
+            "frequency_unit": "hertz",
+            "family_units": {"S": "dimensionless", "Y": "siemens", "Z": "ohm"},
+        })
+    else:
+        if (metadata.get("program_identity_scope") != "per_point"
+                or program_sha256 is not None):
+            from .validation.common import _integrity
+            raise _integrity("Sweep manifest must identify per-point physical programs.",
+                             task_id=identity["task_id"])
+        source = request.get("parameter_source", {})
+        source_kind = source.get("kind")
+        if source_kind == "grid":
+            axes = tuple(source.get("axes", ()))
+            shape = tuple(source.get("shape", ()))
+            coordinate_columns = tuple(row["parameter"] for row in axes)
+        elif source_kind == "points":
+            axes = ()
+            shape = ()
+            coordinate_columns = tuple(
+                row["parameter"]
+                for row in source.get("baseline_parameters", {}).get("bindings", ())
+            )
+        else:
+            from .validation.common import _integrity
+            raise _integrity("Sweep request has no declared grid or point source.",
+                             task_id=identity["task_id"])
+        if source_kind == "points":
+            expected_count = len(source["points"])
+        else:
+            expected_count = 1
+            for dimension in shape:
+                expected_count *= dimension
+        if expected_count != point_count:
+            from .validation.common import _integrity
+            raise _integrity("Sweep point count differs from its exact request.",
+                             task_id=identity["task_id"], expected=expected_count,
+                             actual=point_count)
+        metadata.update({
+            "source_kind": source_kind,
+            "axes": axes,
+            "shape": shape,
+            "coordinate_columns": coordinate_columns,
+            "status_summary": index_root.get("status_summary", {}),
+            "traces": tuple(spec.get("traces", ())),
+            "terminal_ids": tuple(metadata.get("terminal_ids", ())),
+            "probe_loads": metadata.get("probe_loads", {}),
+        })
+    return metadata
+
+
+def _read_chunked_success(snapshot, binding_identity, *, descriptor, attempt_id,
+                          selection, domain):
+    """Select an exact v1 Direct or Sweep completion without reading data chunks."""
+    from .validation.common import _integrity
+
+    task_id = descriptor.get("task_id")
+    request_sha256 = descriptor.get("request_sha256")
+    if not isinstance(task_id, str) or not isinstance(request_sha256, str):
+        raise _integrity("Chunked result task identity is malformed.")
+    prefix = domain
+    if selection is not None:
+        completion_ref = selection.get(f"{prefix}_completion")
+        selected_attempt = selection.get("attempt_id")
+        if (selection.get("event") != "request_success_selected"
+                or selection.get("task_id") != task_id
+                or selection.get("request_sha256") != request_sha256
+                or not isinstance(selected_attempt, str)
+                or not isinstance(completion_ref, Mapping)
+                or completion_ref.get("role") != f"{prefix}_completion"):
+            raise _integrity("Chunked result selector differs from its request.", task_id=task_id)
+        if attempt_id is not None and attempt_id != selected_attempt:
+            return None
+        attempt_id = selected_attempt
+        result_ref = selection.get("result_ref")
+    else:
+        if not isinstance(attempt_id, str):
+            return None
+        pointer = snapshot.read_pointer(f"completion/{task_id}/{attempt_id}")
+        if pointer is None or pointer.get("reference", {}).get("role") != f"{prefix}_completion":
+            return None
+        completion_ref = pointer["reference"]
+        result_ref = None
+
+    completion_pointer = snapshot.read_pointer(f"completion/{task_id}/{attempt_id}")
+    if (completion_pointer is None
+            or completion_pointer.get("reference") != dict(completion_ref)):
+        raise _integrity("Chunked result completion differs from its committed pointer.",
+                         task_id=task_id, attempt_id=attempt_id)
+    completion = _chunked_canonical(
+        snapshot, completion_ref, role=f"{prefix}_completion",
+        schema=f"scnsim.{prefix}_completion",
+    )
+    if result_ref is None:
+        result_ref = completion.get("result_ref")
+    if (not isinstance(result_ref, Mapping)
+            or result_ref.get("role") != "operation_result"
+            or completion.get("result_ref") != dict(result_ref)):
+        raise _integrity("Chunked result completion has no exact result reference.",
+                         task_id=task_id, attempt_id=attempt_id)
+    identity = {
+        "workspace_instance_id": binding_identity["workspace_instance_id"],
+        "plan_sha256": binding_identity["plan_sha256"],
+        "request_sha256": request_sha256,
+        "task_id": task_id,
+        "attempt_id": attempt_id,
+        "outcome": "success",
+    }
+    if (any(completion.get(key) != value for key, value in identity.items())
+            or completion.get("schema_version") != 1):
+        raise _integrity("Chunked result completion differs from its bound identity.",
+                         task_id=task_id, attempt_id=attempt_id)
+    manifest_ref = completion.get("manifest_ref")
+    index_root_ref = completion.get("index_root_ref")
+    terminal_attempt_ref = completion.get("terminal_attempt_ref")
+    if (not isinstance(manifest_ref, Mapping)
+            or manifest_ref.get("role") != f"{prefix}_manifest"
+            or not isinstance(index_root_ref, Mapping)
+            or index_root_ref.get("role") != f"{prefix}_index_root"
+            or not isinstance(terminal_attempt_ref, Mapping)
+            or terminal_attempt_ref.get("role") != "attempt"):
+        raise _integrity("Chunked result completion references are malformed.",
+                         task_id=task_id, attempt_id=attempt_id)
+    terminal_pointer = snapshot.read_pointer(f"attempt/{task_id}/{attempt_id}")
+    if (terminal_pointer is None
+            or terminal_pointer.get("reference") != dict(terminal_attempt_ref)):
+        raise _integrity("Chunked result terminal attempt reference changed.",
+                         task_id=task_id, attempt_id=attempt_id)
+    terminal_attempt = _chunked_canonical(
+        snapshot, terminal_attempt_ref, role="attempt", schema=None,
+    )
+    if terminal_attempt.get("status") != "success" or terminal_attempt.get("attempt_id") != attempt_id:
+        raise _integrity("Chunked result attempt is not durably successful.",
+                         task_id=task_id, attempt_id=attempt_id)
+
+    if selection is not None:
+        if (selection.get("result_ref") != dict(result_ref)
+                or selection.get(f"{prefix}_completion") != dict(completion_ref)):
+            raise _integrity("Chunked result success selector differs from completion.",
+                             task_id=task_id, attempt_id=attempt_id)
+
+    result = _chunked_canonical(
+        snapshot, result_ref, role="operation_result", schema=f"scnsim.{prefix}_result",
+    )
+    manifest = _chunked_canonical(
+        snapshot, manifest_ref, role=f"{prefix}_manifest", schema=f"scnsim.{prefix}_manifest",
+    )
+    index_root = _chunked_canonical(
+        snapshot, index_root_ref, role=f"{prefix}_index_root",
+        schema=f"scnsim.{prefix}_index_root",
+    )
+    if any(record.get(key) != value for record in (result, manifest, index_root)
+           for key, value in identity.items()):
+        raise _integrity("Chunked result bodies differ from their completion identity.",
+                         task_id=task_id, attempt_id=attempt_id)
+    request_ref = next((item for item in descriptor.get("artifacts", ())
+                        if item.get("role") == "operation_request"), None)
+    if (not isinstance(request_ref, Mapping)
+            or request_ref.get("sha256") != request_sha256
+            or manifest.get("request_ref") != dict(request_ref)
+            or index_root.get("request_ref") != dict(request_ref)):
+        raise _integrity("Chunked result index does not bind the exact request.",
+                         task_id=task_id, attempt_id=attempt_id)
+    if (result.get("manifest_ref") != dict(manifest_ref)
+            or result.get("point_count") != completion.get("point_count")
+            or result.get("chunk_count") != completion.get("chunk_count")
+            or index_root.get("result_ref") != dict(result_ref)
+            or index_root.get("manifest_ref") != dict(manifest_ref)
+            or index_root.get("point_count") != completion.get("point_count")
+            or index_root.get("chunk_count") != completion.get("chunk_count")):
+        raise _integrity("Chunked result summary differs from its sealed index.",
+                         task_id=task_id, attempt_id=attempt_id)
+    metadata_source = manifest.get("metadata")
+    request_raw = snapshot.get_object(request_ref)
+    request = record_document(request_raw)
+    if not isinstance(request, dict) or record_bytes(request) != request_raw:
+        raise _integrity("Chunked result request body is not canonical.",
+                         task_id=task_id, attempt_id=attempt_id)
+    source = request.get("parameter_source")
+    spec = request.get("spec")
+    source_kind = source.get("kind") if isinstance(source, Mapping) else None
+    direct_points = (
+        request.get("operation") == "solve_direct"
+        and source_kind == "points"
+        and isinstance(spec, Mapping)
+        and spec.get("type") == "direct_solve"
+    )
+    evaluation_sweep = (
+        request.get("operation") == "evaluate_direct"
+        and source_kind in {"grid", "points"}
+    )
+    if (request.get("runtime_semantic", {}).get("backend") != "jax"
+            or (prefix == "direct" and (
+                request.get("operation") != "solve_direct"
+                or not isinstance(source, Mapping) or source.get("kind") != "point"
+            ))
+            or (prefix == "sweep" and (
+                not (direct_points or evaluation_sweep)
+            ))):
+        raise _integrity("Chunked completion kind differs from its canonical request.",
+                         task_id=task_id, attempt_id=attempt_id)
+    if not isinstance(metadata_source, Mapping):
+        raise _integrity("Chunked result manifest metadata is malformed.",
+                         task_id=task_id, attempt_id=attempt_id)
+    chunks = index_root.get("chunks")
+    point_count = completion.get("point_count")
+    chunk_count = completion.get("chunk_count")
+    if (not isinstance(chunks, list)
+            or not isinstance(point_count, int) or isinstance(point_count, bool) or point_count < 0
+            or not isinstance(chunk_count, int) or isinstance(chunk_count, bool)
+            or chunk_count != len(chunks)):
+        raise _integrity("Chunked result metadata or chunk index is malformed.",
+                         task_id=task_id, attempt_id=attempt_id)
+    metadata = _chunked_metadata(prefix, metadata_source, request, identity,
+                                 point_count, index_root)
+    next_point = 0
+    expected_chunk_role = f"{prefix}_chunk"
+    for ordinal, row in enumerate(chunks):
+        if (not isinstance(row, Mapping) or row.get("ordinal") != ordinal
+                or row.get("first_point") != next_point
+                or not isinstance(row.get("point_count"), int)
+                or isinstance(row.get("point_count"), bool) or row.get("point_count") <= 0
+                or not isinstance(row.get("chunk_ref"), Mapping)
+                or row["chunk_ref"].get("role") != expected_chunk_role
+                or not isinstance(row.get("summary_json"), Mapping)):
+            raise _integrity("Chunked result index row is malformed.",
+                             task_id=task_id, ordinal=ordinal)
+        next_point += row["point_count"]
+    if next_point != point_count:
+        raise _integrity("Chunked result chunks do not cover the sealed point count.",
+                         task_id=task_id, attempt_id=attempt_id)
+
+    selection_type = DirectResultSelection if prefix == "direct" else SweepResultSelection
+    selected = selection_type(
+        workspace_instance_id=identity["workspace_instance_id"],
+        plan_sha256=identity["plan_sha256"], request_sha256=request_sha256,
+        task_id=task_id, attempt_id=attempt_id, outcome="success",
+        completion_ref=dict(completion_ref), result_ref=dict(result_ref),
+        manifest_ref=dict(manifest_ref), index_root_ref=dict(index_root_ref),
+        point_count=point_count, chunk_count=chunk_count, metadata=metadata,
+        manifest_metadata=dict(metadata_source),
+    )
+    reader_type = FixedDirectResultReader if prefix == "direct" else FixedSweepResultReader
+    return {
+        "task_id": task_id, "attempt_id": attempt_id,
+        "environment_sha256": descriptor.get("environment", {}).get("environment_sha256"),
+        "attempt_sha256": terminal_attempt_ref["sha256"],
+        "result_sha256": result_ref["sha256"],
+        "result_ref": dict(result_ref), "completion_ref": dict(completion_ref),
+        "selection": selected, "fixed_reader": reader_type(binding_identity, selected),
+        "projection": {"terminal": result},
+        "checkpoint_available": False,
+    }
+
+
+def read_direct_success(snapshot, binding_identity: Mapping[str, Any], *, descriptor,
+                        attempt_id: str | None, selection: Mapping[str, Any] | None):
+    return _read_chunked_success(snapshot, binding_identity, descriptor=descriptor,
+                                 attempt_id=attempt_id, selection=selection, domain="direct")
+
+
+def read_sweep_success(snapshot, binding_identity: Mapping[str, Any], *, descriptor,
+                       attempt_id: str | None, selection: Mapping[str, Any] | None):
+    return _read_chunked_success(snapshot, binding_identity, descriptor=descriptor,
+                                 attempt_id=attempt_id, selection=selection, domain="sweep")
+
+
+class _FixedChunkedResultReader:
+    """Common fixed-selection mechanics for exact Direct and Sweep chunks."""
+
+    _domain = ""
+    _selection_type = None
+
+    def __init__(self, binding_identity: Mapping[str, Any], selection):
+        if not isinstance(selection, self._selection_type):
+            raise TypeError("selection has the wrong fixed result domain")
+        self._root = Path(binding_identity["root"])
+        self._operations = Path(binding_identity["leaf"]) / "operations"
+        self._plan_sha256 = binding_identity["plan_sha256"]
+        self._workspace_instance_id = binding_identity["workspace_instance_id"]
+        self.selection = selection
+        self.metadata = selection.metadata
+
+    def _store(self) -> OperationStore:
+        return OperationStore(self._operations, plan_sha256=self._plan_sha256,
+                              workspace_instance_id=self._workspace_instance_id)
+
+    @staticmethod
+    def _canonical(snapshot, reference, domain, kind):
+        role = "operation_result" if kind == "result" else f"{domain}_{kind}"
+        return _chunked_canonical(snapshot, reference, role=role,
+                                  schema=f"scnsim.{domain}_{kind}")
+
+    def _selection_snapshot(self, snapshot):
+        from .validation.common import _integrity
+
+        selected = self.selection
+        domain = self._domain
+        if (selected.workspace_instance_id != self._workspace_instance_id
+                or selected.plan_sha256 != self._plan_sha256):
+            raise _integrity("Chunked result selection belongs to another Workspace.",
+                             task_id=selected.task_id, attempt_id=selected.attempt_id)
+        completion = self._canonical(snapshot, selected.completion_ref, domain, "completion")
+        manifest = self._canonical(snapshot, selected.manifest_ref, domain, "manifest")
+        result = self._canonical(snapshot, selected.result_ref, domain, "result")
+        index_root = self._canonical(snapshot, selected.index_root_ref, domain, "index_root")
+        identity = {
+            "workspace_instance_id": selected.workspace_instance_id,
+            "plan_sha256": selected.plan_sha256,
+            "request_sha256": selected.request_sha256,
+            "task_id": selected.task_id, "attempt_id": selected.attempt_id,
+            "outcome": selected.outcome,
+        }
+        if (any(completion.get(key) != value for key, value in identity.items())
+                or completion.get("result_ref") != dict(selected.result_ref)
+                or completion.get("manifest_ref") != dict(selected.manifest_ref)
+                or completion.get("index_root_ref") != dict(selected.index_root_ref)
+                or completion.get("point_count") != selected.point_count
+                or completion.get("chunk_count") != selected.chunk_count
+                or any(body.get(key) != value for body in (manifest, result, index_root)
+                       for key, value in identity.items())
+                or result.get("manifest_ref") != dict(selected.manifest_ref)
+                or index_root.get("result_ref") != dict(selected.result_ref)
+                or index_root.get("manifest_ref") != dict(selected.manifest_ref)
+                or result.get("point_count") != selected.point_count
+                or index_root.get("point_count") != selected.point_count
+                or result.get("chunk_count") != selected.chunk_count
+                or index_root.get("chunk_count") != selected.chunk_count
+                or record_bytes(manifest.get("metadata"))
+                != record_bytes(dict(selected.manifest_metadata))):
+            raise _integrity("Chunked result fixed selection differs from its sealed bodies.",
+                             task_id=selected.task_id, attempt_id=selected.attempt_id)
+        request_pointer = snapshot.read_pointer(f"task/{selected.task_id}")
+        if request_pointer is None:
+            raise _integrity("Chunked result task descriptor disappeared.", task_id=selected.task_id)
+        from .sqlite_storage import _descriptor
+        descriptor = _descriptor(snapshot, selected.task_id)
+        request_ref = next((item for item in descriptor.get("artifacts", ())
+                            if item.get("role") == "operation_request"), None)
+        if (descriptor.get("request_sha256") != selected.request_sha256
+                or not isinstance(request_ref, Mapping)
+                or manifest.get("request_ref") != dict(request_ref)
+                or index_root.get("request_ref") != dict(request_ref)):
+            raise _integrity("Chunked result request differs from its fixed selection.",
+                             task_id=selected.task_id)
+        request_raw = snapshot.get_object(request_ref)
+        request = record_document(request_raw)
+        if not isinstance(request, dict) or record_bytes(request) != request_raw:
+            raise _integrity("Chunked result request body is not canonical.",
+                             task_id=selected.task_id)
+        expected_metadata = _chunked_metadata(
+            domain, manifest.get("metadata"), request, identity,
+            selected.point_count, index_root,
+        )
+        if record_bytes(expected_metadata) != record_bytes(dict(selected.metadata)):
+            raise _integrity("Chunked result metadata differs from its fixed request.",
+                             task_id=selected.task_id, attempt_id=selected.attempt_id)
+        completion_pointer = snapshot.read_pointer(
+            f"completion/{selected.task_id}/{selected.attempt_id}")
+        if (completion_pointer is None
+                or completion_pointer.get("reference") != dict(selected.completion_ref)):
+            raise _integrity("Chunked result completion pointer changed after selection.",
+                             task_id=selected.task_id, attempt_id=selected.attempt_id)
+        terminal_attempt_ref = completion.get("terminal_attempt_ref")
+        terminal_pointer = snapshot.read_pointer(
+            f"attempt/{selected.task_id}/{selected.attempt_id}")
+        if (not isinstance(terminal_attempt_ref, Mapping)
+                or terminal_pointer is None
+                or terminal_pointer.get("reference") != dict(terminal_attempt_ref)):
+            raise _integrity("Chunked result terminal attempt pointer changed after selection.",
+                             task_id=selected.task_id, attempt_id=selected.attempt_id)
+        chunks = index_root.get("chunks")
+        if not isinstance(chunks, list) or len(chunks) != selected.chunk_count:
+            raise _integrity("Chunked result index differs from fixed chunk count.",
+                             task_id=selected.task_id)
+        return completion, manifest, result, index_root, request
+
+    def _chunk(self, snapshot, index_root, ordinal):
+        from .validation.common import _integrity
+
+        rows = index_root.get("chunks", ())
+        if ordinal < 0 or ordinal >= len(rows):
+            raise IndexError(ordinal)
+        row = rows[ordinal]
+        chunk = self._canonical(snapshot, row["chunk_ref"], self._domain, "chunk")
+        identity = self.selection
+        if (chunk.get("workspace_instance_id") != identity.workspace_instance_id
+                or chunk.get("plan_sha256") != identity.plan_sha256
+                or chunk.get("request_sha256") != identity.request_sha256
+                or chunk.get("task_id") != identity.task_id
+                or chunk.get("attempt_id") != identity.attempt_id
+                or chunk.get("ordinal") != row.get("ordinal")
+                or chunk.get("first_point") != row.get("first_point")
+                or chunk.get("point_count") != row.get("point_count")):
+            raise _integrity("Chunk body differs from its sealed index row.",
+                             task_id=identity.task_id, ordinal=ordinal)
+        return row, chunk
+
+
+class FixedDirectResultReader(_FixedChunkedResultReader):
+    """Read a fixed Direct completion, loading only selected matrix chunks."""
+
+    _domain = "direct"
+    _selection_type = DirectResultSelection
+
+    def _matrix_chunk(self, snapshot, index_root, ordinal, family):
+        from .validation.common import _integrity
+        from ..numeric_encoding import array_from_record
+
+        row, chunk = self._chunk(snapshot, index_root, ordinal)
+        families = chunk.get("families")
+        if not isinstance(families, Mapping) or family not in families:
+            raise _integrity("Direct chunk omits its requested matrix family.",
+                             ordinal=ordinal, family=family)
+        matrix = array_from_record(families[family])
+        frequencies = array_from_record(chunk["frequencies_hz"])
+        size = len(self.metadata["terminal_ids"])
+        expected_frequencies = self.metadata["frequencies_hz"][
+            row["first_point"]:row["first_point"] + row["point_count"]
+        ]
+        if (matrix.shape != (row["point_count"], size, size)
+                or frequencies.shape != (row["point_count"],)
+                or tuple(float(value) for value in frequencies) != tuple(expected_frequencies)):
+            raise _integrity("Direct chunk matrix rows differ from its declared point count.",
+                             ordinal=ordinal, family=family)
+        return row, frequencies, matrix
+
+    def read_family(self, family: str):
+        import numpy as np
+        from .validation.common import _integrity
+
+        if family not in self.metadata["family_units"]:
+            raise KeyError(family)
+        result = None
+        cursor = 0
+        with self._store().reader() as snapshot:
+            if snapshot is None:
+                raise _integrity("Selected Workspace database disappeared.")
+            _, _, _, index_root, _ = self._selection_snapshot(snapshot)
+            for ordinal in range(self.selection.chunk_count):
+                _, _, matrix = self._matrix_chunk(snapshot, index_root, ordinal, family)
+                if result is None:
+                    result = np.empty((self.selection.point_count, *matrix.shape[1:]),
+                                      dtype=matrix.dtype)
+                elif result.dtype != matrix.dtype:
+                    raise _integrity("Direct matrix chunks disagree on their dtype.",
+                                     family=family, ordinal=ordinal)
+                result[cursor:cursor + matrix.shape[0]] = matrix
+                cursor += matrix.shape[0]
+        if result is None:
+            return np.empty((0, len(self.metadata["output_channels"]),
+                             len(self.metadata["input_channels"])), dtype=np.complex128)
+        return result
+
+    def project_matrix(self, family: str, input_channel, output_channel, frequency_range=slice(None)):
+        import numpy as np
+
+        if family not in self.metadata["family_units"]:
+            raise KeyError(family)
+        input_index = tuple(self.metadata["input_channels"]).index(input_channel)
+        output_index = tuple(self.metadata["output_channels"]).index(output_channel)
+        start, stop, step = frequency_range.indices(self.selection.point_count)
+        positions = range(start, stop, step)
+        frequency_parts = []
+        value_parts = []
+        with self._store().reader() as snapshot:
+            if snapshot is None:
+                from .validation.common import _integrity
+                raise _integrity("Selected Workspace database disappeared.")
+            _, _, _, index_root, _ = self._selection_snapshot(snapshot)
+            groups = {}
+            rows = index_root["chunks"]
+            ordinal = 0 if step > 0 else len(rows) - 1
+            direction = 1 if step > 0 else -1
+            for position in positions:
+                while not (0 <= ordinal < len(rows)
+                           and rows[ordinal]["first_point"] <= position
+                           < rows[ordinal]["first_point"] + rows[ordinal]["point_count"]):
+                    ordinal += direction
+                first = rows[ordinal]["first_point"]
+                groups.setdefault(ordinal, []).append(position - first)
+            for ordinal, local_positions in groups.items():
+                _, frequencies, matrix = self._matrix_chunk(snapshot, index_root, ordinal, family)
+                indices = np.asarray(local_positions, dtype=np.intp)
+                frequency_parts.append(frequencies[indices])
+                value_parts.append(matrix[indices, output_index, input_index])
+        if frequency_parts:
+            frequencies = np.concatenate(frequency_parts)
+            values = np.concatenate(value_parts)
+        else:
+            frequencies = np.empty((0,), dtype=np.float64)
+            values = np.empty((0,), dtype=np.complex128)
+        return {"frequencies": frequencies, "values": values}
+
+
+def _expected_sweep_point(source: Mapping[str, Any], ordinal: int):
+    """Return one request-declared source index and its complete parameters."""
+    kind = source.get("kind")
+    from .validation.sweeps import _merge_parameter_records
+
+    if kind == "points":
+        points = source["points"]
+        return ordinal, _merge_parameter_records(source["baseline_parameters"], points[ordinal])
+    if kind != "grid":
+        from .validation.common import _integrity
+        raise _integrity("Selected sweep request has no grid or point source.")
+
+    shape = tuple(source["shape"])
+    remainder = ordinal
+    indices = [0] * len(shape)
+    for axis_index in range(len(shape) - 1, -1, -1):
+        size = shape[axis_index]
+        indices[axis_index] = remainder % size
+        remainder //= size
+    overlay = {
+        "type": "parameter_set_v2",
+        "bindings": [
+            {"parameter": axis["parameter"], "value": axis["values"][indices[index]]}
+            for index, axis in enumerate(source["axes"])
+        ],
+        "allow_extrapolation": [],
+    }
+    return indices, _merge_parameter_records(source["base_parameters"], overlay)
+
+
+def _hydrate_sweep_record(snapshot, record):
+    """Hydrate only the selected Sweep record's immutable numerical bodies."""
+    from .validation.common import _integrity
+
+    if not isinstance(record, Mapping):
+        raise _integrity("Sweep point evidence record is malformed.")
+    hydrated = dict(record)
+    has_evidence_ref = "evidence_ref" in hydrated
+    evidence_ref = hydrated.pop("evidence_ref", None)
+    if has_evidence_ref:
+        if "evidence" in hydrated:
+            raise _integrity("Sweep record repeats inline and referenced evidence.")
+        if not isinstance(evidence_ref, Mapping):
+            raise _integrity("Sweep evidence reference is malformed.")
+        hydrated["evidence"] = _chunked_canonical(
+            snapshot, evidence_ref, role="benchmark_value", schema=None,
+        )
+    has_dependency_refs = "dependency_refs" in hydrated
+    dependency_refs = hydrated.pop("dependency_refs", None)
+    if has_dependency_refs:
+        if "dependencies" in hydrated or not isinstance(dependency_refs, Mapping):
+            raise _integrity("Sweep record dependency references are malformed.")
+        dependencies = {}
+        for body_id, reference in dependency_refs.items():
+            if not isinstance(body_id, str) or not isinstance(reference, Mapping):
+                raise _integrity("Sweep dependency body reference is malformed.")
+            body = _chunked_canonical(
+                snapshot, reference, role="benchmark_value", schema=None,
+            )
+            if sha256(record_bytes(body)).hexdigest() != body_id:
+                raise _integrity("Sweep dependency body differs from its content identity.",
+                                 body_id=body_id)
+            dependencies[body_id] = body
+        hydrated["dependencies"] = dependencies
+    failure = hydrated.get("failure")
+    if isinstance(failure, Mapping) and "evidence_ref" in failure:
+        if "evidence" in failure:
+            raise _integrity("Sweep failure repeats inline and referenced evidence.")
+        failure_record = dict(failure)
+        reference = failure_record.pop("evidence_ref")
+        if not isinstance(reference, Mapping):
+            raise _integrity("Sweep failure evidence reference is malformed.")
+        failure_record["evidence"] = _chunked_canonical(
+            snapshot, reference, role="benchmark_value", schema=None,
+        )
+        hydrated["failure"] = failure_record
+    return hydrated
+
+
+def _hydrate_sweep_point(snapshot, point):
+    hydrated = _hydrate_sweep_record(snapshot, point)
+    continuations = hydrated.get("continuations")
+    if continuations is not None:
+        if not isinstance(continuations, list):
+            from .validation.common import _integrity
+            raise _integrity("Sweep continuation evidence is malformed.")
+        hydrated["continuations"] = [
+            _hydrate_sweep_record(snapshot, continuation)
+            for continuation in continuations
+        ]
+    return hydrated
+
+
+class FixedSweepResultReader(_FixedChunkedResultReader):
+    """Read compact sweep axes and one selected parameter-point occurrence."""
+
+    _domain = "sweep"
+    _selection_type = SweepResultSelection
+
+    def read_point(self, flat_index: int) -> Mapping[str, Any]:
+        if isinstance(flat_index, bool) or not isinstance(flat_index, int):
+            raise TypeError("flat_index must be an integer")
+        if flat_index < 0:
+            flat_index += self.selection.point_count
+        if flat_index < 0 or flat_index >= self.selection.point_count:
+            raise IndexError(flat_index)
+        with self._store().reader() as snapshot:
+            if snapshot is None:
+                from .validation.common import _integrity
+                raise _integrity("Selected Workspace database disappeared.")
+            _, _, _, index_root, request = self._selection_snapshot(snapshot)
+            row = next((item for item in index_root["chunks"]
+                        if item["first_point"] <= flat_index
+                        < item["first_point"] + item["point_count"]), None)
+            if row is None:
+                from .validation.common import _integrity
+                raise _integrity("Sweep point is not covered by its sealed chunk index.",
+                                 flat_index=flat_index)
+            _, chunk = self._chunk(snapshot, index_root, row["ordinal"])
+            points = chunk.get("points")
+            offset = flat_index - row["first_point"]
+            if (not isinstance(points, list) or len(points) != row["point_count"]
+                    or not isinstance(points[offset], Mapping)
+                    or points[offset].get("ordinal") != flat_index):
+                from .validation.common import _integrity
+                raise _integrity("Sweep point differs from its sealed chunk locator.",
+                                 flat_index=flat_index)
+            expected_index, expected_parameters = _expected_sweep_point(
+                request["parameter_source"], flat_index
+            )
+            from ..authoring.identity import canonical_parameters_sha256
+            point = points[offset]
+            if (point.get("source_index") != expected_index
+                    or point.get("parameters") != expected_parameters
+                    or point.get("parameters_sha256")
+                    != canonical_parameters_sha256(expected_parameters)):
+                from .validation.common import _integrity
+                raise _integrity("Sweep point differs from its exact declared source position.",
+                                 flat_index=flat_index)
+            summaries = row.get("summary_json", {}).get("occurrences")
+            if (not isinstance(summaries, list) or len(summaries) != row["point_count"]
+                    or not isinstance(summaries[offset], Mapping)):
+                from .validation.common import _integrity
+                raise _integrity("Sweep occurrence summary is missing its selected point.",
+                                 flat_index=flat_index)
+            summary = summaries[offset]
+            from .validation.common import _valid_sha
+            summary_program = summary.get("program_sha256")
+            summary_discretization = summary.get("discretization")
+            summary_fields = {
+                "ordinal", "source_index", "parameters_sha256", "status",
+                "program_sha256", "discretization",
+            }
+            if point.get("status") == "failure":
+                summary_fields.add("failure")
+            if (not isinstance(summary_program, str)
+                    or not isinstance(summary_discretization, list)
+                    or set(summary) != summary_fields
+                    or summary.get("ordinal") != flat_index
+                    or summary.get("source_index") != expected_index
+                    or summary.get("parameters_sha256") != point.get("parameters_sha256")
+                    or summary.get("status") != point.get("status")):
+                from .validation.common import _integrity
+                raise _integrity("Sweep occurrence program identity is malformed.",
+                                 flat_index=flat_index)
+            _valid_sha(summary_program)
+            if (point.get("program_sha256") != summary_program
+                    or record_bytes(point.get("discretization"))
+                    != record_bytes(summary_discretization)):
+                from .validation.common import _integrity
+                raise _integrity("Sweep point differs from its sealed per-point program identity.",
+                                 flat_index=flat_index)
+            return _freeze(_hydrate_sweep_point(snapshot, point))
+
+    def project_axis(self, parameter_ref: Mapping[str, Any] | None = None):
+        """Return declared sweep axes without loading any point bodies.
+
+        Grid axes are identified by the canonical parameter reference rather
+        than a display name or a synthetic axis id. Listed-point sweeps have
+        no declared grid axes; their parameter values are read from individual
+        point occurrences through :meth:`read_point`.
+        """
+        axes = self.metadata.get("axes", ())
+        columns = tuple(self.metadata.get("coordinate_columns", ()))
+        if parameter_ref is not None:
+            if not isinstance(parameter_ref, Mapping):
+                raise TypeError("parameter_ref must be a canonical parameter reference mapping")
+            selected = tuple(axis for axis in axes
+                             if axis.get("parameter") == parameter_ref)
+            selected_columns = tuple(column for column in columns if column == parameter_ref)
+            if not selected and not selected_columns:
+                raise KeyError((parameter_ref.get("definitions_id"),
+                                parameter_ref.get("parameter_id")))
+        else:
+            selected = tuple(axes)
+            selected_columns = columns
+        occurrences = []
+        observed_statuses = {}
+        with self._store().reader() as snapshot:
+            if snapshot is None:
+                from .validation.common import _integrity
+                raise _integrity("Selected Workspace database disappeared.")
+            _, _, _, index_root, request = self._selection_snapshot(snapshot)
+            for chunk_row in index_root["chunks"]:
+                chunk_summary = chunk_row["summary_json"]
+                rows = chunk_summary.get("occurrences")
+                if not isinstance(rows, list) or len(rows) != chunk_row["point_count"]:
+                    from .validation.common import _integrity
+                    raise _integrity("Sweep chunk summary omits its ordered point occurrences.",
+                                     ordinal=chunk_row["ordinal"])
+                for offset, occurrence in enumerate(rows):
+                    flat_index = chunk_row["first_point"] + offset
+                    expected_index, expected_parameters = _expected_sweep_point(
+                        request["parameter_source"], flat_index
+                    )
+                    from ..authoring.identity import canonical_parameters_sha256
+                    status = occurrence.get("status") if isinstance(occurrence, Mapping) else None
+                    expected_fields = {
+                        "ordinal", "source_index", "parameters_sha256", "status",
+                        "program_sha256", "discretization",
+                    }
+                    if status == "failure":
+                        expected_fields.add("failure")
+                    program_sha256 = (occurrence.get("program_sha256")
+                                      if isinstance(occurrence, Mapping) else None)
+                    discretization = (occurrence.get("discretization")
+                                      if isinstance(occurrence, Mapping) else None)
+                    if (not isinstance(occurrence, Mapping)
+                            or set(occurrence) != expected_fields
+                            or occurrence.get("ordinal") != flat_index
+                            or occurrence.get("source_index") != expected_index
+                            or occurrence.get("parameters_sha256")
+                            != canonical_parameters_sha256(expected_parameters)
+                            or not isinstance(program_sha256, str)
+                            or not isinstance(discretization, list)
+                            or status not in {"success", "failure"}):
+                        from .validation.common import _integrity
+                        raise _integrity("Sweep occurrence summary differs from its fixed source index.",
+                                         flat_index=flat_index)
+                    from .validation.common import _valid_sha
+                    _valid_sha(program_sha256)
+                    if status == "failure":
+                        failure = occurrence.get("failure")
+                        if (not isinstance(failure, Mapping)
+                                or set(failure) != {"kind", "stage", "message"}
+                                or any(not isinstance(failure.get(key), str) or not failure[key]
+                                       for key in ("kind", "stage", "message"))):
+                            from .validation.common import _integrity
+                            raise _integrity("Sweep occurrence failure summary is malformed.",
+                                             flat_index=flat_index)
+                    observed_statuses[status] = observed_statuses.get(status, 0) + 1
+                    occurrences.append(_freeze(occurrence))
+            summary = index_root.get("status_summary", {})
+            if not isinstance(summary, Mapping) or dict(summary) != observed_statuses:
+                from .validation.common import _integrity
+                raise _integrity("Sweep status summary differs from its occurrence index.")
+        return _freeze({"point_count": self.selection.point_count,
+                        "shape": self.metadata.get("shape"),
+                        "axes": selected,
+                        "coordinate_columns": selected_columns,
+                        "status_summary": summary,
+                        "source_kind": self.metadata.get("source_kind"),
+                        "occurrences": tuple(occurrences)})

@@ -20,7 +20,7 @@ semantics and this documentation remain `CONVERGING`; Alpha is neither a
 stable release nor a new scientific-validation claim. Public API and saved
 workspace compatibility may change before a stable release.
 
-The development candidate is `1.0.0.dev26`. The differentiable physical-program
+The development candidate is `1.0.0.dev27`. The differentiable physical-program
 target and SQLite operation evidence v7 remain `CONVERGING`; declaration and
 execution integration are in progress. [The physical-program contract](docs/v1-runtime-contract.qmd#physical-program-target)
 binds value, Jacobian/JVP/VJP and optimization to one model, fixed meshes for
@@ -33,7 +33,7 @@ The [lifecycle contract](docs/v1-runtime-contract.qmd#package-lifecycle) defines
 optional Run close, automatic operation cleanup, fixed lazy Results, bounded
 recovery and managed Julia startup. Old operation Workspaces require recomputation;
 there is no migration or compatibility reader. Historical observations keep their
-original identities. Earlier-version observations remain historical evidence, not dev26
+original identities. Earlier-version observations remain historical evidence, not dev27
 execution or delivery evidence. Python 3.12 remains required. Normal
 `CircuitRun.solve`, `evaluate` and `optimize` default to same-process JAX CPU
 Float64/Complex128; Float32/Complex64 and explicit Julia are selectable.
@@ -56,9 +56,17 @@ the existing environment; 1 is serial. The coordinator alone owns CMA order,
 cache admission, winner selection, SQLite commits and durable callbacks.
 `run.warmup(view, spec, parameters=None)` prepares JAX topology, Views and
 executable signatures without solving or saving a successful result. Exact
-signatures reuse explicitly admitted Run-owned static programs and prepared
-assembly entries on their actual device; unmatched operation programs are not
-automatically retained. Sparse/implicit AD and future shapes remain lazy.
+signatures share the bounded Run compile owner on their actual device. Active entries stay pinned through synchronization;
+unused static entries may be evicted locally, without clearing global JAX caches.
+Known value and checked linearization producers are distinct from lazy
+frame-consuming derivative variants; raw Prepared transformations do not imply
+a checked chunk warm hit. Sensitivity declarations use their exact leaf Views.
+Unknown future shapes remain lazy.
+`run.prepare(quantities=..., parameters=..., wrt=...)` is the advanced detached
+callable acquisition in the dev27 candidate. Its explicit layouts bind SI inputs,
+outputs, fixed mesh and branch controls. Raw values/status are not certified
+Results; caller ownership survives Run close. Native coverage, resource and performance conclusions remain bound to actual
+installed-candidate observations, without a whole-capability success claim.
 Optimization display defaults to `progress=True` and reports completed versus
 committed work independently of durable `on_progress` notifications. Disable
 it with `progress=False`. Display errors warn and disable display; durable

@@ -18,7 +18,8 @@ from .mesh import quantity
 from .program import MeshPlan
 from .model_program import compile_model_program, plan_mesh
 from .view_program import compile_view_program
-from ..numerics.physical_program import ObservableDescriptor, PhysicalProgram, ProgramInputs
+from ..numerics.program_models import ObservableDescriptor, ProgramInputs
+from .physical_layout import PhysicalLayout
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,9 @@ class OutputExpression:
 
     def _evaluate(self, values):
         import jax.numpy as jnp
+        # Tree leaf ordinals are local to this expression; callers supply
+        # the shared frame's complete ordered observable values.
+        values = tuple(values[index] for index in self.indices)
         def visit(node):
             kind = node[0]
             if kind == 'leaf':
@@ -73,13 +77,45 @@ class OutputExpression:
 
 @dataclass(frozen=True, slots=True)
 class QuantityProgram:
-    program: PhysicalProgram
+    program: PhysicalLayout
     declarations: tuple[tuple[str, bytes], ...]
     leaves: tuple[QuantityLeaf, ...]
     frequencies_rad_s: tuple[complex, ...]
     branch_starts_rad_s: tuple[complex, ...]
     identity_bytes: bytes
     observable_metadata_bytes: tuple[bytes, ...] = ()
+
+    def native_program(self, inputs, *, program_owner=None, admit_core=False):
+        """Admit one static native partition after actual physical classification.
+
+        Inputs are used only during acquisition, never retained by the admitted
+        function. Concurrent callers use the atomically admitted same callable.
+        """
+        from ..numerics.native_program import compile_native_program, acquire_native_core
+        capabilities = self.program._capabilities(inputs)
+        key = ('native_program', capabilities)
+        with self.program._function_lock:
+            admitted = self.program._native_providers.get(key)
+            existing_core = self.program._native_cores.get(capabilities)
+        core = acquire_native_core(self, capabilities, owner=program_owner, admit=admit_core,
+                                   existing=existing_core)
+        with self.program._function_lock:
+            if program_owner is None:
+                core = self.program._native_cores.setdefault(capabilities, core)
+            else:
+                self.program._native_cores[capabilities] = core
+        if admitted is None or admitted.core is not core:
+            built = compile_native_program(self, inputs, capabilities=capabilities, core=core)
+            with self.program._function_lock:
+                previous = self.program._native_providers.get(key)
+                same_core = previous is not None and (previous.core is core or
+                    (program_owner is None and previous.core.structural_identity == core.structural_identity))
+                if same_core:
+                    admitted = previous
+                else:
+                    self.program._native_providers[key] = built
+                    admitted = built
+        return admitted
 
     @property
     def output_layout(self):
@@ -104,14 +140,12 @@ class QuantityProgram:
 
     def inputs(self, parameter_set, *, branch_starts_rad_s=None):
         # Preserve original binary64 effective operands for physical validation;
-        # PhysicalProgram casts only at its selected numerical boundary.
+        # The native core casts only at its selected numerical boundary.
         theta = self.program.model_program.fields.layout.pack(parameter_set, dtype=np.float64)
         starts = self.branch_starts_rad_s if branch_starts_rad_s is None else branch_starts_rad_s
         return ProgramInputs(theta, np.asarray(self.frequencies_rad_s, dtype=np.complex128),
                              np.asarray(starts, dtype=np.complex128))
 
-    def prepare_batch(self, inputs_sequence, *, sparse_runner=None):
-        return self.program.prepare_batch(inputs_sequence, sparse_runner=sparse_runner)
 
     def point_metadata(self, inputs):
         """Detached actual-point model/View metadata, without numerical solves.
@@ -153,8 +187,6 @@ class QuantityProgram:
                                         'indices': descriptor.indices})
         return tuple(rows[index] for index in sorted(rows))
 
-    def evaluate_branch(self, inputs, start_index, *, sparse_runner=None):
-        return self.program.evaluate_branch(inputs, start_index, sparse_runner=sparse_runner)
 
     def direction_inputs(self, inputs, encoded_direction):
         rows = encoded_direction['direction'] if isinstance(encoded_direction, dict) else encoded_direction
@@ -170,12 +202,12 @@ class QuantityProgram:
 
     def weight_vector(self, encoded_weights):
         rows = encoded_weights['weights'] if isinstance(encoded_weights, dict) else encoded_weights
-        positions = {(row.quantity_key, row.index, row.component): row.row for row in self.output_layout.rows}
-        weights = np.zeros(len(positions), dtype=np.float64)
+        weights = np.zeros(len(self.output_layout.rows), dtype=np.float64)
         for item in rows:
             coordinate = item['output']
-            key = (coordinate['quantity_label'], tuple(coordinate['index']), coordinate['component'])
-            weights[positions[key]] = quantity(item['value'])
+            position = self.output_layout.row_index(coordinate['quantity_label'],
+                tuple(coordinate['index']), coordinate['component'])
+            weights[position] = quantity(item['value'])
         return weights
 
 
@@ -206,6 +238,31 @@ def compile_quantity_program(plan_document, quantity_declarations, parameter_set
                              precision='float64', authorized=frozenset(), program_owner=None, admit_program=False):
     """Compile static declarations once; point values remain runtime operands."""
     mesh_plan = _compile_mesh(plan_document, parameter_set, mesh, bounds, authorized)
+    # The declared topology/mesh and operand schema suffice for static lookup.
+    # Runtime scalar/matrix coefficient bytes never enter this acquisition key.
+    bindings = []
+    for row in parameter_set['bindings']:
+        value = row['value']
+        if value['type'] == 'rlgc':
+            metadata = dict(value)
+            for name in ('resistance', 'inductance', 'conductance', 'capacitance'):
+                field = name + '_per_length'
+                metadata[field] = {key: item for key, item in value[field].items()
+                                   if key != 'values_f64'}
+        else:
+            metadata = {key: item for key, item in value.items()
+                        if key != 'si_value_f64'}
+        bindings.append({'parameter': row['parameter'], 'value_schema': metadata})
+    acquisition_key = ('quantity_program_declaration', canonical_json_bytes({
+        'plan': plan_document, 'quantities': quantity_declarations,
+        'default_view': default_view, 'precision': precision,
+        'mesh': {'sections': [[list(path), count] for path, count in mesh_plan.sections],
+                 'strategy': mesh_plan.strategy, 'derivations': json.loads(mesh_plan.derivation_bytes)},
+        'bindings': bindings, 'authorized': sorted(authorized)}))
+    if program_owner is not None:
+        admitted = program_owner.get(acquisition_key)
+        if admitted is not None:
+            return admitted
     model = compile_model_program(plan_document, parameter_set, mesh=mesh_plan,
                                   authorized=authorized)
     views, view_indices, descriptors, frequencies, expressions, leaves, starts = [], {}, [], [], [], [], []
@@ -351,28 +408,33 @@ def compile_quantity_program(plan_document, quantity_declarations, parameter_set
                              'coordinates': [{'id': component, 'label': component, 'component': component}
                                              for component in (('real', 'imag') if complex_output else ('real',))]})
         leaves.append(QuantityLeaf(key, len(expressions) - 1, unit, canonical_json_bytes(axis_records), encoded))
-    program = PhysicalProgram(model, views, descriptors, precision=precision, output_expressions=expressions)
+    program = PhysicalLayout(model, views, descriptors, precision=precision, output_expressions=expressions)
     identity = {'schema': 'scnsim.quantity_program', 'schema_version': 1,
-                'implementation': 'scnsim.jax.physical_program.v1', 'precision': precision,
+                'implementation': 'scnsim.jax.native_physical.v1', 'precision': precision,
                 'plan_sha256': hashlib.sha256(canonical_json_bytes(plan_document)).hexdigest(),
                 'declarations': [[key, json.loads(value)] for key, value in declarations],
                 'mesh': json.loads(mesh_plan.derivation_bytes),
                 'sections': [{'path': list(path), 'count': count} for path, count in mesh_plan.sections],
-                'output_rows': [{'row': row.row, 'quantity': row.quantity_key, 'index': list(row.index),
-                                 'component': row.component, 'si_unit': row.si_unit} for row in program.output_layout.rows]}
+                'output_layout': program.output_layout.compact_record()}
     result = QuantityProgram(program, declarations, tuple(leaves), tuple(frequencies), tuple(starts), canonical_json_bytes(identity), tuple(observable_metadata))
     # Explicit owner admission retains declarations/functions only, never point
     # operands or checked frames. The caller owns registry lifetime.
     if program_owner is None:
         return result
-    key = ('quantity_program', result.program_sha256)
-    return program_owner.setdefault(key, result) if admit_program else program_owner.get(key, result)
+    key = acquisition_key
+    admitted = program_owner.get(key)
+    if admitted is not None:
+        return admitted
+    if admit_program:
+        program_owner.admit(key, result, kind='program', known_bytes=None)
+        return program_owner.get(key, result)
+    return result
 
 
 def compile_point_quantity_program(plan_document, quantity_declarations, parameter_set, *,
                                    default_view=None, mesh=None, precision='float64',
                                    authorized=frozenset(), program_variants,
-                                   program_owner=None):
+                                   program_owner=None, admit_program=False):
     """Ordinary-value variant admission using the existing actual-point mesh.
 
     Optimization and Sensitivity use their fixed mesh frontend instead. The
@@ -409,7 +471,8 @@ def compile_point_quantity_program(plan_document, quantity_declarations, paramet
     if result is None:
         result = compile_quantity_program(plan_document, quantity_declarations, parameter_set,
                                            default_view=default_view, mesh=fixed, precision=precision,
-                                           authorized=authorized, program_owner=program_owner)
+                                           authorized=authorized, program_owner=program_owner,
+                                           admit_program=admit_program)
         result = program_variants.setdefault(key, result)
     return result
 

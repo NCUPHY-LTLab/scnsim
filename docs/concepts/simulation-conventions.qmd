@@ -43,6 +43,11 @@ rad/s. A numerical value in GHz is not an angular frequency in rad/s. Public
 quantities carry units; use the Result's frequency unit instead of inferring it
 from a variable name.
 
+JAX Direct and Operator response grids preserve the declared frequency order,
+including repeated entries and reverse sweeps. An axis position is a requested
+occurrence, not a promise that frequencies are sorted or unique. HB and the
+frozen Julia reference retain their separately documented grid capabilities.
+
 Voltage is relative to the Plan's canonical reference ground. Terminal current
 is positive **into the DUT**. With these choices, the elementary impedances and
 admittances are

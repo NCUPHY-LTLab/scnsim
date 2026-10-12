@@ -1,6 +1,6 @@
 """Operation-local configuration and execution of the shared physical program.
 
-Compilation/PhysicalProgram owns stable transformable functions and explicit
+Compilation/native physical programs own stable transformable functions and explicit
 warm signatures. This adapter owns configured device/precision and per-call
 synchronization, never candidate coefficients, tapes, factors or kernel caches.
 Execution owns ready-wave scheduling and passes prepared sparse packets/runner
@@ -58,7 +58,7 @@ class JaxBackend:
 
     def identity(self) -> dict[str, object]:
         return {
-            "backend": "jax", "algorithm_id": "scnsim.jax.physical_program.v1",
+            "backend": "jax", "algorithm_id": "scnsim.jax.native_physical.v1",
             "jax": importlib.metadata.version("jax"), "jaxlib": importlib.metadata.version("jaxlib"),
             "scipy": importlib.metadata.version("scipy"),
             "threadpoolctl": importlib.metadata.version("threadpoolctl"),
@@ -84,49 +84,46 @@ class JaxBackend:
         }
 
 
-    def program_identity(self, operation):
-        """Execution identity of the shared checked physical-program route."""
-        if operation not in ('direct', 'evaluate', 'optimize', 'sensitivity'):
-            raise ValueError('unknown physical-program operation identity')
-        identity = self.identity()
-        identity.update(algorithm_id=f'scnsim.jax.physical_program.{operation}.v1',
-                        assembly='stable_parameter_field_view_sparse_value_program',
-                        executable_ownership='explicit_Run_warm_or_operation_static_program',
-                        physical_program=True)
-        identity['compensated_arithmetic'] = {
-            'scope': 'transfer_zero.Z.non_port_realizable',
-            'representation': 'two_components_in_requested_base_dtype',
-            'coverage': 'indexed_assembly_pair_residual_selected_formation',
-            'pair_product_kernel': 'callback_local_ordered_actual_dtype_csr.v1',
-            'correction': 'one_per_actual_primal_or_derivative_equation_same_high_factor',
-            'projection': 'F_Fp_then_Y_Yp_declared_complex_dtype',
-        }
-        return identity
 
 
-    def execute(self, program, method, inputs, *operands, sparse_runner=None, **options):
-        """Run a checked program without retaining its point or equation frame.
 
-        Execution owns resource scheduling and recording. This adapter scopes
-        only configured device/dtype and an optional call-local sparse runner;
-        it never serializes the whole program or captures resources in JIT.
+
+    def execute_native(self, function, *operands, precision, compile_key,
+                       owner=None, phase='native_physical_execution', details=None):
+        """Execute one pinned static native variant and drain before releasing it.
+
+        The caller supplies the same canonical variant key used by warmup. The
+        operation resource/BLAS scope remains outside this call and must outlive
+        synchronization; no resource, trace or owner enters a numerical closure.
         """
         if self._closed:
             raise RuntimeError('numerical backend is closed')
-        if program.precision != self.precision:
-            raise ValueError('program precision differs from its execution backend')
-        with self.jax.enable_x64(self.precision == 'float64'), self.jax.default_device(self.device):
-            with _span(self.trace if self.diagnostics else None, 'physical_program_evaluation', method=method):
-                if method == 'evaluate_branch':
-                    outcome = program.evaluate_branch(inputs, *operands, sparse_runner=sparse_runner, **options)
-                else:
-                    outcome = getattr(program, method)(inputs, *operands, sparse_runner=sparse_runner, **options)
-                # Only synchronize actual device arrays. Detached typed root
-                # results/certificates retain their own host representations.
-                for leaf in self.jax.tree.leaves(outcome):
-                    if hasattr(leaf, 'block_until_ready'):
-                        leaf.block_until_ready()
-                return outcome
+        if precision != self.precision:
+            raise ValueError('native precision differs from its execution backend')
+        trace = self.trace if self.diagnostics else None
+        # Original physical theta is binary64 even for selected32 numerical
+        # arithmetic. Native functions explicitly own their selected casts.
+        with self.jax.enable_x64(True), self.jax.default_device(self.device):
+            def compile_variant():
+                with _span(trace, 'native_compilation', phase=phase):
+                    return self.jax.jit(function).lower(*operands).compile()
+            acquired = (owner.acquire(compile_key, compile_variant, kind='variant', known_bytes=None)
+                        if owner is not None else nullcontext(compile_variant()))
+            with acquired as executable:
+                with _span(trace, phase, **({} if details is None else details)):
+                    outcome = executable(*operands)
+                    self.jax.block_until_ready(outcome)
+                    return outcome
+
+    def native_program_identity(self, operation):
+        """Actual single native route and its mathematical algorithm identity."""
+        if operation not in ('direct', 'evaluate', 'optimize', 'sensitivity'):
+            raise ValueError('unknown native physical operation identity')
+        identity = self.identity()
+        identity.update(algorithm_id=f'scnsim.jax.native_physical.{operation}.v1',
+                        assembly='array_only_candidate_once_sparse_values_frequency',
+                        executable_ownership='explicit_bounded_compile_owner_pinned_until_synchronized')
+        return identity
 
 
     def close(self) -> None:

@@ -7,25 +7,238 @@ never constructs a second physical model or runs an optimizer.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
+from contextlib import ExitStack, nullcontext
 from types import SimpleNamespace
 
 import numpy as np
 
 from ..canonical import canonical_json_bytes
+from ..authoring.identity import canonical_parameters_sha256
 from ..compilation.compiler import parameter_key, parameter_values
 from ..compilation.mesh import quantity
 from ..compilation.quantity_declarations import quantity_declarations
 from ..compilation.quantity_program import compile_point_quantity_program
 from ..errors import SCNSimError
-from ..numeric_encoding import array_record, bits, record_bytes, record_document
+from ..numeric_encoding import array_from_record, array_record, bits, record_bytes, record_document
 from ..numerics.evidence import evidence_bytes, numerical_error
 from ..numerics.models import EvaluationResult, NumericalFailure
 from .quantities import (
     EvaluationFailure, continue_root, quantity_body_id, quantity_record,
 )
 from .quantity_policy import diagonal_passive_policy
+from .policy import ExecutionPolicy
 from .warmup import program_owner_for_device
+
+
+def _auxiliary_by_ordinal(rows):
+    """Index synchronized auxiliary rows by their host-side occurrence ID."""
+    return {int(np.asarray(ordinal).item()): value for ordinal, value in rows}
+
+
+class ChunkedResultSink:
+    """Bounded operation-local staging for one Direct or Sweep completion.
+
+    Numerical rows are encoded once into the existing operation spool. Only
+    immutable byte-range references remain resident while computation runs;
+    publication reads one Direct chunk or one budget-sized Sweep group at a
+    time. The sink has no Workspace transaction or success-selection authority.
+    """
+
+    def __init__(self, spool, *, domain, scratch_budget_bytes):
+        if domain not in {"direct", "sweep"}:
+            raise ValueError(f"unsupported chunked result domain {domain!r}")
+        self._spool = spool
+        self._domain = domain
+        self._scratch_budget_bytes = scratch_budget_bytes
+        self._references = []
+        self._native_work_references = {}
+        self._point_count = 0
+        self._summary_reference = None
+        self._continuations = {}
+        self._metadata = None
+
+    @property
+    def domain(self):
+        return self._domain
+
+    @property
+    def metadata(self):
+        if self._metadata is None:
+            raise RuntimeError("chunked result metadata was not supplied by its compiled program")
+        return self._metadata
+
+    def set_metadata(self, metadata):
+        if not isinstance(metadata, Mapping):
+            raise TypeError("chunked result metadata must be a mapping")
+        self._metadata = dict(metadata)
+
+    @property
+    def point_count(self):
+        return self._point_count
+
+    def set_summary(self, summary):
+        if not isinstance(summary, Mapping):
+            raise TypeError("chunked terminal summary must be a mapping")
+        self._summary_reference = self._spool.put_record(dict(summary))
+
+    def merge_summary(self, summary):
+        if not isinstance(summary, Mapping):
+            raise TypeError("chunked terminal summary must be a mapping")
+        current = self.summary()
+        current.update(summary)
+        self.set_summary(current)
+
+    def summary(self):
+        if self._summary_reference is None:
+            return {}
+        return self._spool.get_record(self._summary_reference)
+
+    def append_direct_chunk(self, *, frequencies_hz, families, evidence):
+        if self._domain != "direct":
+            raise TypeError("Direct data cannot be appended to a Sweep sink")
+        if set(families) != {"S", "Y", "Z"}:
+            raise ValueError("a Direct chunk must contain its declared S, Y, and Z families")
+        from ..numeric_encoding import array_record
+
+        frequencies = array_record(np.asarray(frequencies_hz))
+        family_records = {
+            name: array_record(np.asarray(families[name])) for name in ("S", "Y", "Z")
+        }
+        count = len(np.asarray(frequencies_hz))
+        source_chunk = {
+            "point_count": count,
+            "payload": {"frequencies_hz": frequencies, "families": family_records},
+            "summary_json": {"evidence": dict(evidence)},
+        }
+        self._references.append(self._spool.put_record(source_chunk))
+        self._point_count += count
+
+    def append_direct_record(self, chunk):
+        """Stage one already canonical Direct chunk from the native provider."""
+        if self._domain != "direct":
+            raise TypeError("Direct data cannot be appended to a Sweep sink")
+        if not isinstance(chunk, Mapping):
+            raise TypeError("Direct chunk must be a mapping")
+        point_count = chunk.get("point_count")
+        payload = chunk.get("payload")
+        summary_json = chunk.get("summary_json")
+        if (not isinstance(point_count, int) or isinstance(point_count, bool)
+                or point_count <= 0 or not isinstance(payload, Mapping)
+                or not isinstance(summary_json, Mapping)):
+            raise TypeError("Direct chunk has incomplete source fields")
+        self._references.append(self._spool.put_record(dict(chunk)))
+        self._point_count += point_count
+
+    def stage_direct_work(self, work_index, record):
+        """Keep one synchronized native work row in scratch, not in RAM history."""
+        if self._domain != "direct":
+            raise TypeError("native frequency work belongs to a Direct sink")
+        self.stage_native_work(None, work_index, record)
+
+    def stage_native_work(self, namespace, work_index, record):
+        """Stage one completed native frequency row under its candidate scope."""
+        if type(work_index) is not int or work_index < 0:
+            raise TypeError("native work index must be a non-negative integer")
+        key = work_index if namespace is None else (namespace, work_index)
+        if key in self._native_work_references:
+            raise RuntimeError("native work index was staged more than once in its scope")
+        if not isinstance(record, Mapping):
+            raise TypeError("native work row must be a mapping")
+        self._native_work_references[key] = self._spool.put_record(dict(record))
+
+    def native_work(self, namespace, work_index):
+        """Read one synchronized native row from the active candidate scope."""
+        key = work_index if namespace is None else (namespace, work_index)
+        try:
+            reference = self._native_work_references[key]
+        except KeyError as error:
+            raise RuntimeError("native work row was not staged") from error
+        return self._spool.get_record(reference)
+
+    def release_native_work(self, namespace):
+        """Drop only references for a completed candidate; scratch owns the bytes."""
+        if namespace is None:
+            return
+        for key in tuple(self._native_work_references):
+            if isinstance(key, tuple) and key[0] == namespace:
+                del self._native_work_references[key]
+
+    def direct_work(self, work_index):
+        """Read a single staged native work row while assembling output chunks."""
+        if self._domain != "direct":
+            raise TypeError("native frequency work belongs to a Direct sink")
+        return self.native_work(None, work_index)
+
+    def append_sweep_point(self, point):
+        if self._domain != "sweep":
+            raise TypeError("Sweep point cannot be appended to a Direct sink")
+        if not isinstance(point, Mapping):
+            raise TypeError("Sweep occurrence must be a mapping")
+        ordinal = self._point_count
+        if "ordinal" in point and point["ordinal"] != ordinal:
+            raise ValueError("Sweep occurrence ordinal differs from its source order")
+        body = dict(point)
+        body["ordinal"] = ordinal
+        continuation_refs = self._continuations.pop(ordinal, ())
+        if continuation_refs:
+            body["continuations"] = [
+                self._spool.get_record(reference) for reference in continuation_refs
+            ]
+        reference = self._spool.put_record(body)
+        self._references.append(reference)
+        self._point_count += 1
+        return reference
+
+    def sweep_point(self, reference):
+        """Read one occurrence from scratch for exact-value cache reuse."""
+        if self._domain != "sweep":
+            raise TypeError("Sweep point cannot be read from a Direct sink")
+        return self._spool.get_record(reference)
+
+    def cache_sweep_point(self, point):
+        """Keep a single immutable point record available for exact cache hits."""
+        if self._domain != "sweep":
+            raise TypeError("Sweep cache cannot be used with a Direct sink")
+        return self._spool.put_record(dict(point))
+
+    def append_sweep_continuation(self, ordinal, record):
+        if self._domain != "sweep":
+            raise TypeError("continuation rows belong to Sweep results")
+        if type(ordinal) is not int or ordinal < 0:
+            raise TypeError("Sweep continuation ordinal must be a non-negative integer")
+        if ordinal < self._point_count:
+            raise RuntimeError("Sweep continuation arrived after its requested occurrence was staged")
+        if not isinstance(record, Mapping):
+            raise TypeError("Sweep continuation evidence must be a mapping")
+        reference = self._spool.put_record(dict(record))
+        self._continuations.setdefault(ordinal, []).append(reference)
+
+    def chunks(self):
+        """Yield the canonical chunk records required by the atomic publisher."""
+        if self._continuations:
+            raise RuntimeError(
+                "Sweep continuation evidence has no matching requested occurrence"
+            )
+        if self._domain == "direct":
+            for reference in self._references:
+                yield self._spool.get_record(reference)
+            return
+
+        pending = []
+        pending_bytes = 0
+        for reference in self._references:
+            if pending and pending_bytes + reference.byte_length > self._scratch_budget_bytes:
+                yield {"point_count": len(pending), "payload": {"points": pending},
+                       "summary_json": {}}
+                pending = []
+                pending_bytes = 0
+            pending.append(self._spool.get_record(reference))
+            pending_bytes += reference.byte_length
+        if pending:
+            yield {"point_count": len(pending), "payload": {"points": pending},
+                   "summary_json": {}}
 
 _ROOT_TYPES = frozenset(('diagonal_root', 'operator_element_root', 'hybridized_pole',
                          'transfer_zero', 'residue_normalized_coupling'))
@@ -83,7 +296,8 @@ def project_primal_bodies(program, outcome, inputs):
     """
     metadata = program.observable_metadata()
     contexts = point_contexts(program, inputs)
-    branches, quantities = dict(outcome.aux.branch_results), dict(outcome.aux.quantity_results)
+    branches = _auxiliary_by_ordinal(outcome.aux.branch_results)
+    quantities = _auxiliary_by_ordinal(outcome.aux.quantity_results)
     bodies = {}
     for row in metadata:
         locator, index = row['primal_locator'], row['observable_index']
@@ -119,8 +333,15 @@ def project_primal_bodies(program, outcome, inputs):
 class PhysicalAnalysis:
     """One request-local static program; points and outcomes are never retained in Run."""
 
-    def __init__(self, plan, analysis, backend, trace, emit, points, *, program_owner=None):
+    def __init__(self, plan, analysis, backend, trace, emit, points, *, program_owner=None,
+                 execution_policy=None, result_sink=None, operation_resources=None,
+                 first_point=None):
         self.analysis, self.backend, self.trace, self.emit = analysis, backend, trace, emit
+        self.execution_policy = (ExecutionPolicy() if execution_policy is None
+                                 else execution_policy)
+        self.result_sink = result_sink
+        self.operation_resources = operation_resources
+        self._native_slot_admission = None
         self.spec = analysis['spec']
         self.baseline = {
             'type': 'parameter_set_v2', 'allow_extrapolation': [],
@@ -133,24 +354,82 @@ class PhysicalAnalysis:
         self.anchors = {}
         self._plan = plan
         self._program_owner = program_owner_for_device(program_owner, backend.device, admit=False)
-        self._program_variants = {}
-        self._point_programs = {}
-        self.program = self.program_at(self.baseline if self.spec['type'] in _ROOT_TYPES else points[0])
+        initial_point = (self.baseline if self.spec['type'] in _ROOT_TYPES
+                         or first_point is None else first_point)
+        self._initial_point_key = point_identity(initial_point)
+        self._active_point_key = None
+        self._active_point_program = None
+        self.program = self.program_at(initial_point)
         self.metadata = self.program.observable_metadata()
         self.roots = tuple(row for row in self.metadata if row['start_index'] is not None)
+        if self.result_sink is not None and self.result_sink.domain == 'direct':
+            self.result_sink.set_metadata(self._direct_metadata(initial_point))
+        elif self.result_sink is not None and self.result_sink.domain == 'sweep':
+            self.result_sink.set_metadata(self._sweep_metadata(initial_point))
+
+    def _direct_metadata(self, point):
+        """Bind the one-point Direct index to its exact compiled declaration."""
+        if self.spec['type'] != 'direct_solve':
+            raise TypeError('Direct result sink requires a direct_solve declaration')
+        program = self.program
+        observable = self.metadata[0]
+        context = point_contexts(program, program.inputs(point))[observable['observable_index']]
+        descriptors = tuple(program.program.observables)
+        first_view = descriptors[observable['observable_index']].view_index
+        if any(row.view_index != first_view for row in descriptors):
+            raise TypeError('Direct matrix families must share their declared View')
+        return {
+            'result_kind': self.spec['type'],
+            'program_sha256': program.program_sha256,
+            'backend_identity': self.backend.native_program_identity('direct'),
+            'precision': self.backend.precision,
+            'view': self.analysis['view'],
+            'lineage': context['lineage'],
+            'discretization': context['discretization'],
+            'terminal_ids': tuple(context['terminal_ids']),
+            'probe_loads': dict(context['probe_loads']),
+        }
+
+    def _sweep_metadata(self, point):
+        """Bind Sweep compilation identity to each actual point occurrence."""
+        observable = next((row for row in self.metadata if not row['hidden']), None)
+        if observable is None:
+            raise TypeError('Sweep result sink requires a declared public observable')
+        contexts = point_contexts(self.program, self.program.inputs(point))
+        context = contexts[observable['observable_index']]
+        return {
+            'result_kind': self.spec['type'],
+            'program_identity_scope': 'per_point',
+            'program_sha256': None,
+            'backend_identity': self.backend.native_program_identity(
+                'direct' if self.spec['type'] == 'direct_solve' else 'evaluate',
+            ),
+            'precision': self.backend.precision,
+            'view': self.analysis['view'],
+            'terminal_ids': tuple(context['terminal_ids']),
+            'probe_loads': dict(context['probe_loads']),
+        }
 
     def program_at(self, point):
         key = point_identity(point)
-        if key not in self._point_programs:
-            with self.trace.span('physical_program_preparation'):
-                self._point_programs[key] = compile_point_quantity_program(
-                    self._plan, quantity_declarations(self.spec, self.analysis['view']), point,
-                    default_view=self.analysis['view'], mesh=self.spec.get('discretization'),
-                    precision=self.backend.precision,
-                    authorized=frozenset(parameter_key(ref) for ref in point['allow_extrapolation']),
-                    program_variants=self._program_variants, program_owner=self._program_owner,
-                )
-        return self._point_programs[key]
+        if key == self._active_point_key:
+            return self._active_point_program
+        if key == self._initial_point_key and hasattr(self, 'program'):
+            return self.program
+        with self.trace.span('physical_program_preparation'):
+            program = compile_point_quantity_program(
+                self._plan, quantity_declarations(self.spec, self.analysis['view']), point,
+                default_view=self.analysis['view'], mesh=self.spec.get('discretization'),
+                precision=self.backend.precision,
+                authorized=frozenset(parameter_key(ref) for ref in point['allow_extrapolation']),
+                program_variants={}, program_owner=self._program_owner,
+            )
+        # A parameter source can realize a different line mesh at every point.
+        # Keep only the current point program here; stable admitted declarations
+        # remain owned by CompileOwner and numeric values remain runtime inputs.
+        self._active_point_key = key
+        self._active_point_program = program
+        return program
 
     def context(self, point):
         program = self.program_at(point)
@@ -161,61 +440,6 @@ class PhysicalAnalysis:
         return canonical_json_bytes({'spec': row['spec'], 'view': row['view'],
                                      'type': row['spec']['type']}).decode()
 
-    def _branch(self, point, row, omega, identity):
-        program = self.program_at(point)
-        starts = list(program.branch_starts_rad_s)
-        starts[row['start_index']] = omega
-        inputs = program.inputs(point, branch_starts_rad_s=starts)
-        result = self.backend.execute(
-            program.program, 'evaluate_branch', inputs, row['start_index'],
-            sparse_runner=self.trace.sparse_runner,
-        )
-        return replace(result, id=identity)
-
-    def _root_results(self, point, identity, *, baseline):
-        result_by_index = {}
-        values = parameter_values(point)
-        for row in self.roots:
-            index = row['start_index']
-            if index in result_by_index:
-                continue
-            key = self._dependency_key(row)
-            omega = (self.program.branch_starts_rad_s[index] if baseline
-                     else self.anchors[key].root_omega_rad_s)
-            result = self._branch(point, row, omega, identity)
-            if not baseline and result.failure is not None:
-                def make_job(job_id, actual, start):
-                    return SimpleNamespace(id=job_id, point=actual, omega=start)
-
-                def evaluate(jobs):
-                    return tuple(self._branch(job.point, row, job.omega, job.id) for job in jobs)
-
-                def observe(values_at, actual, attempt, t):
-                    record = quantity_record(attempt)
-                    record.update(parameters=actual, origin='root_continuation',
-                                  source_index=int(identity), continuation_t_f64=bits(t),
-                                  **self.context(actual))
-                    self.emit('evaluation', record)
-
-                result = continue_root(
-                    baseline=self.baseline_values, values=values,
-                    baseline_root=self.anchors[key].root_omega_rad_s,
-                    endpoint_view=point, initial_result=result,
-                    candidate_view=lambda values_at: _point_at(point, values_at),
-                    make_job=make_job, evaluate=evaluate, identity=identity, observe=observe,
-                )
-            # The baseline diagonal anchor intentionally precedes the existing
-            # passive-imaginary policy; requested/candidate bodies still enforce it.
-            if row['kind'] == 'diagonal_root' and not (baseline and self.spec['type'] == 'diagonal_root'):
-                result = diagonal_passive_policy(result)
-            result_by_index[index] = result
-            if result.failure is not None:
-                raise EvaluationFailure(result.failure, result=result,
-                                        dependencies=self._dependencies(result_by_index))
-            if baseline:
-                self.anchors[key] = result
-        return result_by_index
-
     @staticmethod
     def _dependencies(results):
         return dict(quantity_body_id(result) for result in results.values())
@@ -223,17 +447,100 @@ class PhysicalAnalysis:
     def evaluate(self, point, identity, *, baseline=False):
         branch_results = {}
         try:
-            branch_results = self._root_results(point, identity, baseline=baseline)
             program = self.program_at(point)
-            starts = list(program.branch_starts_rad_s)
-            for index, result in branch_results.items():
-                starts[index] = result.root_omega_rad_s
-            inputs = program.inputs(point, branch_starts_rad_s=starts)
-            outcome = self.backend.execute(program.program, 'value', inputs,
-                                           sparse_runner=self.trace.sparse_runner)
+            if baseline or not self.roots:
+                # The complete baseline/healthy value frame already returns
+                # its actual root packets. Do not solve those roots in a
+                # separate prepass and then repeat them in the aggregate.
+                inputs = program.inputs(point)
+                outcome = self._execute_native_value(program, inputs, operation='evaluate')
+            else:
+                # First evaluate the complete candidate once, using the
+                # baseline roots only as Newton starts. Healthy roots and all
+                # requested values therefore share this actual graph frame.
+                starts = self._native_branch_starts(point, baseline=False)
+                inputs = program.inputs(point, branch_starts_rad_s=starts)
+                outcome, native, raw_frame = self._execute_native_value(
+                    program, inputs, operation='evaluate', return_frame=True,
+                )
+                raw_aux = raw_frame[1]
+                packet_by_start = _auxiliary_by_ordinal(raw_aux.branch_packets)
+                projected_by_start = _auxiliary_by_ordinal(outcome.aux.branch_results)
+                packets = {}
+                needs_completed_frame = False
+                branch_packets_by_id = {}
+                for row in native.root_layout:
+                    start_index = row['start_index']
+                    key = self._dependency_key(row)
+                    initial = projected_by_start[start_index]
+                    packet = packet_by_start[start_index]
+                    if initial.failure is not None:
+                        if initial.failure.kind != 'numerical_resolution_unresolved':
+                            branch_results[start_index] = initial
+                            raise EvaluationFailure(
+                                initial.failure, result=initial,
+                                dependencies=self._dependencies(branch_results),
+                            )
+
+                        needs_completed_frame = True
+
+                        def make_job(job_id, actual, start):
+                            return SimpleNamespace(id=job_id, point=actual, omega=start)
+
+                        def evaluate(jobs):
+                            values_at = []
+                            for job in jobs:
+                                result_at, packet_at = self._native_branch_at(
+                                    job.point, start_index, job.omega,
+                                    operation='evaluate', return_packet=True,
+                                )
+                                result_at = replace(result_at, id=job.id)
+                                branch_packets_by_id[job.id] = packet_at
+                                values_at.append(result_at)
+                            return tuple(values_at)
+
+                        def observe(values_at, actual, result_at, t):
+                            record = quantity_record(result_at)
+                            record.update(parameters=actual, origin='root_continuation',
+                                          source_index=int(identity),
+                                          continuation_t_f64=bits(t),
+                                          **self.context(actual))
+                            if self.result_sink is not None and self.result_sink.domain == 'sweep':
+                                record['program_sha256'] = self.program_at(actual).program_sha256
+                            self.emit('evaluation', record)
+
+                        initial = continue_root(
+                            baseline=self.baseline_values,
+                            values=parameter_values(point),
+                            baseline_root=self.anchors[key].root_omega_rad_s,
+                            endpoint_view=point,
+                            initial_result=initial,
+                            candidate_view=lambda values_at: _point_at(point, values_at),
+                            make_job=make_job, evaluate=evaluate,
+                            identity=str(identity), observe=observe,
+                        )
+                        packet = branch_packets_by_id[initial.id]
+                    if row['kind'] == 'diagonal_root':
+                        initial = diagonal_passive_policy(initial)
+                    if initial.failure is not None:
+                        branch_results[start_index] = initial
+                        raise EvaluationFailure(
+                            initial.failure, result=initial,
+                            dependencies=self._dependencies(branch_results),
+                        )
+                    branch_results[start_index] = initial
+                    packets[start_index] = packet
+                if needs_completed_frame:
+                    completed_branches = tuple(
+                        (row['start_index'], packets[row['start_index']])
+                        for row in native.root_layout
+                    )
+                    outcome = self._execute_native_completed_value(
+                        program, point, completed_branches, operation='evaluate',
+                    )
             program.require_primal(outcome)
             bodies = project_primal_bodies(program, outcome, inputs)
-            branches = dict(outcome.aux.branch_results)
+            branches = _auxiliary_by_ordinal(outcome.aux.branch_results)
             for row in self.roots:
                 index = row['start_index']
                 actual = branches[index]
@@ -275,7 +582,11 @@ class PhysicalAnalysis:
 
     def record(self, point, result, dependencies, **occurrence):
         record = quantity_record(result)
-        record.update(parameters=point, dependencies=dependencies, **self.context(point), **occurrence)
+        context = self.context(point)
+        record.update(parameters=point, dependencies=dependencies, **context, **occurrence)
+        if self.result_sink is not None and self.result_sink.domain == 'sweep':
+            record['program_sha256'] = self.program_at(point).program_sha256
+            record['parameters_sha256'] = canonical_parameters_sha256(point)
         if self.spec['type'] in ('direct_solve', 'operator'):
             record['frequencies_hz'] = array_record(np.asarray(
                 [quantity(value) for value in self.spec['frequencies']], dtype=np.float64))
@@ -283,7 +594,955 @@ class PhysicalAnalysis:
             record['frequencies_hz'] = array_record(np.asarray([quantity(self.spec['frequency'])], dtype=np.float64))
         return record
 
+    def _native_work_batches(self, native):
+        """Yield policy-sized ordered frequency batches and single-lane tails."""
+        rows = tuple(native.work_layout)
+        if not rows:
+            raise RuntimeError('native program has no requested frequency work')
+        group_key = None
+        group = []
+        for row in rows:
+            key = (row['view_index'], tuple(row['demand']))
+            if group and key != group_key:
+                yield from self._native_batches_for_group(group)
+                group = []
+            group_key = key
+            group.append(row)
+        if group:
+            yield from self._native_batches_for_group(group)
+
+    def _native_batches_for_group(self, rows):
+        main_bucket = self.execution_policy.frequency_chunk_size
+        offset = 0
+        while len(rows) - offset >= main_bucket:
+            yield tuple(rows[offset:offset + main_bucket])
+            offset += main_bucket
+        while offset < len(rows):
+            yield (rows[offset],)
+            offset += 1
+
+    @staticmethod
+    def _native_certificate_row(certificate, lane):
+        values = {}
+        for name in ('status', 'eta', 'residual_numerator', 'residual_denominator',
+                     'performed', 'present'):
+            values[name] = array_record(np.asarray(getattr(certificate, name))[lane])
+        return {
+            'site': certificate.site, 'role': certificate.role,
+            'stage': certificate.stage, 'derivative_order': certificate.derivative_order,
+            **values,
+        }
+
+    def _pin_native_core(self, native, stack):
+        if self._program_owner is not None:
+            stack.enter_context(self._program_owner.hold_exact_core(native.core))
+
+    def _execute_native_candidate(self, native, inputs, *, operation):
+        from ..numerics.evidence import require_native_candidate
+
+        operands = (inputs.theta,)
+        candidate_key = native.variant_key(
+            'candidate', device=self.backend.device, operands=operands,
+        )
+        candidate_scope = (nullcontext() if self.operation_resources is None else
+                           self.operation_resources.candidate_compute())
+        with candidate_scope:
+            candidate = self.backend.execute_native(
+                native.candidate_function, *operands,
+                precision=self.backend.precision, compile_key=candidate_key,
+                owner=self._program_owner, phase='native_candidate',
+                details={'operation': operation},
+            )
+        require_native_candidate(candidate)
+        return candidate
+
+    def _execute_native_value(self, program, inputs, *, operation, return_frame=False):
+        """Execute one checked whole-value frame through the native provider."""
+        import jax.numpy as jnp
+        from ..numerics.native_sparse import checked_native
+        from ..numerics.evidence import project_native_outcome
+
+        native = program.native_program(
+            inputs, program_owner=self._program_owner, admit_core=True,
+        )
+        source_indices = tuple(native.input_layout['omega']['source_indices'])
+        with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
+            theta = jnp.asarray(inputs.theta, dtype=np.float64)
+            omega_source = jnp.asarray(inputs.omega_rad_s, dtype=self.backend.complex_dtype)
+            omega = omega_source[jnp.asarray(source_indices, dtype=np.int32)]
+            seeds = jnp.asarray(inputs.branch_starts_rad_s, dtype=self.backend.complex_dtype)
+        operands = (theta, omega, seeds)
+        function = checked_native(native.numeric_function)
+        compile_key = native.variant_key(
+            'value', device=self.backend.device, operands=operands,
+            transform='checked_value',
+        )
+        candidate_scope = (nullcontext() if self.operation_resources is None else
+                           self.operation_resources.candidate_compute())
+        with ExitStack() as stack:
+            self._pin_native_core(native, stack)
+            with candidate_scope:
+                checked_error, result = self.backend.execute_native(
+                    function, *operands, precision=self.backend.precision,
+                    compile_key=compile_key, owner=self._program_owner,
+                    phase='native_physical_value', details={'operation': operation},
+                )
+            outcome = project_native_outcome(native, result, checked_error)
+        if return_frame:
+            # The detached branch values explain typed outcomes; this short
+            # lived raw frame is needed only when an unresolved endpoint must
+            # continue from its actual final root packet.
+            return outcome, native, result
+        return outcome
+
+    def _execute_native_completed_value(self, program, point, completed_branches, *, operation):
+        """Finish one endpoint frame from actual continuation packets, without re-rooting."""
+        import jax.numpy as jnp
+        from ..numerics.native_sparse import checked_native
+        from ..numerics.evidence import project_native_outcome
+
+        starts = self._native_branch_starts(point, baseline=False)
+        for start_index, packet in completed_branches:
+            starts[start_index] = np.asarray(packet.omega).item()
+        inputs = program.inputs(point, branch_starts_rad_s=starts)
+        native = program.native_program(
+            inputs, program_owner=self._program_owner, admit_core=True,
+        )
+        branch_starts = tuple(start for start, _ in completed_branches)
+        packets = tuple(packet for _, packet in completed_branches)
+        source_indices = tuple(native.input_layout['omega']['source_indices'])
+        with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
+            omega_source = jnp.asarray(inputs.omega_rad_s, dtype=self.backend.complex_dtype)
+            omega = omega_source[jnp.asarray(source_indices, dtype=jnp.int32)]
+        candidate = self._execute_native_candidate(native, inputs, operation=operation)
+
+        def complete(candidate_state, frequencies, *actual_packets):
+            ordered = tuple(zip(branch_starts, actual_packets, strict=True))
+            return native.completed_primal_function(candidate_state, frequencies, ordered)
+
+        operands = (candidate, omega, *packets)
+        function = checked_native(complete)
+        compile_key = native.variant_key(
+            'value', device=self.backend.device, operands=operands,
+            transform='checked_completed_value',
+        )
+        candidate_scope = (nullcontext() if self.operation_resources is None else
+                           self.operation_resources.candidate_compute())
+        with ExitStack() as stack:
+            self._pin_native_core(native, stack)
+            with candidate_scope:
+                error, result = self.backend.execute_native(
+                    function, *operands, precision=self.backend.precision,
+                    compile_key=compile_key, owner=self._program_owner,
+                    phase='native_completed_physical_value',
+                    details={'operation': operation},
+                )
+            return project_native_outcome(native, result, error)
+
+    def _execute_native_branch(self, native, candidate, start_index, seed):
+        result, _ = self._execute_native_branch_packet(
+            native, candidate, start_index, seed,
+        )
+        return result
+
+    def _execute_native_branch_packet(self, native, candidate, start_index, seed):
+        from ..numerics.native_sparse import SparseEquationCheck, checked_native
+        from ..numerics.evidence import native_primal_exception, project_native_root
+
+        import jax.numpy as jnp
+
+        # Construct selected complex operands under the same x64/device scope
+        # used by execute_native. JAX otherwise truncates complex128 inputs at
+        # creation time when the ambient x64 setting is disabled.
+        with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
+            seed = jnp.asarray(seed, dtype=self.backend.complex_dtype)
+        operands = (candidate, seed)
+        branch = checked_native(native.branch_function(start_index))
+        compile_key = native.branch_variant_key(
+            start_index, device=self.backend.device, operands=operands,
+            transform='checked_value',
+        )
+        candidate_scope = (nullcontext() if self.operation_resources is None else
+                           self.operation_resources.candidate_compute())
+        with candidate_scope:
+            error, packet = self.backend.execute_native(
+                branch, *operands, precision=self.backend.precision,
+                compile_key=compile_key, owner=self._program_owner,
+                phase='native_root_branch', details={'start_index': start_index},
+            )
+        exception = native_primal_exception(error)
+        if exception is not None and not isinstance(exception, SparseEquationCheck):
+            error.throw()
+        row = next(row for row in native.root_layout if row['start_index'] == start_index)
+        return project_native_root(row['declaration'], packet), packet
+
+    def _execute_native_chunk(self, native, candidate, rows, omega_source, *,
+                              prior_check_status, prior_certificate_status,
+                              operation):
+        """Run one exact frequency bucket and return its synchronized outcome."""
+        from ..numerics.native_sparse import SparseEquationCheck
+        from ..numerics.evidence import native_primal_exception
+
+        jnp = self.backend.jax.numpy
+        view_index = rows[0]['view_index']
+        demand = tuple(rows[0]['demand'])
+        bucket = len(rows)
+        with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
+            omega = jnp.asarray(
+                [omega_source[row['omega_index']] for row in rows],
+                dtype=self.backend.complex_dtype,
+            )
+            prior_check = jnp.asarray(prior_check_status, dtype=np.int32)
+            prior_certificate = jnp.asarray(prior_certificate_status, dtype=np.int32)
+        operands = (candidate, omega, prior_check, prior_certificate)
+        function = native.chunk_function(view_index, demand, bucket, transform='value')
+        compile_key = native.variant_key(
+            'chunk', device=self.backend.device, operands=operands,
+            view_index=view_index, demand=demand, bucket=bucket, transform='value',
+        )
+        candidate_scope = (nullcontext() if self.operation_resources is None else
+                           self.operation_resources.candidate_compute())
+        with candidate_scope:
+            outcome = self.backend.execute_native(
+                function, *operands, precision=self.backend.precision,
+                compile_key=compile_key, owner=self._program_owner,
+                phase='native_frequency_chunk',
+                details={'operation': operation, 'view_index': view_index,
+                         'demand': demand, 'bucket': bucket,
+                         'first_source_index': rows[0]['source_index'],
+                         **(self._native_slot_admission or {})},
+            )
+        exception = native_primal_exception(outcome.errors)
+        if exception is not None and not isinstance(exception, SparseEquationCheck):
+            outcome.errors.throw()
+        return outcome
+
+    def _native_frequency_slots(self, native):
+        """Choose Direct slots from a truthful per-chunk scratch estimate.
+
+        The native callback's sparse-factor fill and backend temporary working
+        set are not exposed as statically sized buffers. The returned matrix
+        arrays provide an exact lower bound, but not a total scratch estimate;
+        an unknown total therefore schedules one chunk at a time. A single
+        legal chunk is still run if even its known output lower bound exceeds
+        the configured budget.
+        """
+        capacity = (1 if self.operation_resources is None else
+                    self.operation_resources.worker_capacity)
+        requested = self.execution_policy.max_in_flight
+        requested_limit = capacity if requested is None else min(capacity, requested)
+        matrix_lower_bound = 0
+        over_budget_lower_bound = False
+        complex_bytes = np.dtype(self.backend.complex_dtype).itemsize
+        for rows in self._native_work_batches(native):
+            view_index = rows[0]['view_index']
+            frequency = native.core.frequency_programs[view_index]
+            q = len(frequency.view_program.terminal_ids)
+            # S/Y/Z have the selected terminal shape. The operator result is
+            # either its declared selected Schur shape or a typed empty matrix
+            # with the terminal shape when it is not requested.
+            demand = tuple(rows[0]['demand'])
+            operator_extent = (len(frequency.view_program.selected) ** 2
+                               if 'operator' in demand else q * q)
+            known = len(rows) * (3 * q * q + operator_extent) * complex_bytes
+            matrix_lower_bound = max(matrix_lower_bound, known)
+            over_budget_lower_bound |= known > self.execution_policy.scratch_budget_bytes
+
+        # Sparse LU fill and native execution temporaries are call-local and
+        # depend on runtime numeric factorization. No honest total estimate is
+        # available from the immutable sparse pattern alone, so this is the
+        # specified conservative one-slot case rather than a guessed n^2 cap.
+        slots = 1
+        admission = {
+            'frequency_slots': slots,
+            'frequency_slot_limit': requested_limit,
+            'scratch_budget_bytes': self.execution_policy.scratch_budget_bytes,
+            'scratch_estimate_bytes': None,
+            'scratch_estimate_unknown': 'native_sparse_factor_fill_and_backend_working_set',
+            'known_matrix_output_bytes_lower_bound': matrix_lower_bound,
+            'known_single_chunk_exceeds_scratch_budget': bool(over_budget_lower_bound),
+        }
+        self._native_slot_admission = admission
+        if self.operation_resources is not None:
+            self.operation_resources.statistic('native_frequency_slot_count', slots)
+            self.operation_resources.statistic('native_frequency_scratch_estimate_unknown_count')
+            self.operation_resources.statistic(
+                'native_frequency_known_matrix_output_bytes_lower_bound', matrix_lower_bound,
+            )
+            if over_budget_lower_bound:
+                self.operation_resources.statistic(
+                    'native_frequency_known_single_chunk_over_budget_count',
+                )
+        return slots
+
+    def _execute_native_work(self, point, *, operation, validate_work,
+                             consume_work, failure_certificates,
+                             include_roots=False, branch_starts_rad_s=None,
+                             frequency_slots=1):
+        """Execute one candidate and its ordered native frequency work once."""
+        from ..numerics.native_sparse import sparse_certificates
+        from ..numerics.evidence import require_native_frequency
+
+        program = self.program_at(point)
+        inputs = program.inputs(point, branch_starts_rad_s=branch_starts_rad_s)
+        native = program.native_program(
+            inputs, program_owner=self._program_owner, admit_core=True,
+        )
+        work_rows = tuple(native.work_layout)
+        source_indices = tuple(native.input_layout['omega']['source_indices'])
+        omega_source = np.asarray(inputs.omega_rad_s)[np.asarray(source_indices, dtype=np.intp)]
+        if (not work_rows and not native.root_layout) or any(
+            type(row['omega_index']) is not int or row['omega_index'] < 0
+            or row['omega_index'] >= len(omega_source) for row in work_rows
+        ):
+            raise RuntimeError('native program has no declared work or its frequency work is outside its operands')
+        validate_work(program, inputs, native, work_rows)
+        if frequency_slots is None:
+            frequency_slots = self._native_frequency_slots(native)
+
+        with ExitStack() as stack:
+            self._pin_native_core(native, stack)
+            candidate = self._execute_native_candidate(native, inputs, operation=operation)
+
+            check_status = 0
+            certificate_status = 0
+            check_position = -1
+            certificate_position = -1
+            executed_rows = []
+            from itertools import islice
+
+            batches = iter(self._native_work_batches(native)) if work_rows else iter(())
+            while True:
+                window = tuple(islice(batches, max(1, frequency_slots)))
+                if not window:
+                    break
+                window_check = check_status
+                window_certificate = certificate_status
+
+                def execute_item(item):
+                    rows = item
+                    return self._execute_native_chunk(
+                        native, candidate, rows, omega_source,
+                        prior_check_status=window_check,
+                        prior_certificate_status=window_certificate,
+                        operation=operation,
+                    )
+
+                if len(window) > 1 and self.operation_resources is not None:
+                    outcomes = self.operation_resources.map_ordered(
+                        execute_item, window,
+                        identity=lambda rows: rows[0]['work_index'],
+                    )
+                else:
+                    outcomes = map(execute_item, window)
+
+                for rows, outcome in zip(window, outcomes, strict=True):
+                    executed_rows.extend(rows)
+                    certificates = sparse_certificates(outcome.errors)
+                    local_check = np.asarray(outcome.outcomes.check_status)
+                    local_certificate = np.asarray(outcome.outcomes.certificate_status)
+                    local_check_positions = np.asarray(outcome.outcomes.check_position)
+                    local_certificate_positions = np.asarray(outcome.outcomes.certificate_position)
+                    for lane, row in enumerate(rows):
+                        check_value = int(local_check[lane])
+                        certificate_value = int(local_certificate[lane])
+                        certificate_rows = tuple(
+                            self._native_certificate_row(certificate, lane)
+                            for certificate in certificates
+                        )
+                        consume_work(
+                            row, outcome.outcomes, lane,
+                            check_value=check_value,
+                            certificate_value=certificate_value,
+                            check_position=int(local_check_positions[lane]),
+                            certificate_position=int(local_certificate_positions[lane]),
+                            certificates=certificate_rows,
+                        )
+                        if check_position == -1 and check_value != 0:
+                            check_position = row['source_index']
+                        if certificate_position == -1 and certificate_value != 0:
+                            certificate_position = row['source_index']
+                        if check_status == 0 and check_value != 0:
+                            check_status = check_value
+                        if certificate_status == 0 and certificate_value != 0:
+                            certificate_status = certificate_value
+
+                if check_status or certificate_status:
+                    # All already-submitted work in this window has now been
+                    # gathered in semantic order. Do not submit another window.
+                    break
+
+            if check_status or certificate_status:
+                require_native_frequency(
+                    check_status=check_status,
+                    certificate_status=certificate_status,
+                    check_position=check_position,
+                    certificate_position=certificate_position,
+                    certificates=failure_certificates(tuple(executed_rows)),
+                    capabilities=candidate.realized_capabilities,
+                )
+
+            root_results = {}
+            root_packets = {}
+            if include_roots:
+                for row in native.root_layout:
+                    start_index = row['start_index']
+                    result, packet = self._execute_native_branch_packet(
+                        native, candidate, start_index,
+                        inputs.branch_starts_rad_s[start_index],
+                    )
+                    root_results[start_index] = result
+                    root_packets[start_index] = packet
+                    if result.failure is not None:
+                        break
+
+        return program, inputs, native, candidate, root_results, root_packets
+
+    def _run_native_direct(self, point):
+        """Run one Direct candidate, then stream ordered native output chunks."""
+        if self.result_sink is None or self.result_sink.domain != 'direct':
+            raise RuntimeError('native Direct execution requires its sealed chunk sink')
+
+        def validate_work(program, inputs, native, work_rows):
+            if any(set(row['demand']) != {'S', 'Y', 'Z'} for row in work_rows):
+                raise RuntimeError('native Direct work must share S, Y, and Z at each frequency')
+
+        def consume_work(row, outcomes, lane, *, check_value, certificate_value,
+                         check_position, certificate_position, certificates):
+            self.result_sink.stage_direct_work(row['work_index'], {
+                'work_index': row['work_index'], 'source_index': row['source_index'],
+                'view_index': row['view_index'], 'demand': tuple(row['demand']),
+                'check_status': check_value, 'certificate_status': certificate_value,
+                'check_position': check_position,
+                'certificate_position': certificate_position,
+                'certificates': certificates,
+                'families': {
+                    family: array_record(np.asarray(getattr(outcomes, family)[lane]))
+                    for family in ('S', 'Y', 'Z')
+                },
+            })
+
+        def failure_certificates(work_rows):
+            return tuple(
+                certificate
+                for row in work_rows
+                for certificate in self.result_sink.direct_work(
+                    row['work_index'])['certificates']
+            )
+
+        program, inputs, native, candidate, _, _ = self._execute_native_work(
+            point, operation='solve_direct', validate_work=validate_work,
+            consume_work=consume_work, failure_certificates=failure_certificates,
+            frequency_slots=None,
+        )
+        occurrence_layouts = tuple(native.occurrence_layout)
+        if not occurrence_layouts:
+            raise RuntimeError('native Direct program has no declared matrix occurrences')
+        if any(
+            tuple(row['work_indices']) != tuple(occurrence_layouts[0]['work_indices'])
+            for row in occurrence_layouts
+        ):
+            raise RuntimeError('Direct matrix families do not share the declared frequency layout')
+        work_indices = tuple(occurrence_layouts[0]['work_indices'])
+        frequencies = np.asarray([quantity(value) for value in self.spec['frequencies']],
+                                 dtype=np.float64)
+        if len(work_indices) != len(frequencies):
+            raise RuntimeError('Direct output gather differs from the exact request frequency count')
+        context = point_contexts(program, inputs)[occurrence_layouts[0]['observable_index']]
+        capabilities = tuple(bool(value) for value in np.asarray(candidate.realized_capabilities))
+        output_chunk_size = self.execution_policy.frequency_chunk_size
+        for start in range(0, len(work_indices), output_chunk_size):
+            stop = min(start + output_chunk_size, len(work_indices))
+            selected_work = work_indices[start:stop]
+            records = tuple(self.result_sink.direct_work(index) for index in selected_work)
+            families = {
+                family: np.stack(tuple(array_from_record(record['families'][family])
+                                       for record in records))
+                for family in ('S', 'Y', 'Z')
+            }
+            unique_work = tuple(dict.fromkeys(selected_work))
+            work_summaries = tuple({
+                'work_index': record['work_index'],
+                'source_index': record['source_index'],
+                'check_status': record['check_status'],
+                'certificate_status': record['certificate_status'],
+                'check_position': record['check_position'],
+                'certificate_position': record['certificate_position'],
+                'certificates': record['certificates'],
+            } for index in unique_work for record in (self.result_sink.direct_work(index),))
+            evidence = record_document(evidence_bytes({
+                'terminal_ids': context['terminal_ids'],
+                'axes': {key: context[key] for key in (
+                    'probe_loads', 'reference_coordinate_ids',
+                    'reference_impedances_ohm', 'load_mask',
+                )},
+                'realized_capabilities': capabilities,
+                'work_evidence': work_summaries,
+            }))
+            self.result_sink.append_direct_chunk(
+                frequencies_hz=frequencies[start:stop], families=families, evidence=evidence,
+            )
+
+        return {'type': 'direct_solve', 'point_count': len(frequencies),
+                'backend': self.backend.native_program_identity('direct')}
+
+    def _native_branch_at(self, point, start_index, omega, *, operation,
+                          return_packet=False):
+        """Evaluate one existing declared root branch on the same native core."""
+        program = self.program_at(point)
+        base = program.inputs(point)
+        starts = np.array(base.branch_starts_rad_s, dtype=np.complex128, copy=True)
+        starts[start_index] = omega
+        inputs = program.inputs(point, branch_starts_rad_s=starts)
+        native = program.native_program(
+            inputs, program_owner=self._program_owner, admit_core=True,
+        )
+        with ExitStack() as stack:
+            self._pin_native_core(native, stack)
+            candidate = self._execute_native_candidate(native, inputs, operation=operation)
+            result, packet = self._execute_native_branch_packet(
+                native, candidate, start_index, omega,
+            )
+            return (result, packet) if return_packet else result
+
+    def _native_branch_starts(self, point, *, baseline):
+        program = self.program_at(point)
+        starts = np.array(program.branch_starts_rad_s, dtype=np.complex128, copy=True)
+        if baseline:
+            return starts
+        by_start = {}
+        for row in self.roots:
+            start_index = row['start_index']
+            anchor = self.anchors[self._dependency_key(row)]
+            omega = anchor.root_omega_rad_s
+            prior = by_start.get(start_index)
+            if prior is not None and prior != omega:
+                raise RuntimeError('one declared root branch has inconsistent baseline anchors')
+            by_start[start_index] = omega
+        for start_index, omega in by_start.items():
+            starts[start_index] = omega
+        return starts
+
+    def _run_native_sweep_point(self, point, identity, *, baseline=False):
+        """Evaluate one Sweep point with the shared native candidate/work graph."""
+        if self.result_sink is None or self.result_sink.domain != 'sweep':
+            raise RuntimeError('native Sweep evaluation requires its operation scratch sink')
+        if self.spec['type'] not in {
+            'direct_solve', 'response_element', 'operator', 'diagonal_root',
+            'operator_element_root', 'hybridized_pole', 'transfer_zero',
+            'residue_normalized_coupling',
+        }:
+            raise TypeError(
+                f'native Sweep provider is not integrated for {self.spec["type"]!r}'
+            )
+        ordinal = None if baseline else int(identity)
+        namespace = ('baseline' if baseline else ordinal)
+        operation = 'solve_direct' if self.spec['type'] == 'direct_solve' else 'evaluate'
+
+        def validate_work(program, inputs, native, work_rows):
+            if not native.occurrence_layout and not native.root_layout:
+                raise RuntimeError('native Sweep program has no declared observable work')
+            if self.spec['type'] == 'direct_solve':
+                if any(set(row['demand']) != {'S', 'Y', 'Z'} for row in work_rows):
+                    raise RuntimeError(
+                        'native Direct Sweep work must share S, Y, and Z at each frequency'
+                    )
+                return
+            if any(set(row['demand']) - {'S', 'Y', 'Z', 'operator'} for row in work_rows):
+                raise TypeError('native Sweep provider returned an undeclared matrix family')
+
+        def consume_work(row, outcomes, lane, *, check_value, certificate_value,
+                         check_position, certificate_position, certificates):
+            self.result_sink.stage_native_work(namespace, row['work_index'], {
+                'work_index': row['work_index'],
+                'source_index': row['source_index'],
+                'view_index': row['view_index'],
+                'demand': tuple(row['demand']),
+                'check_status': check_value,
+                'certificate_status': certificate_value,
+                'check_position': check_position,
+                'certificate_position': certificate_position,
+                'certificates': certificates,
+                'families': {
+                    family: array_record(np.asarray(getattr(outcomes, family)[lane]))
+                    for family in row['demand']
+                },
+            })
+
+        def failure_certificates(work_rows):
+            return tuple(
+                certificate
+                for row in work_rows
+                for certificate in self.result_sink.native_work(
+                    namespace, row['work_index'])['certificates']
+            )
+
+        starts = self._native_branch_starts(point, baseline=baseline)
+        try:
+            program, inputs, native, candidate, root_results, root_packets = self._execute_native_work(
+                point, operation=operation, validate_work=validate_work,
+                consume_work=consume_work, failure_certificates=failure_certificates,
+                include_roots=self.spec['type'] != 'direct_solve',
+                branch_starts_rad_s=starts,
+            )
+            if self.spec['type'] == 'direct_solve':
+                occurrence_layouts = tuple(native.occurrence_layout)
+                if not occurrence_layouts:
+                    raise RuntimeError('native Direct Sweep program has no declared matrix occurrences')
+                work_indices = tuple(occurrence_layouts[0]['work_indices'])
+                if any(
+                    tuple(row['work_indices']) != work_indices
+                    for row in occurrence_layouts
+                ):
+                    raise RuntimeError(
+                        'Direct matrix families do not share the declared frequency layout'
+                    )
+                frequencies = np.asarray(
+                    [quantity(value) for value in self.spec['frequencies']],
+                    dtype=np.float64,
+                )
+                if len(work_indices) != len(frequencies):
+                    raise RuntimeError(
+                        'Direct output gather differs from the exact request frequency count'
+                    )
+                families = {
+                    family: np.stack(tuple(
+                        array_from_record(self.result_sink.native_work(
+                            namespace, work_index,
+                        )['families'][family])
+                        for work_index in work_indices
+                    ))
+                    for family in ('S', 'Y', 'Z')
+                }
+                context = point_contexts(program, inputs)[
+                    occurrence_layouts[0]['observable_index']
+                ]
+                unique_work = tuple(dict.fromkeys(work_indices))
+                work_evidence = tuple({
+                    'work_index': record['work_index'],
+                    'source_index': record['source_index'],
+                    'check_status': record['check_status'],
+                    'certificate_status': record['certificate_status'],
+                    'check_position': record['check_position'],
+                    'certificate_position': record['certificate_position'],
+                    'certificates': record['certificates'],
+                } for work_index in unique_work for record in (
+                    self.result_sink.native_work(namespace, work_index),
+                ))
+                evidence = evidence_bytes({
+                    'terminal_ids': context['terminal_ids'],
+                    'axes': {key: context[key] for key in (
+                        'probe_loads', 'reference_coordinate_ids',
+                        'reference_impedances_ohm', 'load_mask',
+                    )},
+                    'realized_capabilities': tuple(
+                        bool(value) for value in np.asarray(candidate.realized_capabilities)
+                    ),
+                    'work_evidence': work_evidence,
+                })
+                return EvaluationResult(
+                    str(identity), S=families['S'], Y=families['Y'], Z=families['Z'],
+                    evidence_bytes=evidence,
+                ), {}
+            branch_rows = {
+                row['start_index']: row for row in native.root_layout
+            }
+            for row in self.roots:
+                start_index = row['start_index']
+                if start_index not in branch_rows:
+                    continue
+                result = root_results.get(start_index)
+                if result is None:
+                    raise RuntimeError('native Sweep root work omitted a declared branch result')
+                key = self._dependency_key(row)
+                if not baseline and result.failure is not None:
+                    branch_packets_by_id = {}
+
+                    def make_job(job_id, actual, start):
+                        return SimpleNamespace(id=job_id, point=actual, omega=start)
+
+                    def evaluate(jobs):
+                        values_at = []
+                        for job in jobs:
+                            result_at, packet_at = self._native_branch_at(
+                                job.point, start_index, job.omega,
+                                operation='evaluate', return_packet=True,
+                            )
+                            branch_packets_by_id[job.id] = packet_at
+                            values_at.append(replace(result_at, id=job.id))
+                        return tuple(values_at)
+
+                    def observe(values_at, actual, attempt, t):
+                        record = quantity_record(attempt)
+                        record.update(parameters=actual, origin='root_continuation',
+                                      source_index=ordinal, continuation_t_f64=bits(t),
+                                      **self.context(actual))
+                        record['program_sha256'] = self.program_at(actual).program_sha256
+                        self.emit('evaluation', record)
+
+                    anchor = self.anchors[key]
+                    result = continue_root(
+                        baseline=self.baseline_values,
+                        values=parameter_values(point),
+                        baseline_root=anchor.root_omega_rad_s,
+                        endpoint_view=point,
+                        initial_result=result,
+                        candidate_view=lambda values_at: _point_at(point, values_at),
+                        make_job=make_job,
+                        evaluate=evaluate,
+                        identity=str(ordinal),
+                        observe=observe,
+                    )
+                    root_packets[start_index] = branch_packets_by_id[result.id]
+                if row['kind'] == 'diagonal_root' and not (
+                        baseline and self.spec['type'] == 'diagonal_root'):
+                    result = diagonal_passive_policy(result)
+                result = replace(result, id='baseline' if baseline else str(identity))
+                root_results[start_index] = result
+                if result.failure is not None:
+                    raise EvaluationFailure(
+                        result.failure, result=result,
+                        dependencies={body_id: body for item in root_results.values()
+                                      if item.failure is None
+                                      for body_id, body in (quantity_body_id(item),)},
+                    )
+                if baseline:
+                    self.anchors[key] = result
+
+            if self.spec['type'] == 'residue_normalized_coupling':
+                # Consume the already selected states and actual final root
+                # packets. Coupling does not locate either branch again.
+                public_rows = tuple(row for row in program.observable_metadata()
+                                    if not row['hidden'])
+                if len(public_rows) != 1:
+                    raise RuntimeError('native coupling projection requires one declared public quantity')
+                public = public_rows[0]
+                coupling = next(row for row in native.coupling_layout
+                                if row['observable_index'] == public['observable_index'])
+                branch_packets = tuple(root_packets[index]
+                                       for index in coupling['branch_indices'])
+                source_indices = tuple(native.input_layout['omega']['source_indices'])
+                with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
+                    omega_source = self.backend.jax.numpy.asarray(
+                        inputs.omega_rad_s, dtype=self.backend.complex_dtype,
+                    )
+                    omega_source = omega_source[self.backend.jax.numpy.asarray(
+                        source_indices, dtype=np.int32,
+                    )]
+                    evaluation = (
+                        self.backend.jax.numpy.asarray(0, dtype=self.backend.complex_dtype)
+                        if coupling['midpoint'] else omega_source[coupling['evaluation_index']]
+                    )
+                operands = (candidate, branch_packets, evaluation)
+                from ..numerics.native_sparse import SparseEquationCheck, checked_native
+                from ..numerics.evidence import (
+                    native_primal_exception, project_native_coupling,
+                )
+                checked = checked_native(native.coupling_function(public['observable_index']))
+                compile_key = native.coupling_variant_key(
+                    public['observable_index'], device=self.backend.device,
+                    operands=operands, transform='checked_value',
+                )
+                candidate_scope = (nullcontext() if self.operation_resources is None else
+                                   self.operation_resources.candidate_compute())
+                with ExitStack() as stack:
+                    self._pin_native_core(native, stack)
+                    with candidate_scope:
+                        checked_error, packet = self.backend.execute_native(
+                            checked, *operands, precision=self.backend.precision,
+                            compile_key=compile_key, owner=self._program_owner,
+                            phase='native_residue_coupling',
+                            details={'operation': 'evaluate',
+                                     'observable_index': public['observable_index']},
+                        )
+                exception = native_primal_exception(checked_error)
+                if exception is not None and not isinstance(exception, SparseEquationCheck):
+                    checked_error.throw()
+                selected = project_native_coupling(public['quantity_key'], packet)
+                dependencies = {}
+                for row in program.observable_metadata():
+                    if not row['hidden']:
+                        continue
+                    body = replace(
+                        root_results[row['start_index']],
+                        id=f"{row['quantity_key']}:observable:{row['observable_index']}",
+                    )
+                    if body.failure is None:
+                        body_id, body_bytes = quantity_body_id(body)
+                        dependencies[body_id] = body_bytes
+                if selected.failure is not None:
+                    raise EvaluationFailure(selected.failure, result=selected,
+                                            dependencies=dependencies)
+                return replace(selected, id=str(identity)), dependencies
+
+            matrices = []
+            for occurrence in native.occurrence_layout:
+                start_index = (occurrence['branch_indices'][0]
+                               if occurrence['branch_indices'] else None)
+                if start_index is not None:
+                    result = root_results[start_index]
+                    matrices.append(result.root_omega_rad_s)
+                    continue
+                family = occurrence['family']
+                family_values = []
+                for work_index in occurrence['work_indices']:
+                    work_record = self.result_sink.native_work(namespace, work_index)
+                    family_values.append(array_from_record(work_record['families'][family]))
+                matrices.append(np.stack(tuple(family_values)))
+            with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
+                public = native.project_public_values(tuple(matrices))
+                self.backend.jax.block_until_ready(public)
+
+            public_rows = tuple(row for row in program.observable_metadata() if not row['hidden'])
+            if self.spec['type'] in {
+                'diagonal_root', 'operator_element_root', 'hybridized_pole', 'transfer_zero',
+            }:
+                row = public_rows[0]
+                result = root_results[row['start_index']]
+            elif self.spec['type'] == 'response_element':
+                row = public_rows[0]
+                raw = np.asarray(public.observable_raw_values[row['observable_index']])
+                if raw.shape:
+                    raw = raw[()]
+                context = point_contexts(program, inputs)[row['observable_index']]
+                work_evidence = self._native_sweep_work_evidence(
+                    native, namespace, context, candidate,
+                )
+                result = EvaluationResult(
+                    str(identity), response_value=raw,
+                    evidence_bytes=work_evidence,
+                )
+            elif self.spec['type'] == 'operator':
+                row = public_rows[0]
+                raw = np.asarray(public.observable_raw_values[row['observable_index']])
+                context = point_contexts(program, inputs)[row['observable_index']]
+                work_evidence = self._native_sweep_work_evidence(
+                    native, namespace, context, candidate,
+                )
+                result = EvaluationResult(
+                    str(identity), operator_values=raw,
+                    evidence_bytes=work_evidence,
+                )
+            else:
+                raise TypeError(f'native Sweep result projection is not integrated for {self.spec["type"]!r}')
+
+            dependencies = {}
+            return result, dependencies
+        except EvaluationFailure as error:
+            result = error.result if error.result is not None else EvaluationResult(
+                str(identity), failure=error.failure,
+            )
+            return replace(result, id=str(identity)), dict(error.dependencies)
+        except SCNSimError as error:
+            if error.kind not in _NUMERICAL_FAILURES:
+                raise
+            failure = NumericalFailure(error.kind, error.stage, str(error), record_bytes(error.evidence))
+            return EvaluationResult(str(identity), failure=failure), {}
+        finally:
+            self.result_sink.release_native_work(namespace)
+
+    def _native_sweep_work_evidence(self, native, namespace, context, candidate):
+        """Retain actual per-frequency certificates without retaining outcomes."""
+        work = tuple(
+            self.result_sink.native_work(namespace, row['work_index'])
+            for row in native.work_layout
+        )
+        return evidence_bytes({
+            'certificates': (),
+            'realized_capabilities': tuple(
+                bool(value) for value in np.asarray(candidate.realized_capabilities)
+            ),
+            'terminal_ids': context['terminal_ids'],
+            'axes': {key: context[key] for key in (
+                'probe_loads', 'reference_coordinate_ids',
+                'reference_impedances_ohm', 'load_mask',
+            )},
+            'work_evidence': tuple({
+                key: row[key] for key in (
+                    'work_index', 'source_index', 'view_index', 'demand',
+                    'check_status', 'certificate_status', 'check_position',
+                    'certificate_position', 'certificates',
+                )
+            } for row in work),
+        })
+
+    def _run_native_sweep(self, points):
+        """Run each declared point in order and retain only spool body refs."""
+        cache = {}
+        baseline_needed = self.spec['type'] in _ROOT_TYPES
+        if baseline_needed:
+            result, dependencies = self._run_native_sweep_point(
+                self.baseline, 'baseline', baseline=True,
+            )
+            baseline_record = self.record(
+                self.baseline, result, dependencies,
+                origin='baseline', cache_hit=False,
+            )
+            self.emit('evaluation', baseline_record)
+            if result.failure is not None:
+                raise numerical_error(result.failure)
+            self.emit('baseline_ready', {
+                'schema': 'scnsim.benchmark_root_anchor', 'schema_version': 1,
+                'baseline': baseline_record,
+                'anchors': {key: quantity_body_id(value)[0]
+                            for key, value in self.anchors.items()},
+                'resume_state': None,
+            })
+            key = point_identity(self.baseline)
+            cache[key] = self.result_sink.cache_sweep_point(baseline_record)
+
+        point_count = 0
+        for ordinal, point in enumerate(points):
+            point_count += 1
+            key = point_identity(point)
+            if key in cache:
+                original = self.result_sink.sweep_point(cache[key])
+                record = dict(original)
+                record.pop('ordinal', None)
+                record.pop('continuations', None)
+                record.update(
+                    parameters=point, source_index=ordinal,
+                    origin='requested_point', cache_hit=True,
+                    numerical_source_id=original['id'],
+                )
+                self.emit('evaluation', record)
+            else:
+                result, dependencies = self._run_native_sweep_point(
+                    point, str(ordinal), baseline=False,
+                )
+                record = self.record(
+                    point, result, dependencies,
+                    source_index=ordinal, origin='requested_point',
+                    cache_hit=False, numerical_source_id=result.id,
+                )
+                cache[key] = self.emit('evaluation', record)
+
+        terminal = {
+            'type': self.spec['type'], 'point_count': point_count,
+            'backend': self.backend.native_program_identity(
+                'direct' if self.spec['type'] == 'direct_solve' else 'evaluate',
+            ),
+        }
+        if baseline_needed:
+            terminal['baseline_anchor_schema'] = 'scnsim.benchmark_root_anchor'
+        return terminal
+
     def run(self, points):
+        if self.result_sink is not None and self.result_sink.domain == 'direct':
+            points = iter(points)
+            try:
+                point = next(points)
+            except StopIteration as error:
+                raise RuntimeError('Direct request has no exact source point') from error
+            try:
+                next(points)
+            except StopIteration:
+                pass
+            else:
+                raise RuntimeError('Direct request yielded more than its one declared point')
+            return self._run_native_direct(point)
+        if self.result_sink is not None and self.result_sink.domain == 'sweep':
+            return self._run_native_sweep(points)
         cache, seen = {}, set()
         baseline_needed = self.spec['type'] in _ROOT_TYPES
         if baseline_needed:
@@ -303,7 +1562,9 @@ class PhysicalAnalysis:
             key = point_identity(self.baseline)
             cache[key], seen = (result, dependencies), {key}
         first_failure = None
+        point_count = 0
         for ordinal, point in enumerate(points):
+            point_count += 1
             key = point_identity(point)
             if key not in cache:
                 cache[key] = self.evaluate(point, str(ordinal))
@@ -317,7 +1578,8 @@ class PhysicalAnalysis:
                 first_failure = result.failure
         if first_failure is not None and self.analysis['parameter_source']['kind'] == 'point':
             raise numerical_error(first_failure)
-        terminal = {'type': self.spec['type'], 'point_count': len(points), 'backend': self.backend.identity()}
+        terminal = {'type': self.spec['type'], 'point_count': point_count,
+                    'backend': self.backend.native_program_identity('evaluate')}
         if baseline_needed:
             terminal['baseline_anchor_schema'] = 'scnsim.benchmark_root_anchor'
         return terminal

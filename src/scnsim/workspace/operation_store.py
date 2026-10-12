@@ -27,6 +27,7 @@ from ..errors import (
     UnsupportedEvidenceVersionError,
     WorkspaceRecoveryRequiredError,
 )
+from ..numeric_encoding import record_bytes, record_document
 from .storage import _fsync_directory
 
 _DATABASE = "operations.sqlite3"
@@ -728,7 +729,7 @@ class Snapshot:
             (completion_sha,),
         )
         for ordinal, stage_id, model_raw, summary_ref, history_ref in cursor:
-            model_identity = json.loads(model_raw)
+            model_identity = record_document(model_raw.encode("utf-8"))
             if not isinstance(model_identity, dict):
                 raise _integrity("Optimization model identity index is malformed.", stage_id=stage_id)
             rows.append({
@@ -747,7 +748,7 @@ class Snapshot:
             (completion_sha, stage_id),
         )
         for ordinal, model_raw, candidate_ref, summary_raw in cursor:
-            model_identity = json.loads(model_raw)
+            model_identity = record_document(model_raw.encode("utf-8"))
             summary = json.loads(summary_raw)
             if not isinstance(model_identity, dict) or not isinstance(summary, dict):
                 raise _integrity("Optimization history index is malformed.", stage_id=stage_id, ordinal=ordinal)
@@ -767,7 +768,7 @@ class Snapshot:
         ).fetchone()
         if row is None:
             return None
-        model_identity = json.loads(row[0])
+        model_identity = record_document(row[0].encode("utf-8"))
         summary = json.loads(row[2])
         if not isinstance(model_identity, dict) or not isinstance(summary, dict):
             raise _integrity("Optimization history index is malformed.",
@@ -894,7 +895,9 @@ class StoreTransaction(Snapshot):
                            transitions: Sequence[Mapping[str, Any]]) -> None:
         """Publish compact stage/history locators with the terminal seal."""
         for stage_ordinal, stage in enumerate(stages):
-            model_identity = canonical_json_bytes(stage["model_identity"]).decode("utf-8")
+            # Model identity includes actual point discretization measurements;
+            # store them with the shared exact binary64 record codec.
+            model_identity = record_bytes(dict(stage["model_identity"])).decode("utf-8")
             self._connection.execute(
                 "INSERT INTO optimization_stage_indexes VALUES (?,?,?,?,?,?)",
                 (completion_sha, stage_ordinal, stage["stage_id"], model_identity,

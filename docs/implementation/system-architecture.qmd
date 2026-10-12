@@ -4,7 +4,7 @@ subtitle: "Which layer owns each Runtime responsibility?"
 toc-depth: 2
 ---
 
-**Status:** the dev26 physical-program and inherited lifecycle responsibilities
+**Status:** the dev27 JAX-native physical-program and inherited lifecycle responsibilities
 are `CONVERGING`; implementation is in progress. The single
 [Runtime contract](../v1-runtime-contract.qmd#physical-program-target) owns
 physical-program declarations, derivative/optimizer semantics and the inherited
@@ -12,6 +12,21 @@ Run state, operation leases, fixed lazy Results, bounded recovery and native
 supervision. This page describes module handoffs, not a second policy.
 Historical dev23–25 candidate observations are not relabelled. Schematic
 completion remains incomplete and deferred.
+
+The native numerical path has one detached array callable and explicit finite
+equation primitives. The superseded general CheckedGraph interpreter and its
+bootstrap evaluators are not a current execution or AD authority. Shared
+`numerics/program_models.py` records declarations and call-local outcomes;
+`numerics/sparse_structure.py` owns sparse pattern/block helpers. Native assembly,
+frequency, root and coupling producers own their respective mathematics.
+A candidate state groups realized model, Views, assembly operands, physical
+checks and fixed capability-partition status. Completed branch packets retain
+the actual selected state for same-frame consumers; neither packet is a saved
+Result, factor, pullback tape or Run-cache entry. Operation ownership ends after
+synchronized consumption, while detached caller-held functions remain valid.
+Checked scalar-root mapping uses one finite owned archive bridge for lane
+certificate payloads; the compiler output expression maps local leaf ordinals
+to the same shared physical-frame observables for primal and derivative use.
 
 ## Organize Python by responsibility
 
@@ -37,9 +52,13 @@ second implementation or a compatibility fallback.
 
 These are current ownership boundaries. `benchmark/` is the readonly facade;
 compilation, numerical execution and storage have their own owners. The
-[dev26 physical-program target](../v1-runtime-contract.qmd#physical-program-target)
-adds one shared value/derivative evaluator, not a second AD model or another
-relocation campaign. Specs own declarations, compilation fixed discretization
+[dev27 physical-program target](../v1-runtime-contract.qmd#physical-program-target)
+owns one transformable physical callable for values and derivatives.
+`execution/prepared_function.py` owns detached layouts; compilation owns
+acquisition and numerical primitives own native transformation rules.
+`execution/policy.py` owns scheduling hints; compile resources own local pins
+and finite eviction. These handoffs are being implemented, not evidence of
+transform coverage or completed delivery. Specs own declarations, compilation fixed discretization
 and dependency structure, numerics pure sparse kernels, execution stage ordering
 and synchronized resources, and Workspace/Results verified evidence and readonly
 selection. JAX is primary; existing Julia code is frozen legacy/reference scope.
@@ -323,11 +342,18 @@ The [backend guide](benchmark-and-backends.qmd) and
 `CONVERGING` candidate; dev11 is the historical origin of the same-process
 boundary. Normal supported Run operations default to JAX through the shared
 physical program. Ordinary analysis and Sensitivity use that program directly;
-CMA, local L-BFGS-B and Hybrid stages share its Objective graph with separate
+CMA, local L-BFGS-B and Hybrid stages share its native physical callable and
+finalized Objective loss with separate
 controller and publication owners. Explicit
 Julia retains the native process path described above; that path is no longer
 the default for supported Direct/root/response and corresponding Optimization.
 The Plan leaf owns verified typed Results and checkpoints for either backend.
+Compilation acquires detached callable declarations and immutable layouts;
+Execution owns checked transport, operation-local linearization frames and
+publication. Warmup reuses the same producer keys without numerical execution.
+A raw Prepared callable remains caller-owned after Run close; finite compile
+ownership does not make its validity depend on cache residency. Known producer
+preparation does not imply that frame-dependent consumers have been warmed.
 
 The base requires Python 3.12 and pinned CPU JAX/CMA dependencies. Initialization
 remains lazy and Julia discovery optional. Resolve and operation Benchmark remain
@@ -392,6 +418,18 @@ before their separate absolute bounds; each series-RL section is bounded before
 section summation. Host continuation/CMA and Workspace commit/checkpoint
 authorities remain separate. The private Python-to-Julia transport may materialize
 a dense descriptor at that adapter boundary; explicit ordinary Julia is unchanged.
+
+Line-station C/G arithmetic groups consecutive equal local shapes within each
+exact material/length dependency. Batched local contractions feed a compiled
+ordered scan of sparse updates, preserving original station and series order.
+Original binary64 physical validation and capacitance classification retain
+their own unchanged inputs. Series materials use one realized R/L bank per
+line dependency and ordered section gathers. Packed incidence values route
+through the same View expansions; assembly consumes grouped arrays without
+per-section runtime tuple leaves or Python stacks. Static section patterns,
+section-wise bounds and ordered compensated aggregation remain unchanged.
+No compilation-time or runtime performance improvement is claimed from source
+inspection alone.
 
 Runtime coefficients, indices and View weights are inputs, rather than captured
 physical constants. Static-pattern preparation, compiled-kernel reuse and actual

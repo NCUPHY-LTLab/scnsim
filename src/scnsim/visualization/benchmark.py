@@ -61,6 +61,59 @@ def _recorded(value: object) -> object:
     return "not recorded" if value is None else value
 
 
+def _process_memory_section(operations: Sequence[_TimelineOperation]) -> str | None:
+    """Present process-local boundary metrics without conflating their sources."""
+    rows: list[tuple[object, ...]] = []
+    for operation in operations:
+        details = operation.details
+        if not isinstance(details, Mapping):
+            continue
+        snapshot_pair = details.get("process_memory")
+        if not isinstance(snapshot_pair, Mapping):
+            continue
+        samples = snapshot_pair.get("samples")
+        if not isinstance(samples, Mapping):
+            continue
+        for boundary in ("start", "end"):
+            sample = samples.get(boundary)
+            if not isinstance(sample, Mapping):
+                continue
+            platform = sample.get("platform")
+            metrics = sample.get("metrics")
+            if not isinstance(metrics, Mapping):
+                continue
+            for name, metric_value in metrics.items():
+                if not isinstance(metric_value, Mapping):
+                    continue
+                value = metric_value.get("value")
+                if isinstance(value, int) and not isinstance(value, bool):
+                    value_text = f"{value} B ({value / (1024 ** 3):.6g} GiB)"
+                else:
+                    value_text = "unavailable"
+                rows.append((
+                    operation.operation_id,
+                    boundary,
+                    platform if isinstance(platform, str) else "unknown",
+                    name,
+                    value_text,
+                    _recorded(metric_value.get("unit")),
+                    _recorded(metric_value.get("source")),
+                    _recorded(metric_value.get("status")),
+                ))
+    if not rows:
+        return None
+    return (
+        "<h2>Process memory at operation boundaries</h2>"
+        "<p>These are current-process samples, not whole-process-tree totals. "
+        "Each value names its OS source and unit. RSS/PSS and peak RSS are not "
+        "physical-footprint measurements; unavailable values remain unknown.</p>"
+        + _table(
+            ("operation id", "boundary", "platform", "metric", "value", "unit", "source", "status"),
+            rows,
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _TimelineOperation:
     operation_id: str
@@ -1000,6 +1053,9 @@ def _timeline_section(document: Mapping[str, object]) -> str:
         "remain unknown. Parent spans are inclusive and are never added to child spans.</p>",
         _timeline_filters(operations),
     ]
+    memory_section = _process_memory_section(operations)
+    if memory_section is not None:
+        body.append(memory_section)
     cumulative_label, wall_rows = _timeline_root_summaries(operations)
     body.append("<h2>Root-operation timing</h2>" + _table(
         ("measure", "recorded observation"),

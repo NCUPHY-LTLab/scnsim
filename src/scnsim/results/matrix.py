@@ -61,6 +61,18 @@ class DirectSolveResult(AnalysisResult):
     def __getattribute__(self, name: str) -> object:
         return _fresh_quantity_attribute(self, name)
 
+    def __repr__(self) -> str:
+        frequencies = object.__getattribute__(self, "frequencies")
+        traces = object.__getattribute__(self, "traces")
+        return (
+            "DirectSolveResult("
+            f"identity={object.__getattribute__(self, 'identity')!r}, "
+            f"frequency_count={len(frequencies.magnitude)}, "
+            f"frequency_unit={frequencies.units}, "
+            f"coordinates={object.__getattribute__(self, 's').view.coordinates!r}, "
+            f"traces={traces!r})"
+        )
+
     def _family(self, family: Literal["S", "Y", "Z"]) -> MatrixFamilyResult:
         if family == "S":
             return self.s

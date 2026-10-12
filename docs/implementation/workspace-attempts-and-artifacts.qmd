@@ -36,6 +36,17 @@ group ACK precedes its callback; optional diagnostics are separate. Failure or
 interruption preserves actual complete generation tails and the original error,
 without resending a failed/uncertain required batch.
 
+The dev27 JAX Direct/Sweep completion domain owns versioned exact binding,
+ordered point/frequency chunk references and the final verified result selection.
+Chunks are staged privately and final success is atomic; there is no per-chunk
+COMMIT. Results bind that fixed completion once and read selected chunks in
+short snapshots, without task replay, implicit recovery or latest reselection.
+Explicit selected output axes are factorized metadata, not repeated per-frequency
+records. Unpublished scratch remains execution-owned rather than a Result.
+The new completion domain does not change SQLite operation version7 or the
+independent Julia native artifact formats. Its concrete producer/reader records
+are being implemented within the same current contract.
+
 Normal solve/evaluate publishes required result, successful attempt and first
 success selection atomically, followed by optional timing and the separate
 operation root. Result reads never execute a solver. The detailed current
