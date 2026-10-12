@@ -8,9 +8,9 @@ The reader-facing [Simulation conventions](concepts/simulation-conventions.qmd)
 connect these version-bound rules to the canonical phasor, wave-reference, and
 linewidth definitions without adding a second runtime contract.
 
-## JAX-native physical program target (dev28) {#physical-program-target}
+## JAX-native physical program target (dev29) {#physical-program-target}
 
-This is the **CONVERGING dev28 candidate**. It retains the dev27 native callable
+This is the **CONVERGING dev29 candidate**. It retains the dev28 native callable
 authority while refining shared compilation and owned numerical hot paths;
 previous observations retain their original identities;
 source implementation does not establish native coverage, accuracy or Human acceptance. One physical program maps ordered
@@ -20,6 +20,54 @@ program, including parameter-dependent View weights, loads and reference
 impedances. Existing units, phasor signs, physical equations, ordinary transpose
 and numerical certification conditions remain in force. Schematic work remains
 incomplete and deferred.
+
+### Workspace and memory-only Direct ownership {#memory-direct-storage}
+
+`CircuitRun(plan=plan, storage="workspace", workspace=path)` retains the saved
+default: binding, recovery, fixed saved Results and readonly resolution.
+`CircuitRun(plan=plan, storage="memory", backend="jax")` omits Workspace
+binding entirely. Supplying a Workspace or enabling `versioned` with memory
+storage is invalid. Construction, preparation, warmup, solve and cleanup in
+this mode create no SCNSim Workspace, SQLite record, filesystem operation lease,
+scratch/spool, object/index, checkpoint or timing publication.
+
+The memory numerical scope is one JAX `DirectSolveSpec` point with a
+`ParameterSet` or the captured baseline. Its View operations, declaration
+dependencies, detached `prepare` and compile-only `warmup` remain available.
+Warmup and solve use the same physical candidate and frequency kernels, cache
+keys, precision and bounded Run compile owner as the Workspace path. Numerical
+equations, selected loading, sparse certificates and native failures are
+unchanged; memory storage is not a raw unchecked solver or a different physics
+implementation. Sweep, evaluate, Sensitivity, Optimization, Julia/HB,
+Workspace recovery and saved-result `resolve` are outside this memory scope
+and fail before storage or numerical work.
+
+`solve` returns `InMemoryDirectSolveResult`, a `Result` with detached immutable
+S/Y/Z matrices, trace leaves, units, View/loading and discretization metadata.
+It is not a receipt-backed `AnalysisResult` and has no fabricated saved
+`ResultIdentity`, attempt, completion or persistence authority. Existing matrix
+and trace presentation applies to its actual returned arrays; those arrays
+remain caller-owned after `Run.close()`.
+
+Memory timing supports `timing="aggregate"` only; detailed timing is rejected
+before numerical work. Saved aggregate/detailed behavior is unchanged.
+
+`result.benchmark` is an immutable `InMemoryBenchmarkResult` for that call.
+The memory Run keeps only its last compact operation Benchmark, available via
+`run.benchmark()`; it never keeps an output/history ledger. Before the first
+operation it raises `ResultUnavailableError`; memory Benchmark accepts no
+filters, since there is no operation history to select. Timing may be
+collected in memory, with unavailable clocks explicit, but is never written
+to a Workspace. Run activity spans preparation, synchronized compute, result
+assembly and cleanup, so an active call still rejects `close`. Closing releases
+Run warm references, not the caller's returned arrays or Benchmark. Memory
+allocation or compilation failures remain real errors; there is no disk-spill
+fallback or automatic switch to saved storage.
+
+This storage option is **CONVERGING**. The current published dev28 source and
+its observations retain their original identities. Source implementation alone
+does not establish current 10001-point memory timing or a Julia performance
+comparison.
 
 | Surface | Current responsibility |
 |---|---|

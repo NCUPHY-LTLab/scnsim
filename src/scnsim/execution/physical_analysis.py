@@ -632,6 +632,19 @@ class PhysicalAnalysis:
             **values,
         }
 
+    @staticmethod
+    def _native_certificate_lane(certificate, lane):
+        """Detach one failed lane while leaving successful certificates unencoded."""
+        return replace(
+            certificate,
+            status=np.asarray(certificate.status)[lane],
+            eta=np.asarray(certificate.eta)[lane],
+            residual_numerator=np.asarray(certificate.residual_numerator)[lane],
+            residual_denominator=np.asarray(certificate.residual_denominator)[lane],
+            performed=np.asarray(certificate.performed)[lane],
+            present=np.asarray(certificate.present)[lane],
+        )
+
     def _pin_native_core(self, native, stack):
         if self._program_owner is not None:
             stack.enter_context(self._program_owner.hold_exact_core(native.core))
@@ -877,7 +890,8 @@ class PhysicalAnalysis:
     def _execute_native_work(self, point, *, operation, validate_work,
                              consume_work, failure_certificates,
                              include_roots=False, branch_starts_rad_s=None,
-                             frequency_slots=1):
+                             frequency_slots=1, prepare_work=None,
+                             raw_failure_certificates=False):
         """Execute one candidate and its ordered native frequency work once."""
         from ..numerics.native_sparse import sparse_certificates
         from ..numerics.evidence import require_native_frequency
@@ -896,6 +910,8 @@ class PhysicalAnalysis:
         ):
             raise RuntimeError('native program has no declared work or its frequency work is outside its operands')
         validate_work(program, inputs, native, work_rows)
+        if prepare_work is not None:
+            prepare_work(program, inputs, native, work_rows)
         if frequency_slots is None:
             frequency_slots = self._native_frequency_slots(native)
 
@@ -908,6 +924,7 @@ class PhysicalAnalysis:
             check_position = -1
             certificate_position = -1
             executed_rows = []
+            failed_rows = []
             from itertools import islice
 
             batches = iter(self._native_work_batches(native)) if work_rows else iter(())
@@ -936,7 +953,8 @@ class PhysicalAnalysis:
                     outcomes = map(execute_item, window)
 
                 for rows, outcome in zip(window, outcomes, strict=True):
-                    executed_rows.extend(rows)
+                    if not raw_failure_certificates:
+                        executed_rows.extend(rows)
                     certificates = sparse_certificates(outcome.errors)
                     local_check = np.asarray(outcome.outcomes.check_status)
                     local_certificate = np.asarray(outcome.outcomes.certificate_status)
@@ -945,10 +963,20 @@ class PhysicalAnalysis:
                     for lane, row in enumerate(rows):
                         check_value = int(local_check[lane])
                         certificate_value = int(local_certificate[lane])
-                        certificate_rows = tuple(
-                            self._native_certificate_row(certificate, lane)
-                            for certificate in certificates
-                        )
+                        lane_failed = bool(check_value or certificate_value)
+                        if raw_failure_certificates:
+                            certificate_rows = (
+                                tuple(self._native_certificate_lane(certificate, lane)
+                                      for certificate in certificates)
+                                if lane_failed else ()
+                            )
+                            if lane_failed:
+                                failed_rows.append(row)
+                        else:
+                            certificate_rows = tuple(
+                                self._native_certificate_row(certificate, lane)
+                                for certificate in certificates
+                            )
                         consume_work(
                             row, outcome.outcomes, lane,
                             check_value=check_value,
@@ -977,7 +1005,9 @@ class PhysicalAnalysis:
                     certificate_status=certificate_status,
                     check_position=check_position,
                     certificate_position=certificate_position,
-                    certificates=failure_certificates(tuple(executed_rows)),
+                    certificates=failure_certificates(tuple(
+                        failed_rows if raw_failure_certificates else executed_rows
+                    )),
                     capabilities=candidate.realized_capabilities,
                 )
 
@@ -1001,6 +1031,7 @@ class PhysicalAnalysis:
         """Run one Direct candidate, then stream ordered native output chunks."""
         if self.result_sink is None or self.result_sink.domain != 'direct':
             raise RuntimeError('native Direct execution requires its sealed chunk sink')
+        in_memory = bool(getattr(self.result_sink, 'in_memory_direct', False))
 
         def validate_work(program, inputs, native, work_rows):
             if any(set(row['demand']) != {'S', 'Y', 'Z'} for row in work_rows):
@@ -1008,6 +1039,17 @@ class PhysicalAnalysis:
 
         def consume_work(row, outcomes, lane, *, check_value, certificate_value,
                          check_position, certificate_position, certificates):
+            if in_memory:
+                record = {
+                    'families': {
+                        family: np.asarray(getattr(outcomes, family)[lane])
+                        for family in ('S', 'Y', 'Z')
+                    },
+                }
+                if check_value or certificate_value:
+                    record['certificates'] = certificates
+                self.result_sink.stage_direct_work(row['work_index'], record)
+                return
             self.result_sink.stage_direct_work(row['work_index'], {
                 'work_index': row['work_index'], 'source_index': row['source_index'],
                 'view_index': row['view_index'], 'demand': tuple(row['demand']),
@@ -1029,10 +1071,32 @@ class PhysicalAnalysis:
                     row['work_index'])['certificates']
             )
 
+        def prepare_work(program, inputs, native, work_rows):
+            if not in_memory:
+                return
+            occurrences = tuple(native.occurrence_layout)
+            if not occurrences:
+                raise RuntimeError('native Direct program has no declared matrix occurrences')
+            work_indices = tuple(occurrences[0]['work_indices'])
+            if any(tuple(row['work_indices']) != work_indices for row in occurrences):
+                raise RuntimeError('Direct matrix families do not share the declared frequency layout')
+            frequencies = np.asarray([quantity(value) for value in self.spec['frequencies']],
+                                     dtype=np.float64)
+            if len(work_indices) != len(frequencies):
+                raise RuntimeError('Direct output gather differs from the exact request frequency count')
+            context = point_contexts(program, inputs)[occurrences[0]['observable_index']]
+            self.result_sink.prepare_direct_output(
+                frequencies_hz=frequencies,
+                work_indices=work_indices,
+                terminal_count=len(context['terminal_ids']),
+                complex_dtype=self.backend.complex_dtype,
+            )
+
         program, inputs, native, candidate, _, _ = self._execute_native_work(
             point, operation='solve_direct', validate_work=validate_work,
             consume_work=consume_work, failure_certificates=failure_certificates,
-            frequency_slots=None,
+            frequency_slots=None, prepare_work=prepare_work,
+            raw_failure_certificates=in_memory,
         )
         occurrence_layouts = tuple(native.occurrence_layout)
         if not occurrence_layouts:
@@ -1047,6 +1111,9 @@ class PhysicalAnalysis:
                                  dtype=np.float64)
         if len(work_indices) != len(frequencies):
             raise RuntimeError('Direct output gather differs from the exact request frequency count')
+        if in_memory:
+            return {'type': 'direct_solve', 'point_count': len(frequencies),
+                    'backend': self.backend.native_program_identity('direct')}
         context = point_contexts(program, inputs)[occurrence_layouts[0]['observable_index']]
         capabilities = tuple(bool(value) for value in np.asarray(candidate.realized_capabilities))
         output_chunk_size = self.execution_policy.frequency_chunk_size

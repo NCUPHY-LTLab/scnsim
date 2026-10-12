@@ -3,11 +3,29 @@ title: "Execution Backends and Operation Benchmark"
 subtitle: "Same-process JAX, verified results and read-only hierarchical observations"
 ---
 
-**Status:** CONVERGING, 1.0.0.dev28 development candidate contract. The following interfaces are
+**Status:** CONVERGING, 1.0.0.dev29 development candidate contract. The following interfaces are
 implementation targets, not completed execution, performance or acceptance
 claims. Historical dev10 comparison records remain bound to their original
 source, wheel, numerical outputs and publication identities. No durable tests
 or stabilization are assigned.
+
+## Memory-only point Direct Benchmark
+
+`CircuitRun(plan=plan, storage="memory")` supports JAX point Direct execution
+without a Workspace, filesystem operation lease, spool, numerical object/index
+or diagnostic publication. This mode uses the same warmed candidate/frequency
+kernels and numerical failure responsibility. Its `InMemoryDirectSolveResult`
+has no saved Result identity; S/Y/Z and trace leaves remain detached after Run
+close. Memory timing supports `timing="aggregate"` only; detailed timing is rejected
+before numerical work. Saved aggregate/detailed behavior is unchanged.
+
+`result.benchmark` is an immutable compact `InMemoryBenchmarkResult` for
+that call. `run.benchmark()` returns only the last operation, accepts no filters
+and raises `ResultUnavailableError` before the first operation. The reported
+public call includes preparation, synchronized numerical execution, resource
+drain and typed-result assembly. It is not a numerical-kernel-only clock or a
+saved history. Current dev28 and earlier timing observations retain their
+original scopes; this candidate does not establish memory-mode performance.
 
 ## Differentiable program implementation target
 

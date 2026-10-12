@@ -20,7 +20,7 @@ semantics and this documentation remain `CONVERGING`; Alpha is neither a
 stable release nor a new scientific-validation claim. Public API and saved
 workspace compatibility may change before a stable release.
 
-The development candidate is `1.0.0.dev28`. The differentiable physical-program
+The development candidate is `1.0.0.dev29`. The differentiable physical-program
 target and SQLite operation evidence v7 remain `CONVERGING`; declaration and
 execution integration are in progress. [The physical-program contract](docs/v1-runtime-contract.qmd#physical-program-target)
 binds value, Jacobian/JVP/VJP and optimization to one model, fixed meshes for
@@ -29,6 +29,14 @@ restart. Derivatives are local to the bound discrete model, not a global optimum
 or continuum accuracy guarantee. Existing Julia code is frozen legacy/reference
 capability, without an automatic derivative fallback. Native body formats remain
 independent and unchanged.
+For a JAX point Direct comparison with all SCNSim storage disabled, use
+`CircuitRun(plan=plan, storage="memory")`, then the same `run.warmup(view, spec)`
+and `run.solve(view, spec)` calls. No Workspace is created. The detached
+`InMemoryDirectSolveResult` retains S/Y/Z and trace presentation, and
+`result.benchmark` records that call in memory. This mode has no saved identity
+or `resolve`; Sweep, evaluate, Sensitivity, optimization and Julia execution
+remain Workspace capabilities. See the [memory ownership contract](docs/v1-runtime-contract.qmd#memory-direct-storage).
+
 The [lifecycle contract](docs/v1-runtime-contract.qmd#package-lifecycle) defines
 optional Run close, automatic operation cleanup, fixed lazy Results, bounded
 recovery and managed Julia startup. Old operation Workspaces require recomputation;

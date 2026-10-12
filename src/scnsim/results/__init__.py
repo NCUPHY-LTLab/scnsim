@@ -1,4 +1,4 @@
-"""Receipt-backed immutable Result models and pure result-value helpers."""
+"""Immutable Result models and pure result-value helpers."""
 
 from .base import (
     AnalysisResult,
@@ -35,6 +35,7 @@ from .matrix import (
     ReconciliationEvidence,
     ScatteringMatrixResult,
 )
+from .memory_direct import InMemoryDirectSolveResult
 from .optimization import OptimizationBest, OptimizationResult, OptimizationStage
 from .sensitivity import (
     SensitivityAxis,
@@ -73,6 +74,7 @@ __all__ = [
     "HBScatteringMatrixResult",
     "HtmlPresentation",
     "InventoryResult",
+    "InMemoryDirectSolveResult",
     "LineDiscretization",
     "MatrixFamilyResult",
     "MatrixView",
@@ -137,6 +139,7 @@ for _public_result_type in (
     ReconciliationEvidence,
     HBScatteringMatrixResult,
     DirectSolveResult,
+    InMemoryDirectSolveResult,
     DirectQuantityResult,
     DiagonalRootResult,
     OperatorElementRootResult,

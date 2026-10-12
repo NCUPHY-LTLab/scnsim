@@ -2,13 +2,15 @@
 
 One captured authoring snapshot and its resolved parameter points feed the
 declarative Direct, HB, and optimization request boundary. Workspace receipts
-and artifact manifests remain the only authority for reconstructing results.
+and artifact manifests remain the authority for saved reconstruction. A memory
+Run instead owns no Workspace and returns detached Direct arrays with a compact
+in-memory operation Benchmark; it cannot resolve persisted evidence.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from os import PathLike
 from pathlib import Path
 from types import MappingProxyType
@@ -20,6 +22,7 @@ from uuid import uuid4
 from .execution.prepared_function import PreparedFunction
 from .execution.policy import ExecutionPolicy
 from .execution.compile_owner import CompileOwner
+from .results.memory_direct import InMemoryDirectSolveResult
 from .workspace.operation_lease import operation_lease
 
 from .execution.run_lifecycle import RunLifecycle, run_activity
@@ -66,6 +69,7 @@ from .errors import (
     PortRealizabilityError,
     SCNSimValidationError,
     RuntimePreparationError,
+    ResultUnavailableError,
 )
 from .results import (
     DiagonalRootResult,
@@ -256,7 +260,7 @@ class NetworkViewRef:
 
 
 class CircuitRun:
-    """Execution namespace for one permanently sealed Plan and workspace leaf."""
+    """Sealed Plan execution with saved Workspace or memory-only Direct ownership."""
 
     __slots__ = (
         "_backend",
@@ -280,14 +284,17 @@ class CircuitRun:
         "_source_provenance",
         "_warm_executables",
         "_execution_policy",
+        "_storage",
+        "_last_memory_benchmark",
     )
 
     def __init__(
         self,
         *,
         plan: CircuitPlan,
-        workspace: str | PathLike[str],
+        workspace: str | PathLike[str] | None = None,
         versioned: bool = False,
+        storage: str = "workspace",
         backend: str = "jax",
         precision: str = "float64",
         timing: str = "aggregate",
@@ -297,8 +304,20 @@ class CircuitRun:
             raise TypeError("plan must be a CircuitPlan")
         if not isinstance(versioned, bool):
             raise TypeError("versioned must be bool")
+        if storage not in {"workspace", "memory"}:
+            raise ValueError("storage must be 'workspace' or 'memory'")
+        if storage == "workspace" and workspace is None:
+            raise TypeError("storage='workspace' requires workspace")
+        if storage == "memory" and (workspace is not None or versioned):
+            raise ValueError("storage='memory' does not accept workspace or versioned=True")
+        if storage == "memory" and backend != "jax":
+            raise RuntimePreparationError("storage='memory' supports backend='jax' only", stage="runtime_prepare")
+        self._storage = storage
+        self._last_memory_benchmark = None
         self._backend, self._precision = self._backend_options(backend, precision)
         self._timing = self._timing_options(timing)
+        if storage == "memory" and self._timing != "aggregate":
+            raise ValueError("storage='memory' supports timing='aggregate' only")
         self._lifecycle = RunLifecycle()
         if execution_policy is not None and not isinstance(execution_policy, ExecutionPolicy):
             raise TypeError("execution_policy must be ExecutionPolicy or None")
@@ -317,7 +336,7 @@ class CircuitRun:
         self,
         *,
         plan: CircuitPlan,
-        workspace: str | PathLike[str],
+        workspace: str | PathLike[str] | None,
         versioned: bool,
         seal_token: object | None,
     ) -> None:
@@ -350,6 +369,10 @@ class CircuitRun:
             coordinate_load_states={coordinate: "raw" for coordinate in port_coordinates},
         )
         self._original = None
+        if self._storage == "memory":
+            plan._seal_validated(snapshot, seal_token)
+            self._binding = None
+            return
         self._binding = bind_workspace(
             workspace,
             plan_sha256=self._plan_sha256,
@@ -478,7 +501,7 @@ class CircuitRun:
         backend: str | None = None,
         precision: str | None = None,
         timing: str | None = None,
-    ) -> DirectSolveResult: ...
+    ) -> DirectSolveResult | InMemoryDirectSolveResult: ...
 
     @overload
     def solve(
@@ -514,10 +537,13 @@ class CircuitRun:
         backend: str | None = None,
         precision: str | None = None,
         timing: str | None = None,
-    ) -> DirectSolveResult | HBBatchResult | ParameterSweepResult:
+    ) -> DirectSolveResult | InMemoryDirectSolveResult | HBBatchResult | ParameterSweepResult:
         """Execute the selected Direct response or one shared-basis HB batch."""
 
         started_ns = perf_counter_ns()
+        if self._storage == "memory":
+            return self._solve_memory(ref, spec, parameters=parameters, backend=backend,
+                                      precision=precision, timing=timing, started_ns=started_ns)
         with self._execution_scope("solve", backend, precision, started_ns, timing) as (backend, precision, trace, lease, native_supervisor):
             self._require_ref(ref)
             self._require_backend_spec(backend, precision, spec)
@@ -612,6 +638,7 @@ class CircuitRun:
         | ParameterSweepResult
     ):
         """Evaluate one typed Direct quantity without an unrelated sweep."""
+        self._require_workspace_storage("evaluate")
 
         started_ns = perf_counter_ns()
         with self._execution_scope("evaluate", backend, precision, started_ns, timing) as (backend, precision, trace, lease, native_supervisor):
@@ -728,6 +755,7 @@ class CircuitRun:
                     backend: str | None = None, precision: str | None = None,
                     timing: str | None = None) -> SensitivityResult:
         """Execute the requested checked derivative of the same physical program."""
+        self._require_workspace_storage("sensitivity")
         backend, precision = self._selected_backend(backend, precision)
         if backend != "jax":
             raise RuntimePreparationError("Sensitivity requires the JAX backend; Julia is legacy/reference only", stage="runtime_prepare")
@@ -767,6 +795,9 @@ class CircuitRun:
         """
         from .execution.warmup import prepare_warmup, warm_prepared
 
+        if self._storage == "memory" and not isinstance(view, PreparedFunction):
+            if not isinstance(spec, DirectSolveSpec) or isinstance(parameters, ParameterSpace):
+                raise RuntimePreparationError("Memory warmup supports point DirectSolveSpec or PreparedFunction only", stage="memory_capability")
         if self._backend != "jax":
             raise RuntimePreparationError('CircuitRun.warmup requires backend="jax"', stage="warmup")
         from ._native import require_compensated_kernel
@@ -774,7 +805,7 @@ class CircuitRun:
         if isinstance(view, PreparedFunction):
             if spec is not None or parameters is not None:
                 raise TypeError("prepared warmup does not take a spec or parameters")
-            with operation_lease(self._binding, str(uuid4())):
+            with (nullcontext() if self._storage == "memory" else operation_lease(self._binding, str(uuid4()))):
                 return warm_prepared(view, executable_owner=self._warm_executables,
                                      transforms=transforms, batch_shapes=batch_shapes)
         self._require_ref(view)
@@ -788,7 +819,7 @@ class CircuitRun:
                          "solve_direct" if isinstance(spec, DirectSolveSpec) else "evaluate_direct")
             prepared = self._prepare_analysis(operation, view, spec, parameters,
                                               backend="jax", precision=self._precision)
-        with operation_lease(self._binding, str(uuid4())):
+        with (nullcontext() if self._storage == "memory" else operation_lease(self._binding, str(uuid4()))):
             return prepare_warmup(
                 plan_document=self._plan_document, analysis=prepared,
                 precision=self._precision, executable_owner=self._warm_executables,
@@ -802,6 +833,12 @@ class CircuitRun:
         status=None,
     ):
         """Read recorded operation traces from this Plan leaf without execution."""
+        if self._storage == "memory":
+            if any(value is not None for value in (operations, method, backend, precision, status)):
+                raise TypeError("Memory benchmark returns only the last operation and accepts no filters")
+            if self._last_memory_benchmark is None:
+                raise ResultUnavailableError("No in-memory Direct operation has completed", stage="memory_benchmark")
+            return self._last_memory_benchmark
         from .benchmark.api import benchmark
         return benchmark(self._binding, operations=operations, method=method,
                          backend=backend, precision=precision, status=status)
@@ -809,6 +846,7 @@ class CircuitRun:
     @run_activity
     def recover_workspace(self) -> None:
         """Explicitly recover only this Run's bound Plan-leaf operation store."""
+        self._require_workspace_storage("recover_workspace")
         from .workspace.evidence import recover_operation_workspace
 
         with self._binding.writer(cleanup_staging=False):
@@ -867,6 +905,7 @@ class CircuitRun:
         commit_every_generations: int | object = _OMITTED_COMMIT_EVERY_GENERATIONS,
     ) -> OptimizationResult:
         """Run the declared physical objective strategy with explicit persistence."""
+        self._require_workspace_storage("optimize")
 
         started_ns = perf_counter_ns()
         with self._execution_scope("optimize", backend, precision, started_ns, timing) as (backend, precision, trace, lease, native_supervisor):
@@ -1037,6 +1076,7 @@ class CircuitRun:
         | None
     ):
         """Read exact success, or an explicitly selected sealed terminal."""
+        self._require_workspace_storage("resolve")
 
         requested_backend, requested_precision = backend, precision
         backend, precision = self._selected_backend(backend, precision)
@@ -1133,6 +1173,7 @@ class CircuitRun:
         precision: str | None = None,
     ) -> ExplanationResult:
         """Explain the selected backend compiler without creating an attempt or solve."""
+        self._require_workspace_storage("explain")
 
         backend, precision = self._selected_backend(backend, precision)
         self._require_ref(ref)
@@ -1215,6 +1256,7 @@ class CircuitRun:
     @run_activity
     def inventory(self) -> InventoryResult:
         """Inspect this Run's exact workspace leaf without selecting a latest result."""
+        self._require_workspace_storage("inventory")
 
         with self._binding.reader():
             inventory = self._binding.inventory_document()
@@ -1240,6 +1282,7 @@ class CircuitRun:
     @run_activity
     def build_report(self, spec: ReportSpec) -> ReportResult:
         """Derive a self-contained report from explicit receipt-backed Results."""
+        self._require_workspace_storage("build_report")
 
         if (
             not isinstance(spec, ReportSpec)
@@ -1250,6 +1293,65 @@ class CircuitRun:
         from .visualization.report import build_report
 
         return build_report(spec)
+
+    def _solve_memory(self, ref, spec, *, parameters, backend, precision, timing, started_ns):
+        """Own the full Direct call without entering any saved-operation scope."""
+        backend, precision = self._selected_backend(backend, precision)
+        if backend != "jax" or not isinstance(spec, DirectSolveSpec) or isinstance(parameters, ParameterSpace):
+            raise RuntimePreparationError(
+                "Memory solve supports one JAX DirectSolveSpec point only",
+                stage="memory_capability",
+            )
+        if self._selected_timing(timing) != "aggregate":
+            raise ValueError("Memory solve supports timing='aggregate' only")
+        self._require_ref(ref)
+        from .diagnostics.memory_operation import MemoryOperationRecorder
+        from .execution.memory_direct import execute_memory_direct
+        from .results.memory_direct import build_memory_direct_result, attach_memory_benchmark
+
+        execution_id = str(uuid4())
+        trace = MemoryOperationRecorder(execution_id=execution_id, kind="solve",
+                                        backend=backend, precision=precision,
+                                        start_tick_ns=started_ns)
+        primary = None
+        try:
+            with trace.span("preparation"):
+                prepared = self._prepare_analysis("solve_direct", ref, spec, parameters,
+                                                  backend=backend, precision=precision)
+                trace.bind(operation="solve_direct", request_sha256=prepared.request_sha256)
+            # The execution owner drains and closes its operation resources
+            # before returning arrays; this facade also times typed assembly.
+            payload = execute_memory_direct(
+                plan_document=self._plan_document, prepared_analysis=prepared,
+                trace=trace, program_owner=self._warm_executables,
+                execution_policy=self._execution_policy,
+            )
+            with trace.span("result_assembly"):
+                result = build_memory_direct_result(
+                    payload=payload, request=prepared.request(),
+                    plan_sha256=self._plan_sha256, request_sha256=prepared.request_sha256,
+                    execution_id=execution_id,
+                )
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            try:
+                self._last_memory_benchmark = trace.finish(error=primary)
+            except BaseException as cleanup_error:
+                if primary is None:
+                    raise
+                primary.add_note(
+                    f"In-memory timing finalization also failed: {type(cleanup_error).__name__}: {cleanup_error}"
+                )
+        return attach_memory_benchmark(result, self._last_memory_benchmark)
+
+    def _require_workspace_storage(self, method: str) -> None:
+        if self._storage == "memory":
+            raise RuntimePreparationError(
+                f"CircuitRun.{method} is unavailable with storage='memory'; memory execution supports JAX point DirectSolve only",
+                stage="memory_capability",
+            )
 
     def _require_ref(self, ref: NetworkViewRef) -> None:
         if not isinstance(ref, NetworkViewRef) or ref._run is not self:

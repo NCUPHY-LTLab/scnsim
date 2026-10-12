@@ -81,6 +81,8 @@ from .errors import (
     WorkspaceVersioningDowngradeForbidden,
 )
 from .io import load_q2d_rlgc
+from .diagnostics.memory_operation import InMemoryBenchmarkResult
+from .results.memory_direct import InMemoryDirectSolveResult
 from .presentation import Theme
 from .results import (
     AnalysisResult,
@@ -258,6 +260,8 @@ __all__ = [
     "DirectQuantityResult",
     "DirectResponseFormationError",
     "DirectSolveResult",
+    "InMemoryDirectSolveResult",
+    "InMemoryBenchmarkResult",
     "DirectSolveSpec",
     "DiagramSide",
     "ElectricNodeRef",

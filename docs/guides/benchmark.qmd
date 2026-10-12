@@ -7,6 +7,34 @@ subtitle: "Execute with JAX or Julia, then inspect actual recorded work"
 implementation contract, not completed performance or numerical acceptance.
 Historical dev10 comparison records keep their original runtime identities.
 
+## Direct without SCNSim storage
+
+For a point Direct call that keeps all results and timings in memory, omit the
+Workspace and choose memory storage explicitly:
+
+```python
+from scnsim import CircuitRun
+
+run = CircuitRun(plan=plan, storage="memory", backend="jax", precision="float64")
+view = run.original
+warm = run.warmup(view, direct_spec)
+result = run.solve(view, direct_spec)
+benchmark = result.benchmark
+last_call = run.benchmark()
+run.close()
+# The returned matrix/trace leaves and immutable Benchmark remain available.
+```
+
+`direct_spec` is the same authored `DirectSolveSpec` used by saved execution.
+This mode accepts its captured baseline or one `ParameterSet`; it does not
+support ParameterSpace/Sweep, evaluate, Sensitivity, optimization, Julia/HB,
+resolve, recovery, inventory or backend explanation. `storage="workspace"`
+remains the default and requires `workspace`. Memory storage rejects a Workspace
+argument and `versioned=True`. No saved receipt is invented, and the Run keeps
+no result ledger. Memory timing is aggregate only; detailed timing is rejected
+before numerical work. Memory Benchmark has no saved-store `open` route or filters;
+before its first operation `run.benchmark()` raises `ResultUnavailableError`.
+
 ## Configure once, execute normal operations
 
 Python 3.12 is required. The base installation supplies the pinned CPU JAX,

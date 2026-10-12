@@ -337,6 +337,16 @@ persistent service. Both paths evaluate each point's declared physical model. Ex
 
 ## Same-process CPU execution and read-only Benchmark
 
+The dev29 memory Direct candidate adds a storage boundary rather than another
+numerical evaluator. `CircuitRun(plan=plan, storage="memory")` captures and seals
+the Plan without binding or recovering a Workspace. Compile ownership and Run
+activity remain unchanged; warmup and the JAX point Direct execution use the
+same physical providers. The execution sink gathers immutable response arrays
+without a persistent codec or task journal. Results own those arrays and their
+compact in-memory Benchmark; the Run retains only its last Benchmark. Saved
+identity, recovery, resolution and other numerical operation families remain
+Workspace capabilities. See the [memory contract](../v1-runtime-contract.qmd#memory-direct-storage).
+
 The [backend guide](benchmark-and-backends.qmd) and
 [Benchmark usage guide](../guides/benchmark.qmd) describe the current
 `CONVERGING` candidate; dev11 is the historical origin of the same-process
