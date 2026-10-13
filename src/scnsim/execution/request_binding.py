@@ -23,6 +23,7 @@ from ..specs import (
     JVP,
     VJP,
     LBFGSBSpec,
+    ProjectedLBFGSSpec,
     HybridSpec,
     OptimizationProgress,
     QuantityAbsolute,
@@ -433,7 +434,7 @@ def source_units(
             stages = spec.optimizer.stages if isinstance(spec.optimizer, HybridSpec) else ()
             controls = tuple((stage.id, stage.optimizer) for stage in stages) or (("main", spec.optimizer),)
             for stage_id, control in controls:
-                if isinstance(control, LBFGSBSpec) and control.coordinate_scales is not None:
+                if isinstance(control, (LBFGSBSpec, ProjectedLBFGSSpec)) and control.coordinate_scales is not None:
                     for parameter, value in control.coordinate_scales.items():
                         add(_source_unit_identity(scope="request_local_optimizer", component_path=(stage_id, parameter.definitions_id),
                                                   parameter_id=parameter.id, field="coordinate_scale"), value, parameter.spec.si_unit)

@@ -133,7 +133,7 @@ def require_native_frequency(*, check_status, certificate_status,
         raise numerical_error(failure)
 
 
-def project_native_root(declaration, packet):
+def project_native_root(declaration, packet, *, compact_evidence=False):
     """Detach one actual root packet for continuation and typed publication.
 
     This projection neither solves nor differentiates. Failure retains the
@@ -151,7 +151,10 @@ def project_native_root(declaration, packet):
         if hasattr(value, 'shape') and hasattr(value, 'dtype'):
             return np.asarray(value)
         return value
-    facts = detached(packet)
+    # Memory histories need actual closure/equation facts, not the working
+    # selected-state arrays retained transiently for implicit differentiation.
+    facts = ({key: detached(item) for key, item in zip(packet._fields, packet)
+              if key != 'selected_state'} if compact_evidence else detached(packet))
     facts['derivative_equation'] = ({
         'Y': 'reduced_Y_entry_local_implicit',
         'Z': 'selected_admittance_cofactor_local_implicit',
@@ -301,7 +304,8 @@ def _raise_native_unexpected(error, *, derivative_frame):
     if fatal.get_exception() is not None:
         fatal.throw()
 
-def project_native_outcome(native, result, checked_error, *, _derivative_frame=False, error_frames=()):
+def project_native_outcome(native, result, checked_error, *, _derivative_frame=False, error_frames=(),
+                           compact_evidence=False):
     """Detach a SAME-frame native value into the existing typed handoff.
 
     This host boundary performs no physical evaluation, projection, solve or
@@ -318,7 +322,8 @@ def project_native_outcome(native, result, checked_error, *, _derivative_frame=F
     for _, error in certificate_frames:
         _raise_native_unexpected(error, derivative_frame=_derivative_frame)
     branches = tuple((index, project_native_root(
-        next(row['declaration'] for row in native.root_layout if row['start_index'] == index), packet))
+        next(row['declaration'] for row in native.root_layout if row['start_index'] == index), packet,
+        compact_evidence=compact_evidence))
         for index, packet in aux.branch_packets)
     quantities = tuple((index, project_native_coupling(
         native.occurrence_layout[index]['quantity_key'], packet))
@@ -336,7 +341,8 @@ def project_native_outcome(native, result, checked_error, *, _derivative_frame=F
 
 
 def project_native_derivative_outcome(native, result, checked_error, *, output_covectors,
-                                      _directional_errors=None, _basis_kind=None, _basis_indices=(), error_frames=()):
+                                      _directional_errors=None, _basis_kind=None, _basis_indices=(), error_frames=(),
+                                      compact_evidence=False):
     """Project one checked transformed frame, retaining actual equation roles.
 
     ``result`` is ``(native_primal_result, derivative)``. Covectors use the
@@ -349,7 +355,7 @@ def project_native_derivative_outcome(native, result, checked_error, *, output_c
         SparseCertificateEffect, DerivativeAvailabilityEffect)
     primal_result, derivative = result
     primal = project_native_outcome(native, primal_result, checked_error,
-                                   _derivative_frame=True, error_frames=error_frames)
+                                   _derivative_frame=True, error_frames=error_frames, compact_evidence=compact_evidence)
     require_primal(primal)
     blocks = native.output_layout['blocks']
     if output_covectors is None:

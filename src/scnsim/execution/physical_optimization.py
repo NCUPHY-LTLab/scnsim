@@ -2,15 +2,15 @@
 
 The operation coordinator owns leases, durable publication and terminal decoding.
 This module owns controller/stage state and synchronized numerical work only.
-Rows are operation-spool references; checkpoint state contains detached locators,
-never spool offsets, numerical frames, factors or optimizer curvature for restart.
+The record/publication owners choose durable spool or ephemeral RAM references.
+The numerical and controller coordinator is shared; checkpoint state contains
+detached locators, never frames, factors or optimizer curvature for restart.
 """
 from __future__ import annotations
 
 import math
 from types import SimpleNamespace
 
-from ..canonical import canonical_json_bytes
 from ..compilation.compiler import parameter_key, parameter_values
 from ..compilation.mesh import quantity
 from ..compilation.objective_program import compile_objective_program
@@ -37,7 +37,7 @@ def _candidate_error(error):
     return error
 
 
-def _native_root_branch(program, inputs, start_index, *, backend, owner, stage_id):
+def _native_root_branch(program, inputs, start_index, *, backend, owner, stage_id, compact_evidence=False):
     """Evaluate one declared branch through its exact native provider."""
     from contextlib import nullcontext
     from ..numerics.evidence import (
@@ -83,13 +83,16 @@ def _native_root_branch(program, inputs, start_index, *, backend, owner, stage_i
             error.throw()
         row = next(row for row in native.root_layout
                    if row['start_index'] == start_index)
-        return project_native_root(row['declaration'], packet)
+        return project_native_root(row['declaration'], packet, compact_evidence=compact_evidence)
 
 
 def _compact_summary(candidate):
     return {'evaluation_ordinal': candidate['evaluation_ordinal'],
         'parameters':candidate['parameters'], 'cost_f64':candidate['cost_f64'],
         'status':candidate['status'],
+        **({'failure':candidate['failure']} if candidate.get('failure') is not None else {}),
+        **({'optimizer_unavailability':candidate['optimizer_unavailability']}
+           if candidate.get('optimizer_unavailability') is not None else {}),
         'components':[{'objective_id':row['id'], 'status':row['status'],
             **({'weighted_cost_f64':row['cost_f64'],
                 'normalized_residual_f64':row['normalized_residual_f64']}
@@ -97,6 +100,27 @@ def _compact_summary(candidate):
             'terms':[{key:value for key,value in term.items()
                       if key in ('term_ordinal','selector','status','value_f64','actual_complex','unit')}
                      for term in row['terms']]} for row in candidate['objectives']]}
+
+
+class _SavedCandidateRecords:
+    """Existing durable envelopes; the storage owner still seals publications."""
+
+    def success(self, **kwargs):
+        return encode_physical_candidate(**kwargs)
+
+    def failure(self, **kwargs):
+        return encode_physical_candidate_failure(**kwargs)
+
+    def summary(self, candidate):
+        return _compact_summary(candidate)
+
+    def cost(self, candidate):
+        return unbits(candidate['cost_f64'])
+
+    def continuation(self, observed, *, parameters, t, start_index):
+        row = quantity_record(observed)
+        row.update(parameters=parameters, continuation_t_f64=bits(t), start_index=start_index)
+        return row
 
 
 def _checkpoint_cache_locator(row, stage_id):
@@ -114,7 +138,8 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                              checkpoint_policy, resume_state,
                              commit_every_generations, publish_batch,
                              observe_progress, on_acknowledged, spool,
-                             execution_policy, frame_owner):
+                             execution_policy, frame_owner, candidate_records=None,
+                             publication_mode="durable"):
     """Compute real stage batches; publication ACKs are supplied by the caller.
 
     ``resume_state`` contains exact checkpoint state and verified ``cache_records``
@@ -124,6 +149,11 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
     ``restart_point``; it creates fresh local curvature rather than restoring it.
     Callback, publication and infrastructure errors propagate unchanged.
     """
+    if publication_mode not in ('durable', 'memory'):
+        raise ValueError('unknown optimization publication mode')
+    if publication_mode == 'memory' and (checkpoint_policy != 'off' or resume_state):
+        raise ValueError('in-memory optimization has no checkpoints or saved restart')
+    records = candidate_records if candidate_records is not None else _SavedCandidateRecords()
     spec = request['spec']
     controls = spec['optimizer']
     declarations = (controls['stages'] if controls['type'] == 'hybrid' else
@@ -214,7 +244,7 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
             # numerical work or a generation-zero checkpoint. Its scientific
             # stage/model identity and source ancestry remain immutable.
             baseline_ref = spool.put_record({'kind':'baseline',
-                'candidate':global_baseline, 'summary_json':_compact_summary(global_baseline),
+                'candidate':global_baseline, 'summary_json':records.summary(global_baseline),
                 'source_locator':stage_resume['baseline'],
                 'source_task_id':stage_resume['source_task_id'],
                 'source_attempt_id':stage_resume['source_attempt_id']})
@@ -232,10 +262,10 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                     stage_controls['resolved_population_size'] if stage_controls['type'] == 'cma_es' else None),
                 completed_generations=generations if stage_controls['type'] == 'cma_es' else None,
                 total_generations=stage_controls.get('complete_generations'),
-                committed_generations=committed_generations if stage_controls['type'] == 'cma_es' else None,
-                completed_iterations=accepted_iterations if stage_controls['type'] == 'lbfgsb' else None,
+                committed_generations=(committed_generations if publication_mode == 'durable' else 0) if stage_controls['type'] == 'cma_es' else None,
+                completed_iterations=accepted_iterations if stage_controls['type'] in ('lbfgsb', 'projected_lbfgs') else None,
                 total_iterations=stage_controls.get('max_iterations'),
-                committed_iterations=committed_iterations if stage_controls['type'] == 'lbfgsb' else None,
+                committed_iterations=(committed_iterations if publication_mode == 'durable' else 0) if stage_controls['type'] in ('lbfgsb', 'projected_lbfgs') else None,
                 evaluated_count=evaluations,
                 best_cost=None if best is None else unbits(best['cost_f64']), reused=reused)
 
@@ -249,7 +279,7 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                 inputs = program.inputs(point, branch_starts_rad_s=corrected)
                 result = _native_root_branch(
                     program, inputs, index, backend=backend, owner=owner,
-                    stage_id=stage_id,
+                    stage_id=stage_id, compact_evidence=publication_mode == 'memory',
                 )
                 if result.failure is None:
                     corrected[index] = result.root_omega_rad_s
@@ -259,10 +289,10 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                         program, program.inputs(job.point, branch_starts_rad_s=[
                             job.omega if i == index else omega for i, omega in enumerate(corrected)]),
                         index, backend=backend, owner=owner, stage_id=stage_id,
+                        compact_evidence=publication_mode == 'memory',
                     ) for job in jobs)
                 def observe(values, actual, observed, t):
-                    row_record = quantity_record(observed)
-                    row_record.update(parameters=actual, continuation_t_f64=bits(t), start_index=index)
+                    row_record = records.continuation(observed, parameters=actual, t=t, start_index=index)
                     continuation_rows.setdefault(point_identity(point).hex(), []).append(row_record)
                 with trace.span('root_continuation', details={'stage_id': stage_id, 'start_index': index}):
                     try:
@@ -290,27 +320,28 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                     if gradient:
                         from .native_ad import objective_value_and_gradient
 
-                        def native_ad_runner(native, arguments, loss, *, active_keys):
+                        def native_ad_runner(native, arguments, loss, *, active_keys, compact_evidence=False):
                             return objective_value_and_gradient(
                                 native, arguments, loss,
                                 coefficients=program.coefficient_operands(),
                                 active_keys=active_keys,
                                 backend=backend, program_owner=owner,
                                 execution_policy=execution_policy,
-                                frame_owner=frame_owner,
+                                frame_owner=frame_owner, compact_evidence=compact_evidence,
                             )
 
                         result = program.value_and_gradient(
                             inputs, active_keys=options['active_keys'],
                             native_executor=backend.execute_native,
                             program_owner=owner, device=backend.device,
-                            native_ad_runner=native_ad_runner,
+                            native_ad_runner=native_ad_runner, compact_evidence=publication_mode == 'memory',
                         )
                     else:
                         result = program.value(
                             inputs, prepared=prepared,
                             native_executor=backend.execute_native,
                             program_owner=owner, device=backend.device,
+                            compact_evidence=publication_mode == 'memory',
                         )
             except SCNSimError as error:
                 if anchor:
@@ -329,12 +360,13 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                         corrected_inputs, active_keys=options['active_keys'],
                         native_executor=backend.execute_native,
                         program_owner=owner, device=backend.device,
-                        native_ad_runner=native_ad_runner,
+                        native_ad_runner=native_ad_runner, compact_evidence=publication_mode == 'memory',
                     )
                 else:
                     result = program.value(
                         corrected_inputs, native_executor=backend.execute_native,
                         program_owner=owner, device=backend.device,
+                        compact_evidence=publication_mode == 'memory',
                     )
             # These are the established objective-resolution conditions, not
             # controller acceptance or a new global finiteness policy.
@@ -343,18 +375,23 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                        for value in values) or not math.isfinite(float(result.total_cost)):
                 raise NumericalResolutionUnresolved('objective arithmetic is non-finite', stage='objective')
             if anchor:
-                bodies = project_primal_bodies(program.quantity_program, result.primal, inputs)
+                bodies = project_primal_bodies(program.quantity_program, result.primal, inputs,
+                    ephemeral=publication_mode == 'memory')
                 for row in metadata:
                     if row['start_index'] is not None:
                         starts[row['start_index']] = bodies[row['observable_index']].root_omega_rad_s
             return result
 
-        def record(point, outcome=None, *, error=None, kind='evaluation'):
+        def record(point, outcome=None, *, error=None, kind='evaluation', optimizer_unavailability=None):
             nonlocal next_ordinal, history_ordinal, best, evaluations
-            candidate = (encode_physical_candidate(objective_program=program,
+            candidate = (records.success(objective_program=program,
                 outcome=outcome, parameters=point, objective_records=spec['objectives'])
-                if error is None else encode_physical_candidate_failure(parameters=point,
+                if error is None else records.failure(parameters=point,
                     objective_records=spec['objectives'], error=error))
+            if optimizer_unavailability is not None:
+                candidate['optimizer_unavailability'] = {'kind':optimizer_unavailability.code,
+                    'detail':optimizer_unavailability.message, 'role':'candidate_value_gradient',
+                    'evidence':dict(optimizer_unavailability.evidence)}
             continuation = continuation_rows.pop(point_identity(point).hex(), ())
             if continuation:
                 candidate['continuation'] = continuation
@@ -366,7 +403,7 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                              status='success' if error is None else 'failure')
             locator = {'stage_id': stage_id, 'evaluation_ordinal': next_ordinal, 'kind': kind}
             row = {'kind': kind, 'candidate': candidate,
-                   'summary_json': _compact_summary(candidate)}
+                   'summary_json': records.summary(candidate)}
             if kind == 'evaluation':
                 row['history_ordinal'] = history_ordinal
                 history_ordinal += 1
@@ -375,9 +412,11 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
             cache[point_identity(point).hex()] = ref
             next_ordinal += 1
             evaluations += 1
-            cost = unbits(candidate['cost_f64'])
-            if error is None and (best is None or cost < unbits(best['cost_f64'])):
-                best = dict(locator, cost_f64=candidate['cost_f64'], row_ref=ref)
+            cost = records.cost(candidate)
+            optimizer_eligible = (stage_controls['type'] != 'projected_lbfgs' or
+                (optimizer_unavailability is None and outcome is not None and outcome.gradient is not None))
+            if error is None and optimizer_eligible and (best is None or cost < unbits(best['cost_f64'])):
+                best = dict(locator, cost_f64=bits(cost), row_ref=ref)
             return locator, ref, cost
 
         def state():
@@ -385,7 +424,7 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                 'strategy': stage_controls['type'], 'status': 'partial' if partial else 'running',
                 'objective_ids': [row['id'] for row in spec['objectives']],
                 'variable_refs': [row['parameter'] for row in variables],
-                'evaluation_count': evaluations, 'iteration_count': accepted_iterations if stage_controls['type'] == 'lbfgsb' else generations,
+                'evaluation_count': evaluations, 'iteration_count': accepted_iterations if stage_controls['type'] in ('lbfgsb', 'projected_lbfgs') else generations,
                 'preparation_evaluations': preparations,
                 'termination_reason': None,
                 'observed_best': None if best is None else {key:value for key,value in best.items() if key not in ('cost_f64','row_ref')},
@@ -417,10 +456,11 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                 'rows': (spool.get_record(ref) for ref in pending), 'stage_state': state(),
                 'checkpoint': checkpoint, 'transitions': tuple(transitions)})
             pending.clear()
-            committed_generations, committed_iterations = generations, accepted_iterations
+            if publication_mode == 'durable':
+                committed_generations, committed_iterations = generations, accepted_iterations
             with trace.span('optimization_callback', details={'stage_id': stage_id}):
                 on_acknowledged(state(), ack)
-            progress('committed')
+            progress('committed' if publication_mode == 'durable' else 'observed')
 
         if not stage_resume:
             original = compute(effective_point, anchor=True,
@@ -540,7 +580,7 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                         next_ordinal += 1
                         history_ordinal += 1
                         evaluations += 1
-                        cost = unbits(candidate['cost_f64'])
+                        cost = records.cost(candidate)
                         del source, candidate, summary, row
                     costs.append(cost)
                 # Exhaustion lets the resource owner drain/release its futures.
@@ -566,20 +606,20 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                     with operation_resource.candidate_compute():
                         outcome = compute(point, gradient=True,
                             evaluation_role='candidate_value_gradient')
-                    locator, ref, cost = record(point, outcome)
+                    unavailable = (LocalUnavailable('derivative_unavailable', 'checked physical derivative unavailable',
+                        {'reasons': outcome.aux.observable_reasons}) if outcome.gradient is None else None)
+                    locator, ref, cost = record(point, outcome, optimizer_unavailability=unavailable)
                     trial_rows[tuple(coordinates)] = (locator, ref)
-                    if outcome.gradient is None:
-                        return LocalEvaluation(point, locator, cost, None,
-                            LocalUnavailable('derivative_unavailable', 'checked physical derivative unavailable',
-                                {'reasons': outcome.aux.observable_reasons}))
+                    if unavailable is not None:
+                        return LocalEvaluation(point, locator, cost, None, unavailable)
                     gradient = coordinate_map.gradient(tuple(float(value) for value in outcome.gradient), coordinates)
                     return LocalEvaluation(point, locator, cost, gradient)
                 except SCNSimError as error:
                     if error.kind not in _CANDIDATE_FAILURES:
                         raise
-                    locator,ref,cost = record(point, error=error)
-                    return LocalEvaluation(point, locator, cost, None,
-                        LocalUnavailable(error.kind, str(error), error.evidence))
+                    unavailable = LocalUnavailable(error.kind, str(error), error.evidence)
+                    locator,ref,cost = record(point, error=error, optimizer_unavailability=unavailable)
+                    return LocalEvaluation(point, locator, cost, None, unavailable)
             def on_accepted(coordinates):
                 nonlocal accepted, accepted_iterations
                 locator,ref = trial_rows[tuple(coordinates)]
@@ -593,7 +633,11 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                 local = run_local_optimizer(initial=coordinate_map.coordinates(seed_values),
                 bounds=coordinate_map.bounds, controls=stage_controls,
                 evaluate=evaluate, on_accepted=on_accepted)
-            controller_facts = {'coordinate_map': coordinate_map.canonical_record(),
+            controller_facts = {'algorithm':stage_controls['type'],
+                **({'procedure':{'memory':10,'initial_normalized_step':1,'step_contraction':.5,
+                    'acceptance':'actual strict cost decrease and available actual gradient'}}
+                   if stage_controls['type'] == 'projected_lbfgs' else {}),
+                'coordinate_map': coordinate_map.canonical_record(),
                 'message':local.message, 'scipy_success':local.scipy_success,
                 'scipy_status':local.scipy_status,'nfev':local.scipy_nfev,
                 'njev':local.scipy_njev,'nit':local.scipy_nit,

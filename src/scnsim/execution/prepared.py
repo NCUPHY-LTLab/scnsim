@@ -34,6 +34,7 @@ from ..specs import (
     OptimizationSpec,
     CMAESSpec,
     LBFGSBSpec,
+    ProjectedLBFGSSpec,
     HybridSpec,
     QuantityAbsolute,
     QuantityDifference,
@@ -556,7 +557,7 @@ def _optimizer_controls(optimizer, declared_variables, parameters, *, discretiza
             "complete_generations": generations, "unused_evaluations": unused,
             "hidden_stops": "disabled",
         }
-    if isinstance(optimizer, LBFGSBSpec):
+    if isinstance(optimizer, (LBFGSBSpec, ProjectedLBFGSSpec)):
         scales = optimizer.coordinate_scales
         scale_rows = None
         if scales is not None:
@@ -570,7 +571,8 @@ def _optimizer_controls(optimizer, declared_variables, parameters, *, discretiza
                                                       si_unit=v.parameter.spec.si_unit,
                                                       registry=units.registry)}
                           for v in declared_variables]
-        return {"type": "lbfgsb", "max_evaluations": optimizer.max_evaluations,
+        return {"type": "projected_lbfgs" if isinstance(optimizer, ProjectedLBFGSSpec) else "lbfgsb",
+                "max_evaluations": optimizer.max_evaluations,
                 "max_iterations": optimizer.max_iterations,
                 "ftol_f64": float64_hex(optimizer.ftol), "gtol_f64": float64_hex(optimizer.gtol),
                 "max_line_search": optimizer.max_line_search,
@@ -595,7 +597,7 @@ def _optimizer_controls(optimizer, declared_variables, parameters, *, discretiza
                            "seed": None if stage.seed is None else seed._record()})
         return {"type": "hybrid", "stages": stages,
                 "comparison_stage_id": optimizer.comparison_stage_id}
-    raise TypeError("optimizer must be CMAESSpec, LBFGSBSpec or HybridSpec")
+    raise TypeError("optimizer must be CMAESSpec, LBFGSBSpec, ProjectedLBFGSSpec or HybridSpec")
 
 
 def _encode_spec(

@@ -660,10 +660,12 @@ class OptimizationDomain(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class OptimizationProgress:
-    """One stage observation; durable callbacks follow an acknowledged commit.
+    """One stage observation with explicit storage provenance.
 
     Generation counters apply to CMA stages and iteration counters to local
     stages. An unavailable counter is None, never a fabricated generation.
+    Workspace durable callbacks follow an acknowledged commit. Memory events
+    describe observed/accepted RAM work, with zero durable committed counts.
     """
 
     phase: Literal["initial", "resume", "generation", "iteration", "stage_transition", "partial", "complete", "result_reuse"]
@@ -675,11 +677,12 @@ class OptimizationProgress:
     achievable_evaluations: int | None
     best_cost: float | None
     stage_id: str = "main"
-    strategy: Literal["cmaes", "lbfgsb"] = "cmaes"
+    strategy: Literal["cmaes", "lbfgsb", "projected_lbfgs"] = "cmaes"
     committed_generations: int | None = None
     completed_iterations: int | None = None
     total_iterations: int | None = None
     committed_iterations: int | None = None
+    persistence: Literal["workspace", "memory"] = "workspace"
 
 
 _OMITTED_TRANSFORM = object()
@@ -1138,6 +1141,18 @@ class SensitivitySpec:
         return {"type": "sensitivity", "quantities": tuple({"id": label, "quantity": _sensitivity_quantity_record(quantity)} for label, quantity in self.quantities.items()), "wrt": tuple(ref._key_record() for ref in self.wrt), "derivative": self.derivative._canonical_record(), "discretization": None if self.discretization is None else self.discretization._canonical_record(), "scales": None if self.scales is None else self.scales._canonical_record()}
 
 
+def _validate_local_optimizer_controls(control) -> None:
+    for name in ("max_evaluations", "max_iterations", "max_line_search", "commit_every_iterations"):
+        value = getattr(control, name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise InvalidOptimizationSpec(f"{name} must be positive integer", stage="spec_validation")
+    for name in ("ftol", "gtol"):
+        if getattr(control, name) < 0:
+            raise InvalidOptimizationSpec(f"{name} must be nonnegative", stage="spec_validation")
+    if control.coordinate_scales is not None:
+        object.__setattr__(control, "coordinate_scales", _quantity_mapping(control.coordinate_scales, key_type=ParameterRef, name="coordinate_scales"))
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LBFGSBSpec:
     """Explicit local-controller controls, distinct from design acceptance."""
@@ -1151,15 +1166,7 @@ class LBFGSBSpec:
     coordinate_scales: Mapping[ParameterRef, Quantity] | None = None
 
     def __post_init__(self) -> None:
-        for name in ("max_evaluations", "max_iterations", "max_line_search", "commit_every_iterations"):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                raise InvalidOptimizationSpec(f"{name} must be positive integer", stage="spec_validation")
-        for name in ("ftol", "gtol"):
-            if getattr(self, name) < 0:
-                raise InvalidOptimizationSpec(f"{name} must be nonnegative", stage="spec_validation")
-        if self.coordinate_scales is not None:
-            object.__setattr__(self, "coordinate_scales", _quantity_mapping(self.coordinate_scales, key_type=ParameterRef, name="coordinate_scales"))
+        _validate_local_optimizer_controls(self)
 
     def __getattribute__(self, name: str) -> object:
         value = object.__getattribute__(self, name)
@@ -1170,16 +1177,39 @@ class LBFGSBSpec:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectedLBFGSSpec:
+    """Projected L-BFGS controls for value-first rejection of failed trials."""
+
+    max_evaluations: int
+    max_iterations: int
+    ftol: float
+    gtol: float
+    max_line_search: int
+    commit_every_iterations: int
+    coordinate_scales: Mapping[ParameterRef, Quantity] | None = None
+
+    def __post_init__(self) -> None:
+        _validate_local_optimizer_controls(self)
+
+    def __getattribute__(self, name: str) -> object:
+        value = object.__getattribute__(self, name)
+        return _public_quantities(value) if name == "coordinate_scales" and value is not None else value
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "projected_lbfgs", "max_evaluations": self.max_evaluations, "max_iterations": self.max_iterations, "ftol": _sensitivity_physical_record(float(self.ftol)), "gtol": _sensitivity_physical_record(float(self.gtol)), "max_line_search": self.max_line_search, "commit_every_iterations": self.commit_every_iterations, "coordinate_scales": None if self.coordinate_scales is None else JVP(direction=self.coordinate_scales)._canonical_record()["direction"]}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class OptimizationStage:
     id: str
-    optimizer: CMAESSpec | LBFGSBSpec
+    optimizer: CMAESSpec | LBFGSBSpec | ProjectedLBFGSSpec
     discretization: FixedMeshSpec | None = None
     seed: ParameterSet | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _identifier(self.id, field="optimization stage id"))
-        if not isinstance(self.optimizer, (CMAESSpec, LBFGSBSpec)):
-            raise TypeError("stage optimizer must be CMAESSpec or LBFGSBSpec")
+        if not isinstance(self.optimizer, (CMAESSpec, LBFGSBSpec, ProjectedLBFGSSpec)):
+            raise TypeError("stage optimizer must be CMAESSpec, LBFGSBSpec or ProjectedLBFGSSpec")
         if self.discretization is not None and not isinstance(self.discretization, FixedMeshSpec):
             raise TypeError("stage discretization must be FixedMeshSpec")
         if self.seed is not None and not isinstance(self.seed, ParameterSet):
@@ -1231,11 +1261,11 @@ class OptimizationSpec:
 
     variables: tuple[OptimizationVariable, ...]
     objectives: tuple[CostObjective, ...]
-    optimizer: CMAESSpec | LBFGSBSpec | HybridSpec
+    optimizer: CMAESSpec | LBFGSBSpec | ProjectedLBFGSSpec | HybridSpec
     allow_extrapolation: tuple[ParameterRef, ...] = ()
     discretization: FixedMeshSpec | None = None
 
-    def __init__(self, *, variables: Sequence[OptimizationVariable], objectives: Sequence[CostObjective], optimizer: CMAESSpec | LBFGSBSpec | HybridSpec, discretization: FixedMeshSpec | None = None) -> None:
+    def __init__(self, *, variables: Sequence[OptimizationVariable], objectives: Sequence[CostObjective], optimizer: CMAESSpec | LBFGSBSpec | ProjectedLBFGSSpec | HybridSpec, discretization: FixedMeshSpec | None = None) -> None:
         self._initialize(variables=variables, objectives=objectives, optimizer=optimizer, allow_extrapolation=(), discretization=discretization)
 
     def _initialize(
@@ -1243,7 +1273,7 @@ class OptimizationSpec:
         *,
         variables: Sequence[OptimizationVariable],
         objectives: Sequence[CostObjective],
-        optimizer: CMAESSpec | LBFGSBSpec | HybridSpec,
+        optimizer: CMAESSpec | LBFGSBSpec | ProjectedLBFGSSpec | HybridSpec,
         allow_extrapolation: Sequence[ParameterRef],
         discretization: FixedMeshSpec | None,
     ) -> None:
@@ -1253,8 +1283,8 @@ class OptimizationSpec:
             raise InvalidOptimizationSpec("variables must be nonempty OptimizationVariable values", stage="spec_validation")
         if not checked_objectives or not all(isinstance(item, CostObjective) for item in checked_objectives):
             raise InvalidOptimizationSpec("objectives must be nonempty CostObjective values", stage="spec_validation")
-        if not isinstance(optimizer, (CMAESSpec, LBFGSBSpec, HybridSpec)):
-            raise InvalidOptimizationSpec("optimizer must be CMAESSpec, LBFGSBSpec or HybridSpec", stage="spec_validation")
+        if not isinstance(optimizer, (CMAESSpec, LBFGSBSpec, ProjectedLBFGSSpec, HybridSpec)):
+            raise InvalidOptimizationSpec("optimizer must be CMAESSpec, LBFGSBSpec, ProjectedLBFGSSpec or HybridSpec", stage="spec_validation")
         variable_keys = tuple(_parameter_key(item.parameter) for item in checked_variables)
         if len(set(variable_keys)) != len(variable_keys):
             raise InvalidOptimizationSpec("optimization parameters must be unique", stage="spec_validation")

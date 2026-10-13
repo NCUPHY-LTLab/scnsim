@@ -650,7 +650,8 @@ def _physical_optimization_controls(request, stage_id):
     return optimizer
 
 
-def _physical_progress(on_progress, request, values, *, phase, reused=False, trace=None):
+def _physical_progress(on_progress, request, values, *, phase, reused=False, trace=None,
+                       persistence="workspace"):
     if on_progress is None:
         return
     from ..specs import OptimizationProgress
@@ -662,7 +663,7 @@ def _physical_progress(on_progress, request, values, *, phase, reused=False, tra
     generations = values.get("completed_generations") if cma else None
     iterations = values.get("completed_iterations") if not cma else None
     progress = OptimizationProgress(
-        phase=phase, reused=reused,
+        phase=phase, reused=reused, persistence=persistence,
         completed_generations=generations,
         total_generations=controls.get("complete_generations") if cma else None,
         evaluated_count=values.get("evaluated_count", 0),
@@ -673,7 +674,7 @@ def _physical_progress(on_progress, request, values, *, phase, reused=False, tra
         ),
         best_cost=values.get("best_cost"),
         stage_id=stage_id,
-        strategy="cmaes" if cma else "lbfgsb",
+        strategy="cmaes" if cma else strategy,
         committed_generations=values.get("committed_generations") if cma else None,
         completed_iterations=iterations,
         total_iterations=controls.get("max_iterations") if not cma else None,
@@ -845,7 +846,7 @@ def _execute_physical_optimization(*, binding, plan_document, prepared_analysis,
         if not observer_enabled:
             return
         strategy = values["strategy"]
-        display_strategy = "cmaes" if strategy == "cma_es" else "lbfgsb"
+        display_strategy = "cmaes" if strategy == "cma_es" else strategy
         try:
             progress_observer.update(
                 phase=values["phase"], stage_id=values["stage_id"],
@@ -1292,7 +1293,7 @@ def _execute_jax_operation(*, binding, plan_document, prepared_analysis, decoder
                 if progress_observer is not None:
                     progress_observer.update(
                         phase="result_reuse", stage_id=stage["stage_id"],
-                        strategy="cmaes" if cma else "lbfgsb",
+                        strategy="cmaes" if cma else strategy,
                         completed_generations=values["completed_generations"],
                         total_generations=(_physical_optimization_controls(
                             request, stage["stage_id"]
@@ -1311,7 +1312,7 @@ def _execute_jax_operation(*, binding, plan_document, prepared_analysis, decoder
                     progress_observer.update(phase="complete", reused=True, **{
                         key: progress_observer_value for key, progress_observer_value in (
                             ("stage_id", stage["stage_id"]),
-                            ("strategy", "cmaes" if cma else "lbfgsb"),
+                            ("strategy", "cmaes" if cma else strategy),
                             ("completed_generations", values["completed_generations"]),
                             ("total_generations", _physical_optimization_controls(
                                 request, stage["stage_id"]

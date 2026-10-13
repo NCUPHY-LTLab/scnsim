@@ -8,9 +8,9 @@ The reader-facing [Simulation conventions](concepts/simulation-conventions.qmd)
 connect these version-bound rules to the canonical phasor, wave-reference, and
 linewidth definitions without adding a second runtime contract.
 
-## JAX-native physical program target (dev30) {#physical-program-target}
+## JAX-native physical program target (dev31) {#physical-program-target}
 
-This is the **CONVERGING dev30 candidate**. It retains the dev28 native callable
+This is the **CONVERGING dev31 candidate**. It retains the dev28 native callable
 authority while refining shared compilation and owned numerical hot paths;
 previous observations retain their original identities;
 source implementation does not establish native coverage, accuracy or Human acceptance. One physical program maps ordered
@@ -31,14 +31,15 @@ storage is invalid. Construction, preparation, warmup, solve and cleanup in
 this mode create no SCNSim Workspace, SQLite record, filesystem operation lease,
 scratch/spool, object/index, checkpoint or timing publication.
 
-The memory numerical scope is one JAX `DirectSolveSpec` point with a
+The currently complete memory numerical flow is one JAX `DirectSolveSpec` point with a
 `ParameterSet` or the captured baseline. Its View operations, declaration
 dependencies, detached `prepare` and compile-only `warmup` remain available.
 Warmup and solve use the same physical candidate and frequency kernels, cache
 keys, precision and bounded Run compile owner as the Workspace path. Numerical
 equations, selected loading, sparse certificates and native failures are
 unchanged; memory storage is not a raw unchecked solver or a different physics
-implementation. Sweep, evaluate, Sensitivity, Optimization, Julia/HB,
+implementation. Memory Optimization is the separate dev31 candidate scope described below.
+Sweep, evaluate, Sensitivity, Julia/HB,
 Workspace recovery and saved-result `resolve` are outside this memory scope
 and fail before storage or numerical work.
 
@@ -85,6 +86,83 @@ Each output expression uses its own ordered leaf mapping into the shared
 physical frame. Repeated leaves, mixed Views and real/imaginary projections
 retain the declared occurrence and unit; a local leaf ordinal is not a global
 observable index. Primal and derivative public projection share this mapping.
+
+### Memory Optimization ownership (dev31 candidate) {#memory-optimization-storage}
+
+The CONVERGING candidate extends the same
+`CircuitRun(plan=plan, storage="memory")` and `run.optimize(...)` interface to
+existing CMA, L-BFGS-B and declared Hybrid strategies. It uses the same physical
+Objective/root authority, fixed stage models, original-point branch anchors,
+ordered candidate work and real gradient projection. Memory integration is implemented as a CONVERGING candidate. The distinct `ProjectedLBFGSSpec` declares projected L-BFGS with value-first
+rejection of failed trials. This is the implementation choice for the authorized
+reject-and-continue behavior, not a Human-selected algorithm or accepted
+mathematical scope. `LBFGSBSpec` retains genuine SciPy L-BFGS-B semantics.
+The new controller is implemented; no failed trial gradient is fabricated.
+Current observations remain bound to their exact candidate source; no
+improved-search or acceptance claim follows.
+
+`ProjectedLBFGSSpec` has explicit `max_evaluations`, `max_iterations`, `ftol`,
+`gtol`, `max_line_search`, `commit_every_iterations` and optional unit-bearing
+`coordinate_scales`, matching the existing local control declaration fields.
+Its canonical strategy is `projected_lbfgs`, including Hybrid stage and
+progress provenance; it is not an alias for `lbfgsb`. Failed trial values and
+original failures remain visible while smaller trials may continue. An
+unavailable gradient is never replaced with zero, NaN or a stale gradient.
+Accepted iterates, original-point baseline/root anchors and fatal-error
+responsibility remain shared with the existing physical execution authority.
+
+The candidate controller works in the declared local coordinate map, including
+raw SI-number coordinates when neither explicit nor domain scales are supplied.
+It projects directions at active bounds, and retains up to ten accepted-real
+secant pairs for its two-loop direction. A non-descent direction uses the actual
+negative projected gradient. The direction first establishes a feasible bounded
+endpoint and its displacement from the accepted point. The initial unit search
+step uses that displacement; unavailable or nondecreasing trials halve the
+displacement step within the explicit evaluation and line-search budgets. Acceptance requires a lower actual
+cost and its actual gradient. The declared `gtol`, `ftol` and iteration limit
+retain their roles; exact zero projected displacement reports technical
+stagnation. No Armijo constant, new tolerance, finite-difference gradient or
+fabricated trial gradient is introduced. These are candidate algorithm details,
+not a universal convergence or global optimum guarantee.
+
+A primal-valid trial whose gradient is unavailable retains its finite cost and
+computed components. Its separate `optimizer_unavailability` records the actual
+`kind`, `detail`, `role="candidate_value_gradient"` and evidence. A failed primal
+trial retains its original numerical failure and +Inf penalty. Ordinary CMA
+trials do not require a gradient, so a missing CMA gradient is not itself local
+optimizer unavailability. Every attempted failed or rejected point remains in
+the caller-owned history; accepted iterates remain separately identifiable.
+
+Omitted checkpoint resolves to `off` for memory and the established
+`generation` default for Workspace. Memory rejects an explicit durable
+checkpoint, exact saved resume or saved accepted-iterate restart before storage
+access. It creates no Workspace, filesystem lease, SQL journal, spool/scratch,
+object/index, recovery/checkpoint or timing publication, and has no disk-spill
+fallback. Compile-only Optimization warmup binds the same requested stage
+variants without root, baseline or factor evaluation.
+
+`InMemoryOptimizationResult` extends `Result`, without a saved
+ResultIdentity/attempt/completion or resolve authority. Its detached immutable
+projections retain exact parameter points, ordinals, stage/model identity,
+original numerical failure kind/stage/reason/evidence, failed-trial +Inf cost,
+observed best, actually accepted iterations and comparison facts. Each failed
+trial remains visible; failure penalty is not proof of physical infeasibility.
+History and accepted rows belong to the returned Result, not to a Run output
+ledger. Numeric bodies have one in-memory authority rather than duplicated
+per-term evidence. After close the caller can read existing histories and
+figures without rerunning a numerical API.
+
+The Run retains only its last compact aggregate InMemoryBenchmarkResult.
+Activity spans preparation, compute, callbacks, synchronization/drain, typed
+assembly and cleanup. `OptimizationProgress.persistence` defaults to
+`"workspace"`; memory events carry `"memory"` and describe RAM-observed/accepted
+work with durable committed counts of zero. No RAM publication is called a
+saved ACK. Original-kind-before-conversion root continuation, baseline/fatal
+responsibility and callback primary errors remain intact. No zero/NaN/stale
+gradient, blanket retry or hidden strategy fallback may make an unavailable
+local trial appear valid. The rejection-controller integration and actual installed
+memory Optimization observations remain separate unfinished items; this scope
+has no acceptance or efficacy claim.
 
 ### Direct within-chunk stage batching (dev30 candidate)
 

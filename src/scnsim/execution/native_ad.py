@@ -795,7 +795,7 @@ def sensitivity_derivative(native, arguments, *, derivative_kind, quantity_progr
 
 def objective_value_and_gradient(native, arguments, loss, *, active_keys, backend,
                                  coefficients, program_owner, execution_policy,
-                                 frame_owner):
+                                 frame_owner, compact_evidence=False):
     """Differentiate the exact shared Objective loss through bounded chunks."""
     import jax
     import jax.numpy as jnp
@@ -852,5 +852,6 @@ def objective_value_and_gradient(native, arguments, loss, *, active_keys, backen
         derivative = project_native_derivative_outcome(
             native, (raw_aux, gradient), branch_error,
             output_covectors=output_covectors, error_frames=tuple(error_frames),
+            compact_evidence=compact_evidence,
         )
         return derivative, payload

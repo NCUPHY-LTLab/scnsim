@@ -36,6 +36,11 @@ from .matrix import (
     ScatteringMatrixResult,
 )
 from .memory_direct import InMemoryDirectSolveResult
+from .memory_optimization import (
+    InMemoryOptimizationResult,
+    InMemoryOptimizationStage,
+    InMemoryOptimizationTrial,
+)
 from .optimization import OptimizationBest, OptimizationResult, OptimizationStage
 from .sensitivity import (
     SensitivityAxis,
@@ -75,6 +80,9 @@ __all__ = [
     "HtmlPresentation",
     "InventoryResult",
     "InMemoryDirectSolveResult",
+    "InMemoryOptimizationResult",
+    "InMemoryOptimizationStage",
+    "InMemoryOptimizationTrial",
     "LineDiscretization",
     "MatrixFamilyResult",
     "MatrixView",
@@ -140,6 +148,9 @@ for _public_result_type in (
     HBScatteringMatrixResult,
     DirectSolveResult,
     InMemoryDirectSolveResult,
+    InMemoryOptimizationResult,
+    InMemoryOptimizationStage,
+    InMemoryOptimizationTrial,
     DirectQuantityResult,
     DiagonalRootResult,
     OperatorElementRootResult,

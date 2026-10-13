@@ -83,6 +83,9 @@ from .errors import (
 from .io import load_q2d_rlgc
 from .diagnostics.memory_operation import InMemoryBenchmarkResult
 from .results.memory_direct import InMemoryDirectSolveResult
+from .results.memory_optimization import (
+    InMemoryOptimizationResult, InMemoryOptimizationStage, InMemoryOptimizationTrial,
+)
 from .presentation import Theme
 from .results import (
     AnalysisResult,
@@ -131,6 +134,7 @@ from .specs import (
     SensitivityScales,
     FixedMeshSpec,
     LBFGSBSpec,
+    ProjectedLBFGSSpec,
     OptimizationStage,
     HybridSpec,
     AcceptedIterateSelection,
@@ -225,6 +229,7 @@ __all__ = [
     'SensitivityScales',
     'FixedMeshSpec',
     'LBFGSBSpec',
+    'ProjectedLBFGSSpec',
     'OptimizationStage',
     'HybridSpec',
     'AcceptedIterateSelection',
@@ -261,6 +266,9 @@ __all__ = [
     "DirectResponseFormationError",
     "DirectSolveResult",
     "InMemoryDirectSolveResult",
+    "InMemoryOptimizationResult",
+    "InMemoryOptimizationStage",
+    "InMemoryOptimizationTrial",
     "InMemoryBenchmarkResult",
     "DirectSolveSpec",
     "DiagramSide",

@@ -287,7 +287,7 @@ def point_contexts(program, inputs):
     } for row in metadata['observables']}
 
 
-def project_primal_bodies(program, outcome, inputs):
+def project_primal_bodies(program, outcome, inputs, *, ephemeral=False):
     """Numerical body encoding authority shared by ordinary and optimizer sinks.
 
     Locators refer exclusively to the supplied synchronized graph outcome. No
@@ -312,6 +312,10 @@ def project_primal_bodies(program, outcome, inputs):
             result = EvaluationResult(identity, **{field: raw if raw.shape else raw[()]},
                                       evidence_bytes=program_evidence(outcome, contexts[index]))
         bodies[index] = result
+    if ephemeral:
+        # RAM owners retain the same typed bodies and occurrence metadata;
+        # durable branch body identifiers are not fabricated for this execution.
+        return bodies
     for row in metadata:
         if row['kind'] != 'residue_coupling':
             continue

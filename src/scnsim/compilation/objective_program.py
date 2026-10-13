@@ -125,20 +125,20 @@ class ObjectiveProgram:
             return function
 
     def value(self, inputs, sparse_runner=None, *, prepared=None, native_executor,
-              program_owner=None, device):
+              program_owner=None, device, compact_evidence=False):
         import jax
         with jax.enable_x64(True):
             from ..numerics.evidence import project_native_outcome
             native, arguments = self._native_frame(inputs, prepared, program_owner=program_owner)
             error, (_, (result, payload)) = self._invoke(native, arguments, derivative=False,
                 native_executor=native_executor, program_owner=program_owner, device=device)
-            primal = project_native_outcome(native, result, error)
+            primal = project_native_outcome(native, result, error, compact_evidence=compact_evidence)
             require_primal(primal)
             return ObjectiveOutcome(primal, payload.values, payload.normalized_residuals,
                                     payload.contributions, payload.total_cost, None, primal.aux)
 
     def value_and_gradient(self, inputs, *, active_keys, sparse_runner=None,
-                           native_executor, program_owner=None, device, native_ad_runner=None):
+                           native_executor, program_owner=None, device, native_ad_runner=None, compact_evidence=False):
         """Project one certified complete-cost derivative from the shared loss.
 
         Response work requires native_ad_runner(native, arguments, loss,
@@ -157,14 +157,14 @@ class ObjectiveProgram:
                 if native_ad_runner is None:
                     raise TypeError('response Objective AD requires the bounded native_ad_runner')
                 derivative, payload = native_ad_runner(
-                    native, arguments, self.loss, active_keys=active_keys)
+                    native, arguments, self.loss, active_keys=active_keys, compact_evidence=compact_evidence)
             else:
                 error, ((_, (result, payload, covectors)), full_gradient) = self._invoke(native, arguments, derivative=True,
                     native_executor=native_executor, program_owner=program_owner, device=device)
                 # B owns precise declared derivative demand and transformed equation
                 # certificates. Loss-covector zero is not a fabricated derivative.
                 derivative = project_native_derivative_outcome(native, (result, full_gradient), error,
-                    output_covectors=native.output_covector_rows(covectors))
+                    output_covectors=native.output_covector_rows(covectors), compact_evidence=compact_evidence)
             require_primal(derivative.primal)
             indices = self.program.model_program.fields.layout.input_indices(active_keys)
             gradient = (derivative.derivative[jnp.asarray(indices, dtype=jnp.int32)]

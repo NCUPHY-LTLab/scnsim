@@ -3,7 +3,7 @@
 One captured authoring snapshot and its resolved parameter points feed the
 declarative Direct, HB, and optimization request boundary. Workspace receipts
 and artifact manifests remain the authority for saved reconstruction. A memory
-Run instead owns no Workspace and returns detached Direct arrays with a compact
+Run instead owns no Workspace and returns detached Direct or Optimization results with a compact
 in-memory operation Benchmark; it cannot resolve persisted evidence.
 """
 
@@ -12,7 +12,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack, contextmanager, nullcontext
 from os import PathLike
-from pathlib import Path
 from types import MappingProxyType
 from typing import overload
 from time import perf_counter_ns
@@ -23,15 +22,15 @@ from .execution.prepared_function import PreparedFunction
 from .execution.policy import ExecutionPolicy
 from .execution.compile_owner import CompileOwner
 from .results.memory_direct import InMemoryDirectSolveResult
+from .results.memory_optimization import InMemoryOptimizationResult
 from .workspace.operation_lease import operation_lease
 
 from .execution.run_lifecycle import RunLifecycle, run_activity
 from .execution.run_binding import capture_run_binding, compatible_parameter, _parameter_key
 from .execution.request_binding import _view_declaration, _quantity_selectors, source_units, prepare_request
-from .execution.view_binding import ViewDeclaration, derive_view, coordinate_id, _coordinate_id, _original_lineage_document
+from .execution.view_binding import ViewDeclaration, derive_view, coordinate_id, _original_lineage_document
 
 
-from . import units
 from .execution.compilation import _run_preflight
 from .execution.identity import _runtime_identity_base
 from .execution.prepared import (
@@ -100,6 +99,7 @@ from .specs import (
     FixedMeshSpec,
     AcceptedIterateSelection,
     LBFGSBSpec,
+    ProjectedLBFGSSpec,
     HybridSpec,
     OptimizationProgress,
     QuantityAbsolute,
@@ -110,12 +110,12 @@ from .specs import (
     ResidueNormalizedCouplingSpec,
     ResponseElementSpec,
     TransferZeroSpec,
-    _selector_unit,
 )
 
 
 # Omission selects the backend default; explicit None remains invalid.
 _OMITTED_COMMIT_EVERY_GENERATIONS = object()
+_OMITTED_CHECKPOINT = object()
 
 
 
@@ -260,7 +260,7 @@ class NetworkViewRef:
 
 
 class CircuitRun:
-    """Sealed Plan execution with saved Workspace or memory-only Direct ownership."""
+    """Sealed Plan execution with saved Workspace or memory Direct/Optimization ownership."""
 
     __slots__ = (
         "_backend",
@@ -796,8 +796,8 @@ class CircuitRun:
         from .execution.warmup import prepare_warmup, warm_prepared
 
         if self._storage == "memory" and not isinstance(view, PreparedFunction):
-            if not isinstance(spec, DirectSolveSpec) or isinstance(parameters, ParameterSpace):
-                raise RuntimePreparationError("Memory warmup supports point DirectSolveSpec or PreparedFunction only", stage="memory_capability")
+            if not isinstance(spec, (DirectSolveSpec, OptimizationSpec)) or isinstance(parameters, ParameterSpace):
+                raise RuntimePreparationError("Memory warmup supports point DirectSolveSpec, OptimizationSpec or PreparedFunction only", stage="memory_capability")
         if self._backend != "jax":
             raise RuntimePreparationError('CircuitRun.warmup requires backend="jax"', stage="warmup")
         from ._native import require_compensated_kernel
@@ -837,7 +837,7 @@ class CircuitRun:
             if any(value is not None for value in (operations, method, backend, precision, status)):
                 raise TypeError("Memory benchmark returns only the last operation and accepts no filters")
             if self._last_memory_benchmark is None:
-                raise ResultUnavailableError("No in-memory Direct operation has completed", stage="memory_benchmark")
+                raise ResultUnavailableError("No in-memory operation has completed", stage="memory_benchmark")
             return self._last_memory_benchmark
         from .benchmark.api import benchmark
         return benchmark(self._binding, operations=operations, method=method,
@@ -863,11 +863,11 @@ class CircuitRun:
         timing: str | None = None,
         progress: bool = True,
         on_progress: Callable[[OptimizationProgress], object] | None = None,
-        checkpoint: str = "generation",
+        checkpoint: str | object = _OMITTED_CHECKPOINT,
         resume_from: Mapping[str, object] | None = None,
         restart_from: AcceptedIterateSelection | None = None,
         commit_every_generations: int | object = _OMITTED_COMMIT_EVERY_GENERATIONS,
-    ) -> OptimizationResult: ...
+    ) -> OptimizationResult | InMemoryOptimizationResult: ...
 
     @overload
     def optimize(
@@ -881,11 +881,11 @@ class CircuitRun:
         timing: str | None = None,
         progress: bool = True,
         on_progress: Callable[[OptimizationProgress], object] | None = None,
-        checkpoint: str = "generation",
+        checkpoint: str | object = _OMITTED_CHECKPOINT,
         resume_from: Mapping[str, object] | None = None,
         restart_from: AcceptedIterateSelection | None = None,
         commit_every_generations: int | object = _OMITTED_COMMIT_EVERY_GENERATIONS,
-    ) -> OptimizationResult: ...
+    ) -> OptimizationResult | InMemoryOptimizationResult: ...
 
     @run_activity
     def optimize(
@@ -899,16 +899,23 @@ class CircuitRun:
         timing: str | None = None,
         progress: bool = True,
         on_progress: Callable[[OptimizationProgress], object] | None = None,
-        checkpoint: str = "generation",
+        checkpoint: str | object = _OMITTED_CHECKPOINT,
         resume_from: Mapping[str, object] | None = None,
         restart_from: AcceptedIterateSelection | None = None,
         commit_every_generations: int | object = _OMITTED_COMMIT_EVERY_GENERATIONS,
-    ) -> OptimizationResult:
+    ) -> OptimizationResult | InMemoryOptimizationResult:
         """Run the declared physical objective strategy with explicit persistence."""
-        self._require_workspace_storage("optimize")
+        if checkpoint is _OMITTED_CHECKPOINT:
+            checkpoint = "off" if self._storage == "memory" else "generation"
+        if self._storage == "memory":
+            if checkpoint != "off" or resume_from is not None or restart_from is not None:
+                raise RuntimePreparationError(
+                    "Memory optimization has no durable checkpoint, resume or saved accepted-iterate restart",
+                    stage="memory_capability",
+                )
 
         started_ns = perf_counter_ns()
-        with self._execution_scope("optimize", backend, precision, started_ns, timing) as (backend, precision, trace, lease, native_supervisor):
+        with self._optimization_scope(backend, precision, started_ns, timing) as (backend, precision, trace, lease, native_supervisor):
             generation_cadence_supplied = commit_every_generations is not _OMITTED_COMMIT_EVERY_GENERATIONS
             if commit_every_generations is _OMITTED_COMMIT_EVERY_GENERATIONS:
                 commit_every_generations = 10 if backend == "jax" else 1
@@ -982,18 +989,41 @@ class CircuitRun:
                                 f"{type(display_error).__name__}"
                             )
                     raise
-                return self._execute(
-                    prepared, bound_spec=optimization_spec, on_progress=on_progress,
-                    progress_observer=display, checkpoint_policy=checkpoint,
-                    resume_from=resume_from,
-                    restart_from=None if restart_from is None else restart_from._canonical_record(),
-                    commit_every_generations=commit_every_generations, trace=trace,
-                    operation_lease=lease,
-                    native_supervisor=native_supervisor,
-                )
+                if self._storage == "memory":
+                    from .execution.memory_optimization import execute_memory_optimization
+                    from .results.memory_optimization import build_memory_optimization_result
+                    trace.bind(operation="optimize_direct", request_sha256=prepared.request_sha256)
+                    payload = execute_memory_optimization(
+                        plan_document=self._plan_document, prepared_analysis=prepared,
+                        trace=trace, program_owner=self._warm_executables,
+                        execution_policy=self._execution_policy,
+                        commit_every_generations=commit_every_generations,
+                        on_progress=on_progress, progress_observer=display,
+                    )
+                    with trace.span("result_assembly"):
+                        result = build_memory_optimization_result(
+                            payload=payload, request=prepared.request(),
+                            plan_sha256=self._plan_sha256, request_sha256=prepared.request_sha256,
+                            execution_id=trace.execution_id,
+                            parameter_lookup=MappingProxyType(dict(self._parameter_lookup)),
+                        )
+                else:
+                    result = self._execute(
+                        prepared, bound_spec=optimization_spec, on_progress=on_progress,
+                        progress_observer=display, checkpoint_policy=checkpoint,
+                        resume_from=resume_from,
+                        restart_from=None if restart_from is None else restart_from._canonical_record(),
+                        commit_every_generations=commit_every_generations, trace=trace,
+                        operation_lease=lease,
+                        native_supervisor=native_supervisor,
+                    )
             finally:
                 if display is not None:
                     display.close()
+        if self._storage == "memory":
+            from .results.memory_optimization import attach_memory_optimization_benchmark
+            return attach_memory_optimization_benchmark(result, trace.snapshot())
+        return result
 
     @overload
     def resolve(self, ref: NetworkViewRef, spec: DirectSolveSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None, attempt: object | None = None) -> DirectSolveResult | ParameterSweepResult: ...
@@ -1344,12 +1374,44 @@ class CircuitRun:
                 primary.add_note(
                     f"In-memory timing finalization also failed: {type(cleanup_error).__name__}: {cleanup_error}"
                 )
-        return attach_memory_benchmark(result, self._last_memory_benchmark)
+        return attach_memory_benchmark(result, trace.snapshot())
+
+    @contextmanager
+    def _optimization_scope(self, backend, precision, started_ns, timing):
+        """Keep memory Optimization outside saved binding and lease ownership."""
+        if self._storage != "memory":
+            with self._execution_scope("optimize", backend, precision, started_ns, timing) as scope:
+                yield scope
+            return
+        backend, precision = self._selected_backend(backend, precision)
+        if backend != "jax":
+            raise RuntimePreparationError("Memory optimization requires the JAX backend", stage="memory_capability")
+        if self._selected_timing(timing) != "aggregate":
+            raise ValueError("Memory optimization supports timing='aggregate' only")
+        from .diagnostics.memory_operation import MemoryOperationRecorder
+        trace = MemoryOperationRecorder(execution_id=str(uuid4()), kind="optimize",
+                                        backend=backend, precision=precision,
+                                        start_tick_ns=started_ns)
+        primary = None
+        try:
+            yield backend, precision, trace, None, None
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            try:
+                self._last_memory_benchmark = trace.finish(error=primary)
+            except BaseException as cleanup_error:
+                if primary is None:
+                    raise
+                primary.add_note(
+                    f"In-memory timing finalization also failed: {type(cleanup_error).__name__}: {cleanup_error}"
+                )
 
     def _require_workspace_storage(self, method: str) -> None:
         if self._storage == "memory":
             raise RuntimePreparationError(
-                f"CircuitRun.{method} is unavailable with storage='memory'; memory execution supports JAX point DirectSolve only",
+                f"CircuitRun.{method} is unavailable with storage='memory'; memory execution supports JAX point DirectSolve and Optimization",
                 stage="memory_capability",
             )
 
@@ -1709,7 +1771,7 @@ class CircuitRun:
         stages = spec.optimizer.stages if isinstance(spec.optimizer, HybridSpec) else ()
         controls = tuple(stage.optimizer for stage in stages) or (spec.optimizer,)
         for control in controls:
-            if isinstance(control, LBFGSBSpec) and control.coordinate_scales is not None:
+            if isinstance(control, (LBFGSBSpec, ProjectedLBFGSSpec)) and control.coordinate_scales is not None:
                 for parameter in control.coordinate_scales:
                     self._compatible_parameter(parameter)
         for stage in stages:

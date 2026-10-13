@@ -1354,7 +1354,7 @@ def _verify_v1_jax_optimization_spec(
                 if ("domain" in variable and value != 0.0) or ("domain" not in variable and not 0.0 <= value <= 1.0):
                     raise _integrity("Physical CMA baseline coordinate is outside its transform.")
             return
-        if kind == "lbfgsb":
+        if kind in {"lbfgsb", "projected_lbfgs"}:
             required = {"type", "max_evaluations", "max_iterations", "ftol_f64", "gtol_f64",
                         "max_line_search", "commit_every_iterations", "coordinate_scales"}
             if set(control) != required:
@@ -1385,7 +1385,7 @@ def _verify_v1_jax_optimization_spec(
         raise _integrity("Physical Optimization strategy is unsupported.", strategy=kind)
 
     optimizer_type = optimizer.get("type")
-    if optimizer_type in {"cma_es", "lbfgsb"}:
+    if optimizer_type in {"cma_es", "lbfgsb", "projected_lbfgs"}:
         verify_controls(optimizer)
     elif optimizer_type == "hybrid":
         if set(optimizer) != {"type", "stages", "comparison_stage_id"}:

@@ -3,7 +3,7 @@ title: "Execution Backends and Operation Benchmark"
 subtitle: "Same-process JAX, verified results and read-only hierarchical observations"
 ---
 
-**Status:** CONVERGING, 1.0.0.dev30 development candidate contract. The following interfaces are
+**Status:** CONVERGING, 1.0.0.dev31 development candidate contract. The following interfaces are
 implementation targets, not completed execution, performance or acceptance
 claims. Historical dev10 comparison records remain bound to their original
 source, wheel, numerical outputs and publication identities. No durable tests
@@ -26,6 +26,36 @@ public call includes preparation, synchronized numerical execution, resource
 drain and typed-result assembly. It is not a numerical-kernel-only clock or a
 saved history. Current dev28 and earlier timing observations retain their
 original scopes; this candidate does not establish memory-mode performance.
+
+## Memory Optimization candidate (dev31)
+
+The same `storage="memory"` Run and `run.optimize(...)` entry are source-ready for CMA/current L-BFGS-B/Hybrid on the shared physical Objective.
+RAM records retain visible failed trials, true accepted iterates and stage
+histories; the caller owns the detached InMemoryOptimizationResult. There is
+no SQL/spool/checkpoint/resolve authority or persistent operation timing, and
+Run keeps only its last compact aggregate Benchmark. Checkpoint omission
+resolves to memory `off` and Workspace `generation`; explicit saved recovery
+controls are rejected in memory. Compile-only Optimization warmup uses the
+same declared variant planner and does not solve a baseline.
+
+`OptimizationProgress.persistence="memory"` marks RAM-observed/accepted
+counters; durable committed counts are zero. Workspace progress retains its
+default `persistence="workspace"`. Failed +Inf rows are visible evidence, not manufactured gradients
+or proof that the physical point is infeasible. `ProjectedLBFGSSpec` names the distinct value-first reject-aware projected
+L-BFGS candidate controller; existing SciPy L-BFGS-B FG semantics
+are not silently replaced. The method is an implementation decision under
+the authorized behavior, not Human acceptance of its mathematical scope. It
+uses the same physical value/gradient authority: unavailable or nondecreasing
+trials are recorded before halving the feasible mapped-coordinate displacement
+step within the
+explicit budgets; only a lower actual cost with an actual gradient is accepted.
+Primal-valid gradient-unavailable trials keep their finite cost/components and
+separate `optimizer_unavailability` provenance, rather than converting a real
+value to a fabricated gradient or hiding the failure. No universal convergence
+or performance claim follows from this source contract. Candidate integration, actual observations and
+Human acceptance remain distinct. The map may use raw SI-number coordinates
+without supplied scales, without an improved-search claim. Current dev30 timing/CI records retain their
+original identities and do not establish this new scope.
 
 ## Direct stage bundles and observation scope (dev30 candidate)
 
