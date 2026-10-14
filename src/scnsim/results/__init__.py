@@ -22,7 +22,7 @@ from .base import (
 )
 from .diagram import CircuitDiagramAudit, CircuitDiagramResult
 from .derived import ExplanationResult, InventoryResult, ReportResult, TraceResult
-from .factory import _is_verified_analysis_result, _verified_result
+from .factory import _is_checked_report_input, _is_verified_analysis_result, _verified_result
 from .hb import HBCaseOutcome, HBBatchResult
 from .matrix import (
     DiagonalRootResult,
@@ -36,11 +36,21 @@ from .matrix import (
     ScatteringMatrixResult,
 )
 from .memory_direct import InMemoryDirectSolveResult
+from .memory_analysis import (
+    InMemoryAnalysisDependency,
+    InMemoryAnalysisPointOutcome,
+    InMemoryAnalysisPoints,
+    InMemoryAnalysisResult,
+    InMemoryParameterField,
+    InMemoryParameterSweepResult,
+    InMemoryParameterSweepSelection,
+)
 from .memory_optimization import (
     InMemoryOptimizationResult,
     InMemoryOptimizationStage,
     InMemoryOptimizationTrial,
 )
+from .memory_sensitivity import InMemorySensitivityResult
 from .optimization import OptimizationBest, OptimizationResult, OptimizationStage
 from .sensitivity import (
     SensitivityAxis,
@@ -80,9 +90,17 @@ __all__ = [
     "HtmlPresentation",
     "InventoryResult",
     "InMemoryDirectSolveResult",
+    "InMemoryAnalysisDependency",
+    "InMemoryAnalysisPointOutcome",
+    "InMemoryAnalysisPoints",
+    "InMemoryAnalysisResult",
+    "InMemoryParameterField",
+    "InMemoryParameterSweepResult",
+    "InMemoryParameterSweepSelection",
     "InMemoryOptimizationResult",
     "InMemoryOptimizationStage",
     "InMemoryOptimizationTrial",
+    "InMemorySensitivityResult",
     "LineDiscretization",
     "MatrixFamilyResult",
     "MatrixView",
@@ -116,6 +134,7 @@ __all__ = [
     "TraceResult",
     "_freeze",
     "_fresh_quantity_attribute",
+    "_is_checked_report_input",
     "_is_verified_analysis_result",
     "_is_verified_identity",
     "_is_verified_point_identity",
@@ -148,9 +167,17 @@ for _public_result_type in (
     HBScatteringMatrixResult,
     DirectSolveResult,
     InMemoryDirectSolveResult,
+    InMemoryAnalysisDependency,
+    InMemoryAnalysisPointOutcome,
+    InMemoryAnalysisPoints,
+    InMemoryAnalysisResult,
+    InMemoryParameterField,
+    InMemoryParameterSweepResult,
+    InMemoryParameterSweepSelection,
     InMemoryOptimizationResult,
     InMemoryOptimizationStage,
     InMemoryOptimizationTrial,
+    InMemorySensitivityResult,
     DirectQuantityResult,
     DiagonalRootResult,
     OperatorElementRootResult,

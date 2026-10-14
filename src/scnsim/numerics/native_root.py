@@ -109,8 +109,12 @@ def _determinant(matrix):
     return determinant[0], determinant[1], status
 
 
-def _local_pair(matrix, prime):
-    """Existing row-scaled determinant/cofactor derivative, not det*trace(inv)."""
+def _local_pair(matrix, prime, *, restore_required=True):
+    """Row-scaled cofactor jet; original certificates require restored values.
+
+    Iteration-only exponent ratios may consume the represented pair without
+    requiring an otherwise unused raw determinant to fit the selected dtype.
+    """
     import jax.numpy as jnp
     from .jax_core import first
     width = matrix.shape[0]
@@ -144,8 +148,9 @@ def _local_pair(matrix, prime):
     derivative_e = jnp.where(derivative[0] == 0, 0, derivative[1] + common)
     h, hp = _shift(determinant_m, determinant_e), _shift(derivative[0], derivative_e)
     bad_restore = ((determinant_m != 0) & ((h == 0) | ~jnp.isfinite(h))) | ((derivative[0] != 0) & ((hp == 0) | ~jnp.isfinite(hp)))
-    stage = jnp.where((status == 0) & bad_restore, jnp.int32(5), stage)
-    status = first(status, bad_restore, 11)
+    if restore_required:
+        stage = jnp.where((status == 0) & bad_restore, jnp.int32(5), stage)
+        status = first(status, bad_restore, 11)
     return h, hp, determinant_m, determinant_e, derivative[0], derivative_e, shifts, status, stage
 
 
@@ -383,11 +388,7 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
     def root(candidate, seed):
         return primal(candidate, seed)
 
-    @root.defjvp
-    def root_direction(primals, tangents):
-        candidate, seed = primals
-        candidate_dot, _ = tangents
-        packet = root(candidate, seed)
+    def implicit_direction(candidate, candidate_dot, packet):
         omega = packet.omega
         # Seed selects the local branch; it is not a continuous physical input
         # to the machine-closed implicit equation.
@@ -415,6 +416,32 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
         # its separate right-vector chart on this selected F/Fp directional
         # state; chart certification cannot block frequency-only root AD.
         return packet, tangent._replace(omega=omega_dot, selected_state=state_dot)
+
+    @root.defjvp
+    def root_direction(primals, tangents):
+        candidate, seed = primals
+        candidate_dot, _ = tangents
+        return implicit_direction(candidate, candidate_dot, root(candidate, seed))
+
+    @jax.custom_jvp
+    def from_packet(candidate, packet):
+        """Consume this operation's completed same-point root without Newton.
+
+        The host producer owns exact candidate/core/View/mesh/dtype association;
+        this is not a public independently editable root state or result cache.
+        """
+        return packet
+
+    @from_packet.defjvp
+    def packet_direction(primals, tangents):
+        candidate, packet = primals
+        candidate_dot, _ = tangents
+        # As in root_direction, the implicit formula consumes a differentiable
+        # root result. Higher parameter directions must see omega/state move
+        # along this selected branch, not treat the supplied residual as fixed.
+        return implicit_direction(candidate, candidate_dot, from_packet(candidate, packet))
+
+    root.from_packet = from_packet
 
     # Internal finite equation/finalization interfaces for the private method
     # comparison. The root's public call remains the SAME Newton trajectory.

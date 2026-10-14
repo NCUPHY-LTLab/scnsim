@@ -40,10 +40,7 @@ def _candidate_error(error):
 def _native_root_branch(program, inputs, start_index, *, backend, owner, stage_id, compact_evidence=False):
     """Evaluate one declared branch through its exact native provider."""
     from contextlib import nullcontext
-    from ..numerics.evidence import (
-        native_primal_exception, project_native_root, require_native_candidate,
-    )
-    from ..numerics.native_sparse import SparseEquationCheck, checked_native
+    from ..numerics.evidence import require_native_candidate
 
     jax = backend.jax
     jnp = jax.numpy
@@ -66,24 +63,12 @@ def _native_root_branch(program, inputs, start_index, *, backend, owner, stage_i
             details={'stage_id': stage_id, 'start_index': start_index},
         )
         require_native_candidate(candidate)
-        branch = checked_native(native.branch_function(start_index))
-        branch_operands = (candidate, seed)
-        branch_key = native.branch_variant_key(
-            start_index, device=backend.device, operands=branch_operands,
-            transform='checked_value',
-        )
-        error, packet = backend.execute_native(
-            branch, *branch_operands, precision=backend.precision,
-            compile_key=branch_key, owner=owner,
-            phase='physical_optimization_root_branch',
-            details={'stage_id': stage_id, 'start_index': start_index},
-        )
-        exception = native_primal_exception(error)
-        if exception is not None and not isinstance(exception, SparseEquationCheck):
-            error.throw()
-        row = next(row for row in native.root_layout
-                   if row['start_index'] == start_index)
-        return project_native_root(row['declaration'], packet, compact_evidence=compact_evidence)
+        from .physical_analysis import execute_native_branch_packet
+        result,packet,error = execute_native_branch_packet(native,candidate,start_index,seed,
+            backend=backend,program_owner=owner,operation_resources=backend.operation_resources,
+            compact_evidence=compact_evidence)
+        return result,packet,error
+
 
 
 def _compact_summary(candidate):
@@ -219,6 +204,8 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                               program.inputs(effective_point))['discretization']}
         metadata = program.quantity_program.observable_metadata()
         roots = {row['start_index']: row for row in metadata if row['start_index'] is not None}
+        has_root_search = any(row['spec'].get('search') for row in roots.values())
+        root_search_metadata = ()
         starts = list(program.quantity_program.branch_starts_rad_s)
         if stage_resume:
             starts = [complex_value(row) for row in stage_resume['anchors']]
@@ -275,22 +262,30 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
             # The original-point anchors and the existing continuation policy
             # remain authoritative. Every intermediate uses this same program.
             corrected = list(starts)
+            endpoint_frames = {}
             for index, row in roots.items():
                 inputs = program.inputs(point, branch_starts_rad_s=corrected)
-                result = _native_root_branch(
+                result,packet,checked_error = _native_root_branch(
                     program, inputs, index, backend=backend, owner=owner,
                     stage_id=stage_id, compact_evidence=publication_mode == 'memory',
                 )
                 if result.failure is None:
+                    endpoint_frames[index] = (packet,checked_error)
+                if result.failure is None:
                     corrected[index] = result.root_omega_rad_s
                     continue
                 def evaluate(jobs):
-                    return tuple(_native_root_branch(
-                        program, program.inputs(job.point, branch_starts_rad_s=[
-                            job.omega if i == index else omega for i, omega in enumerate(corrected)]),
-                        index, backend=backend, owner=owner, stage_id=stage_id,
-                        compact_evidence=publication_mode == 'memory',
-                    ) for job in jobs)
+                    results = []
+                    for job in jobs:
+                        actual,packet,checked_error = _native_root_branch(
+                            program, program.inputs(job.point,branch_starts_rad_s=[
+                                job.omega if i == index else omega for i,omega in enumerate(corrected)]),
+                            index,backend=backend,owner=owner,stage_id=stage_id,
+                            compact_evidence=publication_mode == 'memory')
+                        if actual.failure is None and point_identity(job.point) == point_identity(point):
+                            endpoint_frames[index] = (packet,checked_error)
+                        results.append(actual)
+                    return tuple(results)
                 def observe(values, actual, observed, t):
                     row_record = records.continuation(observed, parameters=actual, t=t, start_index=index)
                     continuation_rows.setdefault(point_identity(point).hex(), []).append(row_record)
@@ -307,41 +302,53 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                 if result.failure is not None:
                     raise numerical_error(result.failure)
                 corrected[index] = result.root_omega_rad_s
-            return corrected
+            completed = (tuple((index,endpoint_frames[index][0]) for index in roots),
+                         tuple(endpoint_frames[index][1] for index in roots))
+            return corrected,completed
 
         def compute(point, *, gradient=False, prepared=None, anchor=False,
                     evaluation_role='candidate'):
+            nonlocal root_search_metadata
             inputs = program.inputs(point, branch_starts_rad_s=starts)
             options = {'active_keys': tuple(parameter_key(row['parameter']) for row in variables)} if gradient else {'prepared': prepared}
+            completed = None
+            def native_ad_runner(native, arguments, loss, *, active_keys, compact_evidence=False, completed_branches=None, completed_branch_errors=None):
+                from .native_ad import objective_value_and_gradient
+                return objective_value_and_gradient(
+                    native, arguments, loss,
+                    coefficients=program.coefficient_operands(),
+                    active_keys=active_keys,
+                    backend=backend, program_owner=owner,
+                    execution_policy=execution_policy,
+                    frame_owner=frame_owner, compact_evidence=compact_evidence,
+                    completed_branches=completed_branches,
+                    completed_branch_errors=completed_branch_errors,
+                )
+
             try:
+                if has_root_search:
+                    from .physical_analysis import acquire_completed_root_frame
+                    _,completed,_,searches = acquire_completed_root_frame(program.quantity_program,inputs,
+                        backend=backend,program_owner=owner,operation_resources=operation_resource,
+                        compact_evidence=publication_mode == 'memory',discover=anchor)
+                    if anchor:
+                        root_search_metadata = searches
                 with trace.span('physical_value_gradient' if gradient else 'physical_value',
                                 details={'stage_id': stage_id,
                                          'evaluation_role': evaluation_role}):
                     if gradient:
-                        from .native_ad import objective_value_and_gradient
-
-                        def native_ad_runner(native, arguments, loss, *, active_keys, compact_evidence=False):
-                            return objective_value_and_gradient(
-                                native, arguments, loss,
-                                coefficients=program.coefficient_operands(),
-                                active_keys=active_keys,
-                                backend=backend, program_owner=owner,
-                                execution_policy=execution_policy,
-                                frame_owner=frame_owner, compact_evidence=compact_evidence,
-                            )
-
                         result = program.value_and_gradient(
                             inputs, active_keys=options['active_keys'],
                             native_executor=backend.execute_native,
                             program_owner=owner, device=backend.device,
-                            native_ad_runner=native_ad_runner, compact_evidence=publication_mode == 'memory',
+                            native_ad_runner=native_ad_runner, compact_evidence=publication_mode == 'memory', completed=completed,
                         )
                     else:
                         result = program.value(
                             inputs, prepared=prepared,
                             native_executor=backend.execute_native,
                             program_owner=owner, device=backend.device,
-                            compact_evidence=publication_mode == 'memory',
+                            compact_evidence=publication_mode == 'memory', completed=completed,
                         )
             except SCNSimError as error:
                 if anchor:
@@ -351,7 +358,7 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                 error = _candidate_error(error)
                 if not continuation_eligible:
                     raise error
-                corrected = continue_starts(point, error)
+                corrected,completed = continue_starts(point, error)
                 # A prepared packet binds exact hints; never reuse it after
                 # continuation changes those operands.
                 corrected_inputs = program.inputs(point, branch_starts_rad_s=corrected)
@@ -360,13 +367,13 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                         corrected_inputs, active_keys=options['active_keys'],
                         native_executor=backend.execute_native,
                         program_owner=owner, device=backend.device,
-                        native_ad_runner=native_ad_runner, compact_evidence=publication_mode == 'memory',
+                        native_ad_runner=native_ad_runner, compact_evidence=publication_mode == 'memory', completed=completed,
                     )
                 else:
                     result = program.value(
                         corrected_inputs, native_executor=backend.execute_native,
                         program_owner=owner, device=backend.device,
-                        compact_evidence=publication_mode == 'memory',
+                        compact_evidence=publication_mode == 'memory', completed=completed,
                     )
             # These are the established objective-resolution conditions, not
             # controller acceptance or a new global finiteness policy.
@@ -374,6 +381,9 @@ def run_physical_optimization(*, plan_document, request, effective_point, precis
                        (result.values, result.normalized_residuals, result.contributions)
                        for value in values) or not math.isfinite(float(result.total_cost)):
                 raise NumericalResolutionUnresolved('objective arithmetic is non-finite', stage='objective')
+            if root_search_metadata:
+                from ..numerics.evidence import attach_root_search_metadata
+                result = attach_root_search_metadata(result,root_search_metadata)
             if anchor:
                 bodies = project_primal_bodies(program.quantity_program, result.primal, inputs,
                     ephemeral=publication_mode == 'memory')

@@ -293,6 +293,22 @@ def source_units(
                         value.to(source_unit),
                         current.spec.si_unit,
                     )
+        def add_search(declaration, *, scope, parameter_id, prefix=""):
+            search = getattr(declaration, "search", None)
+            if search is None:
+                return
+            for axis in ("real_frequency_interval", "imag_frequency_interval"):
+                for ordinal, value in enumerate(getattr(search, axis) or ()):
+                    add(_source_unit_identity(scope=scope, parameter_id=parameter_id,
+                                              field=f"{prefix}search:{axis}:{ordinal}"), value, "hertz")
+            for ordinal, value in enumerate(search.seeds or ()):
+                add(_source_unit_identity(scope=scope, parameter_id=parameter_id,
+                                          field=f"{prefix}search:seed:{ordinal}"), value, "hertz")
+
+        add_search(spec, scope="request_root_search", parameter_id="root")
+        if isinstance(spec, ResidueNormalizedCouplingSpec):
+            for name, branch in (("branch_a", spec.branch_a), ("branch_b", spec.branch_b)):
+                add_search(branch, scope="request_root_search", parameter_id=name)
         if isinstance(spec, SensitivitySpec):
             # Each leaf has its own View/spec declaration and source-unit domain.
             inherited = set(identities)
@@ -416,6 +432,7 @@ def source_units(
                 for term_index, term in enumerate(selectors):
                     selected_spec = term.spec
                     prefix = f"selector:{term_index}"
+                    add_search(selected_spec, scope="request_optimization_objective", parameter_id=parameter_id, prefix=f"{prefix}:")
                     if isinstance(selected_spec, (DiagonalRootSpec, OperatorElementRootSpec)):
                         add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field=f"{prefix}:root_hint"), selected_spec.root_hint, "hertz")
                     elif isinstance(selected_spec, HybridizedPoleSpec):
@@ -428,6 +445,7 @@ def source_units(
                         if not isinstance(selected_spec.frequency, str):
                             add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field=f"{prefix}:frequency"), selected_spec.frequency, "hertz")
                         for branch_name, branch in (("branch_a", selected_spec.branch_a), ("branch_b", selected_spec.branch_b)):
+                            add_search(branch, scope="request_optimization_objective", parameter_id=parameter_id, prefix=f"{prefix}:{branch_name}:")
                             field = "root_hint" if isinstance(branch, DiagonalRootSpec) else "anchor"
                             add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field=f"{prefix}:{branch_name}:{field}"), getattr(branch, field), "hertz")
         if isinstance(spec, OptimizationSpec):

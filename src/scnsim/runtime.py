@@ -23,6 +23,8 @@ from .execution.policy import ExecutionPolicy
 from .execution.compile_owner import CompileOwner
 from .results.memory_direct import InMemoryDirectSolveResult
 from .results.memory_optimization import InMemoryOptimizationResult
+from .results.memory_analysis import InMemoryAnalysisResult, InMemoryParameterSweepResult
+from .results.memory_sensitivity import InMemorySensitivityResult
 from .workspace.operation_lease import operation_lease
 
 from .execution.run_lifecycle import RunLifecycle, run_activity
@@ -260,7 +262,7 @@ class NetworkViewRef:
 
 
 class CircuitRun:
-    """Sealed Plan execution with saved Workspace or memory Direct/Optimization ownership."""
+    """Sealed Plan execution with saved Workspace or detached checked JAX memory Results."""
 
     __slots__ = (
         "_backend",
@@ -452,6 +454,12 @@ class CircuitRun:
     @staticmethod
     def _require_backend_spec(backend, precision, spec) -> None:
         if backend == "julia":
+            declarations = (selector.spec for objective in spec.objectives
+                            for selector in _quantity_selectors(objective.quantity)) if isinstance(spec, OptimizationSpec) else (spec,)
+            for declaration in declarations:
+                roots = (declaration.branch_a, declaration.branch_b) if isinstance(declaration, ResidueNormalizedCouplingSpec) else (declaration,)
+                if any(getattr(root, "search", None) is not None for root in roots):
+                    raise RuntimePreparationError("RootSearchSpec requires the JAX backend", stage="runtime_prepare")
             if isinstance(spec, SensitivitySpec) or isinstance(spec, OptimizationSpec) and (
                 not isinstance(spec.optimizer, CMAESSpec) or spec.discretization is not None
             ):
@@ -537,11 +545,15 @@ class CircuitRun:
         backend: str | None = None,
         precision: str | None = None,
         timing: str | None = None,
-    ) -> DirectSolveResult | InMemoryDirectSolveResult | HBBatchResult | ParameterSweepResult:
+    ) -> DirectSolveResult | InMemoryDirectSolveResult | HBBatchResult | ParameterSweepResult | InMemoryParameterSweepResult:
         """Execute the selected Direct response or one shared-basis HB batch."""
 
         started_ns = perf_counter_ns()
         if self._storage == "memory":
+            if isinstance(parameters, ParameterSpace):
+                return self._analyze_memory("solve_direct", ref, spec, parameters=parameters,
+                                            backend=backend, precision=precision,
+                                            timing=timing, started_ns=started_ns)
             return self._solve_memory(ref, spec, parameters=parameters, backend=backend,
                                       precision=precision, timing=timing, started_ns=started_ns)
         with self._execution_scope("solve", backend, precision, started_ns, timing) as (backend, precision, trace, lease, native_supervisor):
@@ -636,11 +648,15 @@ class CircuitRun:
         | DirectQuantityResult
         | OperatorResult
         | ParameterSweepResult
+        | InMemoryAnalysisResult
+        | InMemoryParameterSweepResult
     ):
         """Evaluate one typed Direct quantity without an unrelated sweep."""
-        self._require_workspace_storage("evaluate")
-
         started_ns = perf_counter_ns()
+        if self._storage == "memory":
+            return self._analyze_memory("evaluate_direct", ref, spec, parameters=parameters,
+                                        backend=backend, precision=precision,
+                                        timing=timing, started_ns=started_ns)
         with self._execution_scope("evaluate", backend, precision, started_ns, timing) as (backend, precision, trace, lease, native_supervisor):
             self._require_ref(ref)
             self._require_backend_spec(backend, precision, spec)
@@ -753,9 +769,12 @@ class CircuitRun:
     @run_activity
     def sensitivity(self, spec: SensitivitySpec, *, parameters: ParameterSet | None = None,
                     backend: str | None = None, precision: str | None = None,
-                    timing: str | None = None) -> SensitivityResult:
+                    timing: str | None = None) -> SensitivityResult | InMemorySensitivityResult:
         """Execute the requested checked derivative of the same physical program."""
-        self._require_workspace_storage("sensitivity")
+        started_ns = perf_counter_ns()
+        if self._storage == "memory":
+            return self._sensitivity_memory(spec, parameters=parameters, backend=backend,
+                                            precision=precision, timing=timing, started_ns=started_ns)
         backend, precision = self._selected_backend(backend, precision)
         if backend != "jax":
             raise RuntimePreparationError("Sensitivity requires the JAX backend; Julia is legacy/reference only", stage="runtime_prepare")
@@ -795,9 +814,6 @@ class CircuitRun:
         """
         from .execution.warmup import prepare_warmup, warm_prepared
 
-        if self._storage == "memory" and not isinstance(view, PreparedFunction):
-            if not isinstance(spec, (DirectSolveSpec, OptimizationSpec)) or isinstance(parameters, ParameterSpace):
-                raise RuntimePreparationError("Memory warmup supports point DirectSolveSpec, OptimizationSpec or PreparedFunction only", stage="memory_capability")
         if self._backend != "jax":
             raise RuntimePreparationError('CircuitRun.warmup requires backend="jax"', stage="warmup")
         from ._native import require_compensated_kernel
@@ -1311,13 +1327,13 @@ class CircuitRun:
 
     @run_activity
     def build_report(self, spec: ReportSpec) -> ReportResult:
-        """Derive a self-contained report from explicit receipt-backed Results."""
-        self._require_workspace_storage("build_report")
+        """Derive a pure report from checked saved or detached numerical Results."""
+        from .results import _is_checked_report_input
 
         if (
             not isinstance(spec, ReportSpec)
             or not spec.inputs
-            or not all(_is_verified_analysis_result(result) for result in spec.inputs)
+            or not all(_is_checked_report_input(result) for result in spec.inputs)
         ):
             raise TypeError("build_report() requires ReportSpec")
         from .visualization.report import build_report
@@ -1378,23 +1394,29 @@ class CircuitRun:
 
     @contextmanager
     def _optimization_scope(self, backend, precision, started_ns, timing):
-        """Keep memory Optimization outside saved binding and lease ownership."""
+        """Select the actual storage owner without changing optimization math."""
         if self._storage != "memory":
             with self._execution_scope("optimize", backend, precision, started_ns, timing) as scope:
                 yield scope
             return
+        with self._memory_scope("optimize", backend, precision, started_ns, timing) as scope:
+            yield (*scope, None, None)
+
+    @contextmanager
+    def _memory_scope(self, kind, backend, precision, started_ns, timing):
+        """Own one RAM operation clock through producer drain and projection."""
         backend, precision = self._selected_backend(backend, precision)
         if backend != "jax":
-            raise RuntimePreparationError("Memory optimization requires the JAX backend", stage="memory_capability")
+            raise RuntimePreparationError("Memory execution requires the JAX backend", stage="memory_capability")
         if self._selected_timing(timing) != "aggregate":
-            raise ValueError("Memory optimization supports timing='aggregate' only")
+            raise ValueError("Memory execution supports timing='aggregate' only")
         from .diagnostics.memory_operation import MemoryOperationRecorder
-        trace = MemoryOperationRecorder(execution_id=str(uuid4()), kind="optimize",
+        trace = MemoryOperationRecorder(execution_id=str(uuid4()), kind=kind,
                                         backend=backend, precision=precision,
                                         start_tick_ns=started_ns)
         primary = None
         try:
-            yield backend, precision, trace, None, None
+            yield backend, precision, trace
         except BaseException as error:
             primary = error
             raise
@@ -1408,10 +1430,70 @@ class CircuitRun:
                     f"In-memory timing finalization also failed: {type(cleanup_error).__name__}: {cleanup_error}"
                 )
 
+    def _analyze_memory(self, operation, ref, spec, *, parameters, backend,
+                        precision, timing, started_ns):
+        """Bind ordinary point/Sweep declarations to the sole RAM producer."""
+        from .execution.memory_analysis import execute_memory_analysis
+        from .results.memory_analysis import (
+            build_memory_analysis_result, attach_memory_analysis_benchmark,
+        )
+        kind = "solve" if operation == "solve_direct" else "evaluate"
+        with self._memory_scope(kind, backend, precision, started_ns, timing) as (backend, precision, trace):
+            self._require_ref(ref)
+            self._require_backend_spec(backend, precision, spec)
+            with trace.span("preparation"):
+                prepared = self._prepare_analysis(operation, ref, spec, parameters,
+                                                  backend=backend, precision=precision)
+                trace.bind(operation=operation, request_sha256=prepared.request_sha256)
+                from .execution.prepared import capture_selector_binding
+                selector_binding = capture_selector_binding(
+                    plan_owner_id=id(self._plan), coordinate_lookup=self._coordinate_lookup,
+                    view=prepared.request()["view"],
+                )
+            payload = execute_memory_analysis(
+                plan_document=self._plan_document, prepared_analysis=prepared,
+                trace=trace, program_owner=self._warm_executables,
+                execution_policy=self._execution_policy,
+            )
+            with trace.span("result_assembly"):
+                result = build_memory_analysis_result(
+                    payload=payload, request=prepared.request(),
+                    plan_sha256=self._plan_sha256, request_sha256=prepared.request_sha256,
+                    execution_id=trace.execution_id,
+                    parameter_lookup=MappingProxyType(dict(self._parameter_lookup)),
+                    selector_binding=selector_binding,
+                )
+        return attach_memory_analysis_benchmark(result, trace.snapshot())
+
+    def _sensitivity_memory(self, spec, *, parameters, backend, precision,
+                            timing, started_ns):
+        """Keep checked derivative payload and Result ownership separate."""
+        from .execution.memory_analysis import execute_memory_sensitivity
+        from .results.memory_sensitivity import (
+            build_memory_sensitivity_result, attach_memory_sensitivity_benchmark,
+        )
+        with self._memory_scope("sensitivity", backend, precision, started_ns, timing) as (backend, precision, trace):
+            with trace.span("preparation"):
+                prepared = self._prepare_sensitivity(spec, parameters, precision=precision)
+                trace.bind(operation="sensitivity", request_sha256=prepared.request_sha256)
+            payload = execute_memory_sensitivity(
+                plan_document=self._plan_document, prepared_analysis=prepared,
+                trace=trace, program_owner=self._warm_executables,
+                execution_policy=self._execution_policy,
+            )
+            with trace.span("result_assembly"):
+                result = build_memory_sensitivity_result(
+                    payload=payload, request=prepared.request(),
+                    plan_sha256=self._plan_sha256, request_sha256=prepared.request_sha256,
+                    execution_id=trace.execution_id,
+                    parameter_lookup=MappingProxyType(dict(self._parameter_lookup)),
+                )
+        return attach_memory_sensitivity_benchmark(result, trace.snapshot())
+
     def _require_workspace_storage(self, method: str) -> None:
         if self._storage == "memory":
             raise RuntimePreparationError(
-                f"CircuitRun.{method} is unavailable with storage='memory'; memory execution supports JAX point DirectSolve and Optimization",
+                f"CircuitRun.{method} is unavailable with storage='memory'; memory execution supports checked JAX analysis, Sensitivity and Optimization",
                 stage="memory_capability",
             )
 

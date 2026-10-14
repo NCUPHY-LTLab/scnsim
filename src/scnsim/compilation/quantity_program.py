@@ -184,22 +184,45 @@ class QuantityProgram:
                            load_mask=[float(value) for value in view.port_mask])
                       for index, view in enumerate(self.program.views))
         return dict(discretization=model.point_discretization(fields), views=views,
+                    root_search_requests=self.root_search_metadata(),
                     observables=tuple(dict(observable_index=index, view_index=item.view_index)
                                       for index, item in enumerate(self.program.observables)))
+
+    def root_search_metadata(self):
+        """Declared extent from original Hints, independent of tracked anchors.
+
+        This records search extent and the actual finite mesh authority. It
+        does not override an authored resolution or assert continuum coverage.
+        """
+        from ..numerics.root_search import complex_frequency, resolve_region
+        rows = {}
+        for row in self.observable_metadata():
+            start,spec = row['start_index'],row['spec']
+            if start is None or 'search' not in spec:
+                continue
+            hint = complex_frequency(spec['root_hint'] if 'root_hint' in spec else spec['anchor'])
+            real,imag = resolve_region(spec['search'],hint)
+            rows[start] = dict(start_index=start,declaration=spec['search'],
+                authored_hint_hz=hint,real_frequency_interval_hz=real,
+                imag_frequency_interval_hz=imag,
+                mesh_strategy=self.program.model_program.mesh.strategy)
+        return tuple(rows.values())
 
     def observable_metadata(self):
         """Detached ordered leaf declarations, parallel to program.observables."""
         return tuple(json.loads(row) for row in self.observable_metadata_bytes)
 
     def root_metadata(self):
+        """One ordered root-row authority for declaration and numerical consumers."""
         rows = {}
-        for descriptor in self.program.observables:
+        for descriptor,metadata in zip(self.program.observables,self.observable_metadata(),strict=True):
             if descriptor.branch_indices:
                 index = descriptor.branch_indices[0]
                 rows.setdefault(index, {'start_index': index, 'kind': descriptor.kind,
                                         'view_index': descriptor.view_index,
                                         'quantity_key': descriptor.quantity_key,
-                                        'indices': descriptor.indices})
+                                        'indices': descriptor.indices,
+                                        'spec': metadata['spec'], 'view': metadata['view']})
         return tuple(rows[index] for index in sorted(rows))
 
 

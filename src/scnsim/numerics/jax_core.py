@@ -126,6 +126,47 @@ def _series_coefficients(R, L, pure, constant, constant_codes, omega, derivative
     return coefficients, primes, codes
 
 
+def _standard_base_coefficients(data, *, loaded, dtype):
+    """One base/load stamping authority for frequency and polynomial consumers."""
+    pattern, base, load, groups = data
+    c_map, c_values, k_map, k_values, g_map, g_values = base
+    zeros = jnp.zeros(pattern.shape, dtype=dtype)
+    C = zeros.at[c_map].add(c_values)
+    K = zeros.at[k_map].add(k_values)
+    G = zeros.at[g_map].add(g_values)
+    status = jnp.int32(0)
+    if loaded and load[0].shape[0]:
+        R, M, weights, columns, pair_map = load
+        inverse, status, _ = solve(R.astype(dtype), jnp.diag(M).astype(dtype), R.shape[0], 1, status)
+        values = weights[:, None] * inverse[columns[:, None], columns[None, :]] * weights[None, :]
+        G = G.at[pair_map.ravel()].add(values.ravel())
+    return K, C, G, status
+
+
+def _coalesce_standard_section(values, pair_map, global_map, dtype):
+    """Keep the original complete-section coalescing order."""
+    return jnp.zeros(global_map.shape, dtype=dtype).at[pair_map.ravel()].add(values.ravel())
+
+
+def polynomial_coefficients(data, *, loaded, dtype):
+    """Exact fixed linear-RLC coefficient representation over prepared pure L.
+
+    The caller binds the declared pure-inductive series domain. This supplies
+    coefficients for candidate discovery only; compensated transfer equations
+    and their existing certificates remain refinement/success authority.
+    """
+    _, _, _, groups = data
+    K, C, G, status = _standard_base_coefficients(data, loaded=loaded, dtype=dtype)
+    for R, L, weights, columns, pair_map, global_map, pure, constant, constant_codes in groups:
+        status = first(status, jnp.any(constant_codes != 0), 2)
+        section = jnp.arange(weights.shape[0])[:, None, None]
+        coefficient = constant.astype(dtype)[section, columns[:, :, None], columns[:, None, :]]
+        values = weights[:, :, None] * coefficient * weights[:, None, :]
+        complete = _coalesce_standard_section(values, pair_map, global_map, dtype)
+        K = K.at[global_map].add(complete)
+    return K, C, G, status
+
+
 def _assemble_standard(data, omega, *, loaded, derivative):
     """Coalesce runtime indices, then take the contract's aggregate absolutes.
 
@@ -133,18 +174,8 @@ def _assemble_standard(data, omega, *, loaded, derivative):
     Only then are section absolutes added to the full-node bound. Padding has
     zero incidence weights and never changes active matrix dimension/certificates.
     """
-    pattern, base, load, groups = data
-    c_map, c_values, k_map, k_values, g_map, g_values = base
-    zeros = jnp.zeros(pattern.shape, dtype=omega.dtype)
-    C = zeros.at[c_map].add(c_values)
-    K = zeros.at[k_map].add(k_values)
-    G = zeros.at[g_map].add(g_values)
-    status = jnp.int32(0)
-    if loaded and load[0].shape[0]:
-        R, M, weights, columns, pair_map = load
-        inverse, status, _ = solve(R.astype(omega.dtype), jnp.diag(M).astype(omega.dtype), R.shape[0], 1, status)
-        values = weights[:, None] * inverse[columns[:, None], columns[None, :]] * weights[None, :]
-        G = G.at[pair_map.ravel()].add(values.ravel())
+    pattern, _, _, groups = data
+    K, C, G, status = _standard_base_coefficients(data, loaded=loaded, dtype=omega.dtype)
     imaginary = jnp.asarray(1j, dtype=omega.dtype)
     two = jnp.asarray(2, dtype=omega.real.dtype)
     Q = K - omega * omega * C - imaginary * omega * G
@@ -160,7 +191,7 @@ def _assemble_standard(data, omega, *, loaded, derivative):
         generic_values = -imaginary * omega * weights[:, :, None] * coefficient * weights[:, None, :]
         constant_values = weights[:, :, None] * coefficient * weights[:, None, :]
         values = jnp.where((pure & jnp.isfinite(omega) & (omega != 0))[:, None, None], constant_values, generic_values)
-        complete = jnp.zeros(global_map.shape, dtype=omega.dtype).at[pair_map.ravel()].add(values.ravel())
+        complete = _coalesce_standard_section(values, pair_map, global_map, omega.dtype)
         Q = Q.at[global_map].add(complete)
         if derivative:
             coefficient_prime = primes[section, columns[:, :, None], columns[:, None, :]]

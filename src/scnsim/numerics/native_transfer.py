@@ -1,7 +1,8 @@
 """Native family transfer roots over the original network/cofactor equations.
 
-Newton still uses the actual declared family entry and its analytic frequency slope. Closure
-uses the existing scaled cofactor numerator and complete denominator norms.
+Z Newton uses the RF cofactor of the same effective operator (-i omega)Y.
+Y/S retain the actual family entry iteration. Original full-transfer/cofactor
+closure and complete denominator norms remain the success authority.
 The local implicit derivative cancels only the certified nonzero denominator;
 it is not differentiation of finite Newton history. Native denominator factors
 belong to one sparse certificate callback and never cross calls or consumers.
@@ -10,6 +11,9 @@ from __future__ import annotations
 from typing import NamedTuple, Any
 from contextlib import nullcontext
 import numpy as np
+
+
+Z_ITERATION_RESIDUAL = 'scnsim.jax.transfer_zero.rf_cofactor.v1'
 
 
 TRANSFER_STAGES = ('transfer_frequency', 'transfer_numerator_scale',
@@ -55,6 +59,10 @@ class NativeTransferPacket(NamedTuple):
     slope_exponent: Any
     row_shifts: Any
     singular_values: Any
+    iteration_mantissa: Any
+    iteration_exponent: Any
+    iteration_slope_mantissa: Any
+    iteration_slope_exponent: Any
 
 
 class _DenominatorPhases:
@@ -258,6 +266,31 @@ def compile_native_transfer(declaration, frequency_program, *, precision, view_i
             normalizer = positive_product(tuple(jnp.linalg.norm(row) for row in AN))
         h, hp, hm, he, hpm, hpe, shifts, code, _ = _local_pair(AN, ANp)
         fail(code != 0, 13, 1)
+        # Same nonzero-frequency physical operator; no alternate View/loading
+        # or DC eligibility rule. The original Y cofactor above still certifies.
+        if family == 'Z':
+            if rows:
+                if not capability:
+                    effective, effective_prime = state.selected_state.F, state.selected_state.Fp
+                else:
+                    from .native_compensated import multiply, add, project, from_value
+                    divisor = -jnp.asarray(1j, dtype=cd) * omega
+                    constant = -jnp.asarray(1j, dtype=cd)
+                    effective = project(multiply(from_value(divisor, xp=jnp), from_value(Y, xp=jnp)))
+                    effective_prime = project(add(
+                        multiply(from_value(divisor, xp=jnp), from_value(Yp, xp=jnp)),
+                        multiply(from_value(constant, xp=jnp), from_value(Y, xp=jnp))))
+                RF = effective[jnp.asarray(rows)[:, None], jnp.asarray(columns)[None, :]]
+                RFp = effective_prime[jnp.asarray(rows)[:, None], jnp.asarray(columns)[None, :]]
+                RF, RFp = RF.at[0].multiply(sign), RFp.at[0].multiply(sign)
+            else:
+                RF, RFp = jnp.eye(1, dtype=cd), jnp.zeros((1, 1), dtype=cd)
+            _, _, rm, re, rpm, rpe, _, iteration_code, _ = _local_pair(
+                RF, RFp, restore_required=False)
+            fail(iteration_code != 0, 13, 1)
+        else:
+            rm, re, _ = _scaled(value)
+            rpm, rpe, _ = _scaled(slope)
         if family != 'Y':
             denominator = denominator_packet((P if family == 'S' else Y).T.ravel(),
                 (Pp if family == 'S' else Yp).T.ravel(), status)
@@ -298,7 +331,8 @@ def compile_native_transfer(declaration, frequency_program, *, precision, view_i
         closure_code = jnp.where(closed, jnp.int32(0), jnp.where(status != 0, status, final_code))
         return NativeTransferPacket(omega, slope, hp, denominator.value, status, failure_stage, source_stage,
             jnp.int32(0), closed, certificate, checks, certificates,
-            (*state.certificates, *extra_certificates), state, denominator, hm, he, hpm, hpe, shifts, singular), value, closure_code
+            (*state.certificates, *extra_certificates), state, denominator, hm, he, hpm, hpe, shifts, singular,
+            rm, re, rpm, rpe), value, closure_code
 
     def primal(candidate, seed):
         initial = jnp.asarray(seed, dtype=cd)
@@ -313,9 +347,15 @@ def compile_native_transfer(declaration, frequency_program, *, precision, view_i
             final = (step == 32) | stopped
             status = packet.status
             status = first(status, final & ~packet.closure, closure_code)
-            zero_slope = (status == 0) & ~packet.closure & (packet.slope == 0)
+            iteration_slope = packet.iteration_slope_mantissa if family == 'Z' else packet.slope
+            zero_slope = (status == 0) & ~packet.closure & (iteration_slope == 0)
             status = first(status, zero_slope, 13)
-            updated = jnp.asarray(omega - jnp.asarray(value / packet.slope, dtype=cd), dtype=cd)
+            if family == 'Z':
+                correction = _shift(packet.iteration_mantissa / packet.iteration_slope_mantissa,
+                    packet.iteration_exponent - packet.iteration_slope_exponent)
+            else:
+                correction = value / packet.slope
+            updated = jnp.asarray(omega - jnp.asarray(correction, dtype=cd), dtype=cd)
             bad_update = (status == 0) & ~packet.closure & ~jnp.isfinite(updated)
             status = first(status, bad_update, 12)
             packet = packet._replace(status=status, steps=step,
@@ -360,11 +400,7 @@ def compile_native_transfer(declaration, frequency_program, *, precision, view_i
     def root(candidate, seed):
         return primal(candidate, seed)
 
-    @root.defjvp
-    def direction(primals, tangents):
-        candidate, seed = primals
-        candidate_dot, _ = tangents
-        packet = root(candidate, seed)
+    def implicit_direction(candidate, candidate_dot, packet):
         _, rhs = jax.jvp(lambda value: physical_equation(value, packet.omega), (candidate,), (candidate_dot,))
         _, denominator = jax.jvp(lambda omega: physical_equation(candidate, omega),
                                  (packet.omega,), (jnp.ones_like(packet.omega),))
@@ -382,4 +418,24 @@ def compile_native_transfer(declaration, frequency_program, *, precision, view_i
         tangent = jax.tree.map(zero, packet)
         _, state_dot = jax.jvp(state_function, (candidate, packet.omega), (candidate_dot, omega_dot))
         return packet, tangent._replace(omega=omega_dot, selected_state=state_dot)
+    @root.defjvp
+    def direction(primals, tangents):
+        candidate, seed = primals
+        candidate_dot, _ = tangents
+        return implicit_direction(candidate, candidate_dot, root(candidate, seed))
+
+    @jax.custom_jvp
+    def from_packet(candidate, packet):
+        """Same-operation completed root with the same local implicit authority."""
+        return packet
+
+    @from_packet.defjvp
+    def packet_direction(primals, tangents):
+        candidate, packet = primals
+        candidate_dot, _ = tangents
+        # Preserve the root-induced omega dependence when the implicit rule is
+        # itself differentiated, matching direction's root(candidate, seed).
+        return implicit_direction(candidate, candidate_dot, from_packet(candidate, packet))
+
+    root.from_packet = from_packet
     return root

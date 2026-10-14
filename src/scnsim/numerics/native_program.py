@@ -15,11 +15,54 @@ from threading import RLock
 import hashlib
 import json
 import numpy as np
+import jax
 
 from ..canonical import canonical_json_bytes
 from ..compilation.model_program import PhysicalChecks
 from .native_frequency import NativeFrequencyProgram, NativeCandidate
 from .observable_projection import _flatten, _projection
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True, slots=True)
+class CompletedBranchBinding:
+    """Operation-owned packets with compiler start ordinals as static metadata.
+
+    Only packet arrays are runtime children. Actual checked Errors are separate
+    runtime operands, never captured here. This preserves the original ordered
+    branch contract through JIT/AD without tracing dictionary keys/ordinals.
+    """
+    start_indices: tuple[int, ...]
+    packets: tuple
+
+    def tree_flatten(self):
+        return (self.packets,), self.start_indices
+
+    @classmethod
+    def tree_unflatten(cls, start_indices, children):
+        return cls(start_indices, children[0])
+
+    def __iter__(self):
+        return iter(zip(self.start_indices, self.packets, strict=True))
+
+
+def bind_completed_branches(branches):
+    """Bind the existing ordered host pairs before executable acquisition.
+
+    This performs no numerical call or eligibility check. The numerical
+    consumer retains its exact compiled-order check and current-point contract.
+    """
+    if isinstance(branches, CompletedBranchBinding):
+        return branches
+    ordered = tuple(branches)
+    return CompletedBranchBinding(tuple(start for start, _ in ordered),
+                                  tuple(packet for _, packet in ordered))
+
+
+def native_operand_abstract(value):
+    """Pinned JAX abstraction, including genuine weak Python scalar operands."""
+    from jax._src import core
+    return core.typeof(value)
 
 
 class NativeCandidateState(NamedTuple):
@@ -139,13 +182,13 @@ class BranchADFrame(NamedTuple):
 
 
 def _branch_ad(branch_function, candidate, omega, seeds, prior_check_status=0,
-               prior_certificate_status=0):
+               prior_certificate_status=0, completed_branches=None, completed_branch_errors=None):
     import jax
     import jax.numpy as jnp
     with jax.enable_x64(True):
         def values(point, frequencies, starts):
             outcome = branch_function(point, frequencies, starts,
-                                      prior_check_status, prior_certificate_status)
+                                      prior_check_status, prior_certificate_status, completed_branches, completed_branch_errors)
             return outcome.values, outcome
         _, linearized, outcome = jax.linearize(values, candidate, omega, seeds, has_aux=True)
         # Linearized inputs are tangent trees: discrete candidate leaves
@@ -369,6 +412,28 @@ class NativePhysicalCore:
                 self._functions[key] = function
             return function
 
+    def polynomial_coefficient_function(self, view_index):
+        """Same prepared assembly coefficients for intrinsic polynomial discovery."""
+        from ..errors import RuntimePreparationError
+        from .native_polynomial import coefficient_function
+        if self.capabilities[view_index]:
+            raise RuntimePreparationError(
+                'Polynomial transfer-zero discovery requires an intrinsic non-Port View',
+                stage='root_search_prepare')
+        assembly = self.frequency_programs[view_index].assembly
+        if any(not all(group.pure) for group in assembly.groups):
+            raise RuntimePreparationError(
+                'Polynomial transfer-zero discovery requires declared pure-inductive series sections',
+                stage='root_search_prepare')
+        key = ('polynomial_coefficients',view_index)
+        with self._lock:
+            function = self._functions.get(key)
+            if function is None:
+                dtype = np.complex64 if self.precision=='float32' else np.complex128
+                function = partial(coefficient_function,assembly,view_index,dtype)
+                self._functions[key] = function
+            return function
+
     def root_function(self, view_index, declaration):
         """Admit one declared root over the SAME candidate/selected-state core."""
         from .native_frequency import selected_jet_function
@@ -419,11 +484,12 @@ class NativePhysicalCore:
     def operand_signature(operands):
         """Shared warm/execution signature of typed array/abstract operands."""
         import jax
-        return tuple((tuple(leaf.shape), str(leaf.dtype)) for leaf in jax.tree.leaves(operands))
+        return tuple((tuple(aval.shape), str(aval.dtype), bool(aval.weak_type))
+                     for aval in (native_operand_abstract(leaf) for leaf in jax.tree.leaves(operands)))
 
     def variant_key(self, kind, *, device, operands, view_index=None, demand=(),
                     bucket=None, transform='value', equation_signature=None):
-        if kind not in ('candidate', 'candidate_ad', 'candidate_jvp', 'candidate_vjp', 'response_ad', 'chunk', 'root', 'coupling'):
+        if kind not in ('candidate', 'candidate_ad', 'candidate_jvp', 'candidate_vjp', 'response_ad', 'chunk', 'root', 'coupling', 'polynomial_coefficients'):
             raise ValueError('unknown native physical variant kind')
         return ('native_physical_core', self.structural_identity, kind, view_index,
                 tuple(sorted(demand)), bucket, transform, equation_signature, self.precision,
@@ -531,15 +597,26 @@ class NativePhysicalFunction:
             return ('native_physical_aggregate', self.core.structural_identity,
                 self.aggregate_identity, transform if kind == 'value' else (kind, transform), self.core.precision,
                 (device.platform, device.id, device.process_index),
-                self.core.operand_signature(operands))
+                self.core.operand_signature(operands), str(jax.tree.structure(operands)))
         return self.core.variant_key(kind, **options)
 
-    def root_function(self, view_index, declaration):
-        return self.core.root_function(view_index, declaration)
+    def polynomial_coefficient_function(self, view_index):
+        return self.core.polynomial_coefficient_function(view_index)
 
     def branch_function(self, start_index):
         """Declared seed ordinal to the SAME detached compiled root callable."""
         return self._root_functions[start_index]
+
+    def completed_numeric_function(self, theta, omega, completed_branches,
+                                   completed_branch_errors):
+        """Same candidate(theta) and implicit branches from current owned packets.
+
+        The host supplies only packets/errors produced for this exact point.
+        No coefficients, packet or Error is captured in a static source key.
+        Catalogue selection is discrete; AD is the selected local equation.
+        """
+        return self.completed_primal_function(self.candidate_function(theta), omega,
+            completed_branches, completed_branch_errors)
 
     def coupling_function(self, observable_index):
         return self._coupling_functions[observable_index]
@@ -782,7 +859,7 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
         if index not in branch_observable_indices)
 
     def branch_values_function(point, omega, seeds, prior_check_status=0,
-                               prior_certificate_status=0, completed_branches=None):
+                               prior_certificate_status=0, completed_branches=None, completed_branch_errors=None):
         """SAME differentiable root/coupling subtree, with original stage order.
 
         Raw aggregate and bounded response-AD composition share this callable.
@@ -800,12 +877,15 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
             certificate_status = jnp.asarray(prior_certificate_status, dtype=jnp.int32)
             branch_packets = []
             packet_by_start = {}
+            if completed_branch_errors is not None:
+                from .native_sparse import archive_completed_primal_errors
+                archive_completed_primal_errors(completed_branch_errors)
             supplied = {} if completed_branches is None else dict(completed_branches)
             if completed_branches is not None and tuple(start for start, _ in completed_branches) != tuple(start for start, _ in root_entries):
                 raise ValueError('completed branch packets differ from compiled ordered root starts')
             for start, function in root_entries:
                 if completed_branches is not None:
-                    packet = supplied[start]
+                    packet = function.from_packet(point, supplied[start])
                     check_status = first(check_status, packet.check_status != 0, packet.check_status)
                     certificate_status = first(certificate_status, packet.certificate_status != 0, packet.certificate_status)
                     branch_packets.append((start, packet))
@@ -878,7 +958,7 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
                          for index, value in zip(response_observable_indices, response_values, strict=True))
         return compact_leaf_projection_function(selected, branch_values, branch_available)
 
-    def consume_point(point, omega, seeds, completed_branches=None):
+    def consume_point(point, omega, seeds, completed_branches=None, completed_branch_errors=None):
         import jax
         import jax.numpy as jnp
         from .jax_core import first
@@ -898,7 +978,7 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
                 (check_status, certificate_status), result = jax.lax.scan(
                     body, (check_status, certificate_status), omega[positions])
                 outcomes.append(result)
-            branch = branch_values_function(point, omega, seeds, check_status, certificate_status, completed_branches)
+            branch = branch_values_function(point, omega, seeds, check_status, certificate_status, completed_branches, completed_branch_errors)
             check_status, certificate_status = branch.check_status, branch.certificate_status
             branch_packets, quantity_packets = branch.branch_packets, branch.quantity_packets
             packet_by_start, packet_by_observable = dict(branch_packets), dict(quantity_packets)
@@ -942,19 +1022,20 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
             jnp.float64 if precision == 'float64' else jnp.float32)
 
     seed_count = len(quantity_program.branch_starts_rad_s)
-    def completed_primal_function(candidate_state, omega, completed_branch_packets):
+    def completed_primal_function(candidate_state, omega, completed_branch_packets, completed_branch_errors=None):
         """Consume actual continuation packets, without restarting any root.
 
         The operation owns association with the same candidate/core/View/mesh.
-        This primal-only seam deliberately does not substitute for the joint
-        theta/root derivative authority exposed by numeric_function.
+        Completed packets consume the same local implicit derivative rule;
+        discrete search/selection is never differentiated. Actual selected
+        branch Errors are recharged by the shared branch subtree.
         """
         import jax
         import jax.numpy as jnp
         with jax.enable_x64(True):
             return consume_point(candidate_state, omega,
                 jnp.zeros((seed_count,), dtype=omega.dtype),
-                completed_branch_packets)
+                completed_branch_packets, completed_branch_errors)
 
     rd = 'float64'  # Original physical operands; selected numerical dtype explicit below.
     cd = 'complex128' if precision == 'float64' else 'complex64'
@@ -983,9 +1064,9 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
         'projection': descriptor.projection, 'frequency_slice': descriptor.frequency_slice,
         'branch_indices': descriptor.branch_indices})
         for index, (descriptor, gather) in enumerate(zip(descriptors, gathers, strict=True)))
-    root_layout = tuple(MappingProxyType({'start_index': start,
-        'view_index': root_by_start[start][0][0], 'kind': root_by_start[start][0][1],
-        'indices': root_by_start[start][0][2], 'declaration': root_declarations[start]}) for start, _ in root_entries)
+    root_layout = tuple(MappingProxyType({**row,
+        'declaration': root_declarations[row['start_index']]})
+        for row in quantity_program.root_metadata())
     def static_record(value):
         if isinstance(value, float):
             return {'binary64': value.hex()}

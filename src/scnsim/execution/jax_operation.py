@@ -200,165 +200,25 @@ def _sensitivity_equation_evidence(quantity_program, request, derivative_outcome
 
 
 def _sensitivity_blocks(quantity_program, prepared_analysis, request, derivative_outcome):
-    """Project one checked derivative into ordered immutable primal/result blocks."""
-    import numpy as np
+    """Encode the shared checked host projection for durable publication."""
+    from .memory_analysis import project_sensitivity_host_blocks
     from ..numeric_encoding import array_record
-
-    spec = request["spec"]
-    derivative_spec = spec["derivative"]
-    derivative_kind = derivative_spec["type"]
-    quantity_metadata = quantity_program.quantity_metadata()
-    # Keep the compiler's factorized output blocks. Expanding every scalar
-    # OutputRow here duplicates O(F·P²) Python metadata during readback.
-    output_blocks = {
-        block.quantity_key: block
-        for block in quantity_program.output_layout.blocks
-    }
-    quantity_layout = [
-        {"id": row["key"], "label": row["key"], "unit": row["si_unit"], "axes": row["axes"]}
-        for row in quantity_metadata
-    ]
-    derivative_layout = {"kind": derivative_kind, "parameters": list(spec["wrt"])}
-    if derivative_kind == "vjp":
-        derivative_layout["functional_unit"] = spec["functional_unit"]
-
-    primal = derivative_outcome.primal
-    aux = derivative_outcome.aux
-    derivative_status = int(np.asarray(aux.status))
-    derivative_available = bool(np.asarray(aux.derivative_available))
+    projected = project_sensitivity_host_blocks(
+        quantity_program, prepared_analysis, request, derivative_outcome)
     blocks = []
-    primal_ids = {}
-    for ordinal, row in enumerate(quantity_metadata):
-        key = row["key"]
-        block_id = f"primal:{ordinal}:{key}"
-        primal_ids[key] = block_id
-        blocks.append({
-            "block_id": block_id,
-            "kind": "primal",
-            "quantity_id": key,
-            "output_slice": {"start": 0, "stop": output_blocks[key].row_count},
-            "parameter_slice": None,
-            "summary_json": {"value_unit": row["si_unit"], "axes": row["axes"]},
-            "primal_blocks": [],
-            "primal_status": "complete",
-            "payload": {"values": array_record(primal.values[row["observable_index"]])},
-        })
-
-    def append_derivative(*, block_id, row, values, unavailable, parameter_slice,
-                          primal_links, parameters=()):
-        key = row["key"]
-        axes = row["axes"]
-        summary = {"axes": axes, "parameters": list(parameters)}
-        if key is not None:
-            summary["value_unit"] = row["si_unit"]
-        if unavailable is None:
-            payload = {"values": array_record(values)}
-            status = "complete"
-        else:
-            payload = {"values": None, "reason": unavailable}
-            status = "unavailable"
-        blocks.append({
-            "block_id": block_id,
-            "kind": "derivative",
-            "quantity_id": key,
-            "output_slice": (None if key is None else
-                             {"start": 0, "stop": output_blocks[key].row_count}),
-            "parameter_slice": parameter_slice,
-            "summary_json": summary,
-            "primal_blocks": list(primal_links),
-            "primal_status": "complete",
-            "derivative_status": status,
-            "payload": payload,
-        })
-
-    if derivative_kind == "jacobian":
-        payload = derivative_outcome.derivative
-        if payload is None:
-            row_positions = {}
-            matrix = None
-        else:
-            row_positions = {row_index: index for index, row_index in enumerate(payload.row_indices)}
-            matrix = np.asarray(payload.values)
-        for row in quantity_metadata:
-            key = row["key"]
-            block = output_blocks[key]
-            selected_positions = [row_positions.get(index)
-                                  for index in range(block.offset, block.offset + block.row_count)]
-            reason = None
-            if (not bool(np.asarray(aux.observable_available[row["observable_index"]]))
-                    or any(position is None for position in selected_positions)):
-                reason = _sensitivity_reason(aux, observable_index=row["observable_index"])
-            values = None
-            if reason is None:
-                values = matrix[selected_positions, :]
-            append_derivative(
-                block_id=f"derivative:{row['key']}", row=row, values=values,
-                unavailable=reason,
-                parameter_slice={"start": 0, "stop": len(spec["wrt"])},
-                primal_links=[primal_ids[key]], parameters=spec["wrt"],
-            )
-    elif derivative_kind == "jvp":
-        for row in quantity_metadata:
-            key = row["key"]
-            value = (None if derivative_outcome.derivative is None else
-                     derivative_outcome.derivative[row["observable_index"]])
-            reason = None
-            if (not bool(np.asarray(aux.observable_available[row["observable_index"]]))
-                    or value is None):
-                reason = _sensitivity_reason(aux, observable_index=row["observable_index"])
-            append_derivative(
-                block_id=f"derivative:{key}", row=row,
-                values=value if reason is None else None, unavailable=reason,
-                parameter_slice=None, primal_links=[primal_ids[key]],
-            )
-    elif derivative_kind == "vjp":
-        value = derivative_outcome.derivative
-        reason = None
-        if derivative_status != 0 or value is None:
-            reason = _sensitivity_reason(aux)
-        if reason is None:
-            indices = quantity_program.program.model_program.fields.layout.input_indices(
-                prepared_analysis.active_keys
-            )
-            values = np.asarray(value)[np.asarray(indices, dtype=np.intp)]
-        else:
-            values = None
-        append_derivative(
-            block_id="derivative:vjp", row={"key": None, "axes": ()},
-            values=values, unavailable=reason,
-            parameter_slice={"start": 0, "stop": len(spec["wrt"])},
-            primal_links=[primal_ids[row["key"]] for row in quantity_metadata],
-            parameters=spec["wrt"],
-        )
-    else:
-        raise TypeError(f"unsupported Sensitivity derivative {derivative_kind!r}")
-
-    outcome = "success" if all(
-        block.get("derivative_status") == "complete"
-        for block in blocks if block["kind"] == "derivative"
-    ) else "partial"
-    return {
-        "manifest": {
-            "program_sha256": quantity_program.program_sha256,
-            "quantity_layout": quantity_layout,
-            "derivative_layout": derivative_layout,
-        },
-        "blocks": blocks,
-        "outcome": outcome,
-        "summary": {"program_sha256": quantity_program.program_sha256,
-                    "quantity_count": len(quantity_layout),
-                    "derivative_kind": derivative_kind,
-                    "derivative_status": derivative_status,
-                    "derivative_available": derivative_available},
-        "equation_evidence": _sensitivity_equation_evidence(
-            quantity_program, request, derivative_outcome,
-        ),
-    }
+    for source in projected['blocks']:
+        block = dict(source)
+        payload = dict(block['payload'])
+        if payload['values'] is not None:
+            payload['values'] = array_record(payload['values'])
+        block['payload'] = payload
+        blocks.append(block)
+    return dict(projected, blocks=blocks)
 
 
 def _native_sensitivity_transform(quantity_program, inputs, prepared_analysis, *,
                                   derivative_kind, backend, program_owner,
-                                  execution_policy, frame_owner):
+                                  execution_policy, frame_owner, compact_evidence=False):
     """Run one bounded native derivative on the actual prepared point."""
     import jax.numpy as jnp
     from .native_ad import sensitivity_derivative
@@ -378,7 +238,7 @@ def _native_sensitivity_transform(quantity_program, inputs, prepared_analysis, *
         quantity_program=quantity_program, inputs=inputs,
         prepared_analysis=prepared_analysis, backend=backend,
         program_owner=program_owner, execution_policy=execution_policy,
-        frame_owner=frame_owner,
+        frame_owner=frame_owner, compact_evidence=compact_evidence,
     )
 
 

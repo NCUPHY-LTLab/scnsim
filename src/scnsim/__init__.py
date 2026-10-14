@@ -83,6 +83,8 @@ from .errors import (
 from .io import load_q2d_rlgc
 from .diagnostics.memory_operation import InMemoryBenchmarkResult
 from .results.memory_direct import InMemoryDirectSolveResult
+from .results.memory_analysis import InMemoryAnalysisResult, InMemoryParameterSweepResult
+from .results.memory_sensitivity import InMemorySensitivityResult
 from .results.memory_optimization import (
     InMemoryOptimizationResult, InMemoryOptimizationStage, InMemoryOptimizationTrial,
 )
@@ -142,6 +144,7 @@ from .specs import (
     CostObjective,
     CurrentDrive,
     DiagonalRootSpec,
+    RootSearchSpec,
     OperatorElementRootSpec,
     DirectSolveSpec,
     HBCaseSpec,
@@ -259,6 +262,7 @@ __all__ = [
     "CurrentDrive",
     "DiagonalRootResult",
     "DiagonalRootSpec",
+    "RootSearchSpec",
     "OperatorElementRootResult",
     "OperatorElementRootSpec",
     "SensitivityResult",
@@ -266,6 +270,9 @@ __all__ = [
     "DirectResponseFormationError",
     "DirectSolveResult",
     "InMemoryDirectSolveResult",
+    "InMemoryAnalysisResult",
+    "InMemoryParameterSweepResult",
+    "InMemorySensitivityResult",
     "InMemoryOptimizationResult",
     "InMemoryOptimizationStage",
     "InMemoryOptimizationTrial",

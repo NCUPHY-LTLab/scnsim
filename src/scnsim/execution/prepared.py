@@ -12,6 +12,7 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
+from types import MappingProxyType
 import numpy as np
 from .. import units
 from ..canonical import (
@@ -139,6 +140,54 @@ class BoundOptimization:
 
     def spec(self) -> dict[str, object]:
         return json.loads(self.spec_bytes)
+
+
+@dataclass(frozen=True, slots=True)
+class SelectorBinding:
+    """Detached public-alias ownership for readonly materialized selection.
+
+    The integer owner identity and immutable canonical tables mirror the saved
+    decoder boundary. No Plan, Run, reader, numerical program or closure is
+    retained; scalar selector encoding remains the existing pure authority.
+    """
+
+    plan_owner_id: int
+    coordinate_lookup: Mapping[str, str | None]
+    view_bytes: bytes
+    derived_coordinates: frozenset[str]
+
+    def coordinate_id(self, value) -> str:
+        if isinstance(value, str) and value in self.derived_coordinates:
+            return value
+        if isinstance(value, ElectricNodeRef) and id(value.plan) != self.plan_owner_id:
+            raise ValueError("coordinate belongs to another Plan")
+        if isinstance(value, CoordinateRef) and id(value.scope.root) != self.plan_owner_id:
+            raise ValueError("coordinate belongs to another Plan")
+        key = _coordinate_binding_key(value)[1]
+        resolved = self.coordinate_lookup.get(key)
+        if resolved is None:
+            raise ValueError("coordinate is not a public alias in this Plan")
+        return resolved
+
+    def encode_selector(self, selector) -> bytes:
+        if not isinstance(selector, QuantitySelector):
+            raise TypeError("quantity must be a QuantitySelector")
+        return canonical_json_bytes(_encode_scalar_expression(
+            selector,
+            coordinate_bindings={_coordinate_binding_key(coordinate): self.coordinate_id(coordinate)
+                                 for coordinate in _quantity_coordinates(selector.spec)},
+        ))
+
+
+def capture_selector_binding(*, plan_owner_id: int,
+                             coordinate_lookup: Mapping[str, str | None],
+                             view: Mapping[str, object]) -> SelectorBinding:
+    """Detach the same captured alias table and exact prepared View namespace."""
+    derived = frozenset(coordinate for transform in view.get("transforms", ())
+                        for coordinate in transform.get("output_coordinates", ())
+                        if isinstance(coordinate, str))
+    return SelectorBinding(plan_owner_id, MappingProxyType(dict(coordinate_lookup)),
+                           canonical_json_bytes(view), derived)
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,6 +345,26 @@ def _frequency_anchor_envelope(value: object) -> dict[str, str]:
     return encoder(value, si_unit="hertz", registry=units.registry)
 
 
+def _encoded_root_search(spec) -> dict[str, object]:
+    search = spec.search
+    if search is None:
+        return {}
+    region = ({"real_frequency_interval": [quantity_envelope(value, si_unit="hertz", registry=units.registry)
+                                           for value in search.real_frequency_interval]}
+              if search.hint_frequency_factor is None else
+              {"hint_frequency_factor_f64": float64_hex(search.hint_frequency_factor)})
+    if search.imag_frequency_interval is not None:
+        region["imag_frequency_interval"] = [quantity_envelope(value, si_unit="hertz", registry=units.registry)
+                                             for value in search.imag_frequency_interval]
+    record = {"method": search.method, "region": region,
+              "selection": {"kind": "nearest_hint", "metric": "complex_frequency_euclidean", "tie": search.tie},
+              "tracking": {"kind": "baseline_anchor"}}
+    if search.method == "finite_seeds":
+        record["seeds"] = [complex_quantity_envelope(value, si_unit="hertz", registry=units.registry)
+                           for value in search.seeds]
+    return {"search": record}
+
+
 def _encode_root(
     spec: DiagonalRootSpec,
     *,
@@ -307,6 +376,7 @@ def _encode_root(
         "root_hint": quantity_envelope(
             spec.root_hint, si_unit="hertz", registry=units.registry
         ),
+        **_encoded_root_search(spec),
     }
 
 
@@ -320,6 +390,7 @@ def _encode_element_root(
         "row": _bound_coordinate_id(spec.row, coordinate_bindings),
         "column": _bound_coordinate_id(spec.column, coordinate_bindings),
         "root_hint": quantity_envelope(spec.root_hint, si_unit="hertz", registry=units.registry),
+        **_encoded_root_search(spec),
     }
 
 
@@ -393,6 +464,7 @@ def _encode_direct_quantity(
                 for value in spec.coordinates
             ],
             "anchor": _frequency_anchor_envelope(spec.anchor),
+            **_encoded_root_search(spec),
         }
     if isinstance(spec, TransferZeroSpec):
         return {
@@ -405,6 +477,7 @@ def _encode_direct_quantity(
             "output_coordinate": _bound_coordinate_id(
                 spec.output_coordinate, coordinate_bindings
             ),
+            **_encoded_root_search(spec),
         }
     if isinstance(spec, ResidueNormalizedCouplingSpec):
         return {

@@ -189,16 +189,21 @@ def _detail_rows(value: object, path: str = "") -> list[tuple[str, str]]:
 
 
 def build_scalar_presentation(result: object, *, detailed: bool = False) -> ScalarPresentation:
-    """Present every saved scalar field without evaluating any numerical work."""
+    """Present detached scalar fields without evaluating numerical work."""
     from ..results.matrix import DirectQuantityResult
+    from ..results.memory_analysis import InMemoryAnalysisResult
 
-    if not isinstance(result, DirectQuantityResult):
-        raise TypeError("scalar presentation requires DirectQuantityResult")
+    saved = isinstance(result, DirectQuantityResult)
+    in_memory = type(result) is InMemoryAnalysisResult
+    if not saved and not in_memory:
+        raise TypeError("scalar presentation requires a Direct quantity Result")
     if not isinstance(detailed, bool):
         raise TypeError("detailed must be bool")
     presentation = result._presentation
     spec = presentation["spec"]
     lineage = presentation.get("ref_lineage")
+    if in_memory and spec["type"] not in _TITLES:
+        raise TypeError("scalar presentation requires a scalar Direct quantity Result")
     title = _TITLES[spec["type"]]
     quantities = tuple((label, value) for name, label in _FIELDS
                        if (value := getattr(result, name)) is not None)
@@ -216,7 +221,13 @@ def build_scalar_presentation(result: object, *, detailed: bool = False) -> Scal
                    str(value.magnitude.dtype) if hasattr(value.magnitude, "dtype")
                    else "Not retained") for label, value in quantities),
         ))
-        detail = _detail_rows(result.identity, "Identity")
+        if saved:
+            detail = _detail_rows(result.identity, "Identity")
+        else:
+            detail = [("Persistence", "memory"),
+                      ("Plan SHA-256", result.plan_sha256),
+                      ("Request SHA-256", result.request_sha256),
+                      ("Execution ID", result.execution_id)]
         detail += _detail_rows(presentation.get("view"), "View")
         detail += _detail_rows(lineage, "View lineage")
         tables.append(ScalarTable("Identity and View lineage", ("Field", "Value"), tuple(detail)))

@@ -20,7 +20,7 @@ import numpy as np
 from pint import Quantity
 
 from . import units
-from .canonical import _identifier
+from .canonical import _identifier, float64_hex
 from .value_storage import immutable_quantity, quantity_view
 from .construction import unavailable
 from .authoring import (
@@ -38,6 +38,7 @@ from .presentation import Theme, _require_theme
 
 if TYPE_CHECKING:
     from .results import (
+        Result,
         AnalysisResult,
         DirectQuantityResult,
         DirectSolveResult,
@@ -385,6 +386,107 @@ class QuantitySelector:
 
 
 @dataclass(frozen=True, slots=True)
+class RootSearchSpec:
+    """Explicit discovery method and caller region, separate from root Hint.
+
+    Relative bounds bind the original authored Hint, never a tracked root.
+    No imaginary restriction means no added imaginary selection cutoff.
+    """
+
+    method: Literal["polynomial_transfer_zero", "finite_seeds"]
+    _real_frequency_interval: tuple[Quantity, Quantity] | None
+    _imag_frequency_interval: tuple[Quantity, Quantity] | None
+    hint_frequency_factor: float | None
+    _seeds: tuple[Quantity, ...] | None
+    tie: Literal["unavailable", "source_order"]
+
+    def __init__(self, *, method: Literal["polynomial_transfer_zero", "finite_seeds"],
+                 tie: Literal["unavailable", "source_order"],
+                 real_frequency_interval: tuple[Quantity, Quantity] | None = None,
+                 hint_frequency_factor: float | None = None,
+                 imag_frequency_interval: tuple[Quantity, Quantity] | None = None,
+                 seeds: Sequence[Quantity] | None = None) -> None:
+        if method not in {"polynomial_transfer_zero", "finite_seeds"}:
+            raise ValueError("method must be polynomial_transfer_zero or finite_seeds")
+        if (real_frequency_interval is None) == (hint_frequency_factor is None):
+            raise ValueError("declare exactly one real_frequency_interval or hint_frequency_factor")
+        for name, interval in (("real_frequency_interval", real_frequency_interval),
+                               ("imag_frequency_interval", imag_frequency_interval)):
+            if interval is None:
+                object.__setattr__(self, "_" + name, None)
+                continue
+            values = tuple(interval)
+            if len(values) != 2:
+                raise ValueError(f"{name} requires two ordered frequency endpoints")
+            magnitudes = tuple(np.asarray(value.to("hertz").magnitude) for value in values)
+            if any(value.ndim != 0 or np.iscomplexobj(value) for value in magnitudes):
+                raise TypeError(f"{name} endpoints must be real scalar frequency Quantities")
+            if magnitudes[0].item() > magnitudes[1].item():
+                raise ValueError(f"{name} lower endpoint exceeds upper endpoint")
+            object.__setattr__(self, "_" + name, tuple(_detached_quantity(value) for value in values))
+        if hint_frequency_factor is not None:
+            if isinstance(hint_frequency_factor, bool):
+                raise TypeError("hint_frequency_factor must be a positive real number")
+            hint_frequency_factor = float(hint_frequency_factor)
+            float64_hex(hint_frequency_factor)
+            if hint_frequency_factor <= 0:
+                raise ValueError("hint_frequency_factor must be positive")
+        if method == "polynomial_transfer_zero":
+            if seeds is not None:
+                raise TypeError("polynomial_transfer_zero does not accept caller seeds")
+            checked = None
+        else:
+            if seeds is None:
+                raise TypeError("finite_seeds requires caller-declared seeds")
+            checked = tuple(seeds)
+            if not checked:
+                raise ValueError("finite_seeds requires nonempty ordered seeds")
+            for value in checked:
+                if np.asarray(value.to("hertz").magnitude).ndim != 0:
+                    raise TypeError("finite_seeds require scalar frequency Quantities")
+        if tie not in {"unavailable", "source_order"}:
+            raise ValueError("tie must be unavailable or source_order")
+        object.__setattr__(self, "method", method)
+        object.__setattr__(self, "hint_frequency_factor", hint_frequency_factor)
+        object.__setattr__(self, "_seeds", None if checked is None else tuple(_detached_quantity(value) for value in checked))
+        object.__setattr__(self, "tie", tie)
+
+    @property
+    def real_frequency_interval(self) -> tuple[Quantity, Quantity] | None:
+        return None if self._real_frequency_interval is None else tuple(quantity_view(value) for value in self._real_frequency_interval)
+
+    @property
+    def imag_frequency_interval(self) -> tuple[Quantity, Quantity] | None:
+        return None if self._imag_frequency_interval is None else tuple(quantity_view(value) for value in self._imag_frequency_interval)
+
+    @property
+    def seeds(self) -> tuple[Quantity, ...] | None:
+        return None if self._seeds is None else tuple(quantity_view(value) for value in self._seeds)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        region = ({"real_frequency_interval": self.real_frequency_interval}
+                  if self.hint_frequency_factor is None else
+                  {"hint_frequency_factor_f64": float64_hex(self.hint_frequency_factor)})
+        if self.imag_frequency_interval is not None:
+            region["imag_frequency_interval"] = self.imag_frequency_interval
+        record = {"method": self.method, "region": region,
+                  "selection": {"kind": "nearest_hint", "metric": "complex_frequency_euclidean", "tie": self.tie},
+                  "tracking": {"kind": "baseline_anchor"}}
+        if self.method == "finite_seeds":
+            record["seeds"] = self.seeds
+        return record
+
+
+def _root_search_record(search: RootSearchSpec | None) -> dict[str, object]:
+    return {} if search is None else {"search": search._canonical_record()}
+
+
+def _require_root_search(search: RootSearchSpec | None) -> None:
+    if search is not None and not isinstance(search, RootSearchSpec):
+        raise TypeError("search must be RootSearchSpec or None")
+
+
+@dataclass(frozen=True, slots=True)
 class DiagonalRootSpec:
     """Select one machine-resolved Newton root of a Direct-operator diagonal.
 
@@ -395,8 +497,11 @@ class DiagonalRootSpec:
 
     coordinate: Coordinate
     _root_hint: Quantity
+    search: RootSearchSpec | None
 
-    def __init__(self, *, coordinate: Coordinate, root_hint: Quantity) -> None:
+    def __init__(self, *, coordinate: Coordinate, root_hint: Quantity, search: RootSearchSpec | None = None) -> None:
+        _require_root_search(search)
+        object.__setattr__(self, "search", search)
         _coordinate_id(coordinate)
         try:
             units.require_positive_quantity(root_hint, "hertz", name="root_hint")
@@ -421,7 +526,7 @@ class DiagonalRootSpec:
         return QuantitySelector(self, "linewidth", "diagonal_root_projection")
 
     def _canonical_record(self) -> Mapping[str, object]:
-        return {"type": "diagonal_root", "coordinate": _coordinate_id(self.coordinate), "root_hint": self.root_hint}
+        return {"type": "diagonal_root", "coordinate": _coordinate_id(self.coordinate), "root_hint": self.root_hint, **_root_search_record(self.search)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -431,8 +536,11 @@ class OperatorElementRootSpec:
     row: Coordinate
     column: Coordinate
     _root_hint: Quantity
+    search: RootSearchSpec | None
 
-    def __init__(self, *, row: Coordinate, column: Coordinate, root_hint: Quantity) -> None:
+    def __init__(self, *, row: Coordinate, column: Coordinate, root_hint: Quantity, search: RootSearchSpec | None = None) -> None:
+        _require_root_search(search)
+        object.__setattr__(self, "search", search)
         _coordinate_id(row)
         _coordinate_id(column)
         try:
@@ -460,6 +568,7 @@ class OperatorElementRootSpec:
             "row": _coordinate_id(self.row),
             "column": _coordinate_id(self.column),
             "root_hint": self.root_hint,
+            **_root_search_record(self.search),
         }
 
 
@@ -472,8 +581,11 @@ class HybridizedPoleSpec:
 
     coordinates: tuple[Coordinate, ...]
     _anchor: Quantity
+    search: RootSearchSpec | None
 
-    def __init__(self, *, coordinates: Sequence[Coordinate], anchor: Quantity) -> None:
+    def __init__(self, *, coordinates: Sequence[Coordinate], anchor: Quantity, search: RootSearchSpec | None = None) -> None:
+        _require_root_search(search)
+        object.__setattr__(self, "search", search)
         checked = tuple(coordinates)
         identifiers = tuple(_coordinate_id(value) for value in checked)
         if len(identifiers) < 2 or len(set(identifiers)) != len(identifiers):
@@ -499,6 +611,7 @@ class HybridizedPoleSpec:
             "type": "hybridized_pole",
             "coordinates": tuple(_coordinate_id(value) for value in self.coordinates),
             "anchor": self.anchor,
+            **_root_search_record(self.search),
         }
 
 
@@ -510,11 +623,14 @@ class TransferZeroSpec:
     """
 
     _anchor: Quantity
+    search: RootSearchSpec | None
     family: Literal["S", "Y", "Z"]
     input_coordinate: Coordinate
     output_coordinate: Coordinate
 
-    def __init__(self, *, anchor: Quantity, family: Literal["S", "Y", "Z"], input_coordinate: Coordinate, output_coordinate: Coordinate) -> None:
+    def __init__(self, *, anchor: Quantity, family: Literal["S", "Y", "Z"], input_coordinate: Coordinate, output_coordinate: Coordinate, search: RootSearchSpec | None = None) -> None:
+        _require_root_search(search)
+        object.__setattr__(self, "search", search)
         _validate_frequency_anchor(anchor, name="anchor")
         _family(family)
         _coordinate_id(input_coordinate)
@@ -537,6 +653,7 @@ class TransferZeroSpec:
             "type": "transfer_zero", "anchor": self.anchor, "family": self.family,
             "input_coordinate": _coordinate_id(self.input_coordinate),
             "output_coordinate": _coordinate_id(self.output_coordinate),
+            **_root_search_record(self.search),
         }
 
 
@@ -1752,7 +1869,7 @@ def _declared_hb_trace_channels(
 class ReportPanel:
     """One closed presentation selection for an exact verified Result."""
 
-    result: AnalysisResult
+    result: Result
     kind: Literal["response", "matrix", "summary", "outcomes", "history"]
     family: Literal["S", "Y", "Z"] | None
     case: str | None
@@ -1770,7 +1887,7 @@ class ReportPanel:
     def __init__(
         self,
         *,
-        result: AnalysisResult,
+        result: Result,
         kind: Literal["response", "matrix", "summary", "outcomes", "history"] | None = None,
         family: Literal["S", "Y", "Z"] | None = None,
         case: str | None = None,
@@ -1787,11 +1904,20 @@ class ReportPanel:
     ) -> None:
         from .results import (
             DirectSolveResult, HBBatchResult, OperatorResult, OptimizationResult,
-            ParameterSweepResult, _is_verified_analysis_result,
+            ParameterSweepResult, _is_checked_report_input,
+            InMemoryDirectSolveResult, InMemoryAnalysisResult,
+            InMemoryParameterSweepResult, InMemoryOptimizationResult,
         )
 
-        if not _is_verified_analysis_result(result):
-            raise TypeError("ReportPanel.result must be a verified AnalysisResult")
+        if not _is_checked_report_input(result):
+            raise TypeError("ReportPanel.result must be a checked report Result")
+        is_direct = isinstance(result, (DirectSolveResult, InMemoryDirectSolveResult)) or (
+            type(result) is InMemoryAnalysisResult and result.result_kind == "direct_solve" and result.status == "success"
+        )
+        is_operator = isinstance(result, OperatorResult) or (
+            type(result) is InMemoryAnalysisResult and result.result_kind == "operator" and result.status == "success"
+        )
+        is_optimization = isinstance(result, (OptimizationResult, InMemoryOptimizationResult))
         if family is not None:
             _family(family)
         if case is not None and (not isinstance(case, str) or not case):
@@ -1831,11 +1957,11 @@ class ReportPanel:
                 kind = "history"
             elif response_requested:
                 kind = "response"
-            elif isinstance(result, DirectSolveResult):
+            elif is_direct:
                 kind = "response" if len(result.s.view.input_channels) == len(result.s.view.output_channels) == 1 else "summary"
-            elif isinstance(result, (HBBatchResult, ParameterSweepResult)):
+            elif isinstance(result, (HBBatchResult, ParameterSweepResult, InMemoryParameterSweepResult)):
                 kind = "outcomes"
-            elif isinstance(result, OptimizationResult):
+            elif is_optimization:
                 kind = "history"
             else:
                 kind = "summary"
@@ -1843,7 +1969,7 @@ class ReportPanel:
             raise ValueError("kind must be 'response', 'matrix', 'summary', 'outcomes', or 'history'")
 
         if kind == "response":
-            if not isinstance(result, (DirectSolveResult, HBBatchResult)):
+            if not (is_direct or isinstance(result, HBBatchResult)):
                 raise TypeError("response panels require a Direct or HB Result")
             if matrix_requested or history_requested:
                 raise ValueError("response panels do not accept matrix or history selectors")
@@ -1851,7 +1977,7 @@ class ReportPanel:
                 raise ValueError("trace and matrix-channel selection are mutually exclusive")
             if (input_channel is None) != (output_channel is None):
                 raise ValueError("input_channel and output_channel must be supplied together")
-            if isinstance(result, DirectSolveResult) and (case is not None or trace is not None):
+            if is_direct and (case is not None or trace is not None):
                 raise ValueError("Direct response panels do not accept HB case or trace selectors")
             if isinstance(result, HBBatchResult) and family not in {None, "S"}:
                 raise ValueError("HB response panels support only the S family")
@@ -1862,7 +1988,7 @@ class ReportPanel:
                 raise ValueError("dB is supported only for S magnitude")
             if component != "magnitude" and magnitude != "linear":
                 raise ValueError("dB magnitude is incompatible with a non-magnitude component")
-            if isinstance(result, DirectSolveResult):
+            if is_direct:
                 view = result._family(family).view
                 if (
                     input_channel is None
@@ -1945,16 +2071,16 @@ class ReportPanel:
                             )
             history_metric = None
         elif kind == "matrix":
-            if not isinstance(result, (DirectSolveResult, OperatorResult)):
+            if not (is_direct or is_operator):
                 raise TypeError("matrix panels require a Direct or Operator Result")
             if history_requested or any(value is not None for value in (case, trace, input_channel, output_channel)):
                 raise ValueError("matrix panels accept no response-channel, case, trace, or history selectors")
             if frequency is None:
                 raise ValueError("matrix panels require an exact frequency")
             matrix_style = "table" if matrix_style is None else matrix_style
-            if isinstance(result, OperatorResult) and family is not None:
+            if is_operator and family is not None:
                 raise ValueError("Operator matrix panels do not accept an S/Y/Z family")
-            if isinstance(result, DirectSolveResult):
+            if is_direct:
                 family = "S" if family is None else family
                 view = result._family(family).view
                 from .results.selection import _frequency_index
@@ -1970,15 +2096,15 @@ class ReportPanel:
                 if component is None:
                     raise ValueError("matrix heatmaps require an explicit component")
                 magnitude = "linear" if magnitude is None else magnitude
-                if isinstance(result, OperatorResult) and magnitude != "linear":
+                if is_operator and magnitude != "linear":
                     raise ValueError("Operator heatmaps do not accept dB magnitude")
-                if isinstance(result, DirectSolveResult) and magnitude == "db" and (
+                if is_direct and magnitude == "db" and (
                     family != "S" or component != "magnitude"
                 ):
                     raise ValueError("dB is supported only for S magnitude")
             history_metric = None
         elif kind == "history":
-            if not isinstance(result, OptimizationResult):
+            if not is_optimization:
                 raise TypeError("history panels require an OptimizationResult")
             if matrix_requested or response_requested:
                 raise ValueError("history panels accept no response or matrix selectors")
@@ -2007,7 +2133,7 @@ class ReportPanel:
         else:
             if matrix_requested or history_requested or response_requested:
                 raise ValueError(f"{kind} panels accept no selection fields")
-            if kind == "outcomes" and not isinstance(result, (HBBatchResult, ParameterSweepResult)):
+            if kind == "outcomes" and not isinstance(result, (HBBatchResult, ParameterSweepResult, InMemoryParameterSweepResult)):
                 raise TypeError("outcomes panels require an HB batch or parameter sweep")
             history_metric = None
 
@@ -2033,24 +2159,24 @@ class ReportPanel:
 
 @dataclass(frozen=True, slots=True)
 class ReportSpec:
-    """Choose exact existing Analysis Results for a pure derived report."""
+    """Choose exact checked saved or detached Results for a pure derived report."""
 
-    inputs: tuple[AnalysisResult, ...]
+    inputs: tuple[Result, ...]
     theme: Theme = Theme.AUTO
     panels: tuple[ReportPanel, ...] = ()
 
     def __init__(
         self,
         *,
-        inputs: Sequence[AnalysisResult],
+        inputs: Sequence[Result],
         theme: Theme = Theme.AUTO,
         panels: Sequence[ReportPanel] = (),
     ) -> None:
-        from .results import _is_verified_analysis_result
+        from .results import _is_checked_report_input
 
         checked = tuple(inputs)
-        if not checked or not all(_is_verified_analysis_result(item) for item in checked):
-            raise TypeError("ReportSpec.inputs must be nonempty AnalysisResult values")
+        if not checked or not all(_is_checked_report_input(item) for item in checked):
+            raise TypeError("ReportSpec.inputs must be nonempty checked report Result values")
         if any(left is right for index, left in enumerate(checked) for right in checked[index + 1 :]):
             raise ValueError("ReportSpec.inputs must not repeat the same Result object")
         selected = tuple(panels)

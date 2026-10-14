@@ -33,6 +33,10 @@ from .sweep import ParameterSweepResult
 
 T = TypeVar("T")
 
+# In-memory execution Results are admitted only through their private builders.
+# They carry this per-instance marker, but no persisted receipt identity.
+_MEMORY_RESULT_TOKEN = object()
+
 def _verified_result(cls: type[T], /, **values: object) -> T:
     """Private verified-decoder hook; never call this on unverified evidence.
 
@@ -191,7 +195,7 @@ def _verified_result(cls: type[T], /, **values: object) -> T:
         if (
             not isinstance(inputs, (tuple, list))
             or not inputs
-            or not all(_is_verified_analysis_result(item) for item in inputs)
+            or not all(_is_checked_report_input(item) for item in inputs)
         ):
             raise TypeError("verified ReportResult requires nonempty verified inputs")
         _sha256(presentation_sha256, name="presentation_sha256")
@@ -234,4 +238,43 @@ def _is_verified_analysis_result(value: object) -> bool:
         )
         and getattr(value, "_verified_result_token", None) is _VERIFIED_TOKEN
         and _is_verified_result_identity(getattr(value, "identity", None))
+    )
+
+
+def _is_checked_report_input(value: object) -> bool:
+    """Accept saved Results or privately built detached in-memory Results.
+
+    This is intentionally separate from the saved identity predicate: a RAM
+    result has execution-local provenance, never an attempt/result identity.
+    """
+
+    if _is_verified_analysis_result(value):
+        return True
+    from .memory_direct import InMemoryDirectSolveResult
+    from .memory_optimization import InMemoryOptimizationResult
+    from .memory_analysis import InMemoryAnalysisResult, InMemoryParameterSweepResult
+    from .memory_sensitivity import InMemorySensitivityResult
+
+    memory_types: tuple[type[object], ...] = (
+        InMemoryDirectSolveResult,
+        InMemoryOptimizationResult,
+        InMemoryAnalysisResult,
+        InMemoryParameterSweepResult,
+        InMemorySensitivityResult,
+    )
+    return (
+        type(value) in memory_types
+        and getattr(value, "_memory_report_token", None) is _MEMORY_RESULT_TOKEN
+        and getattr(value, "persistence_kind", None) == "memory"
+        and isinstance(getattr(value, "execution_id", None), str)
+        and _is_sha256_identity(getattr(value, "plan_sha256", None))
+        and _is_sha256_identity(getattr(value, "request_sha256", None))
+    )
+
+
+def _is_sha256_identity(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
     )

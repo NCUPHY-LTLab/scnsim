@@ -38,6 +38,36 @@ def numerical_error(failure: NumericalFailure):
     return error_type(failure.detail, stage=failure.stage, evidence=record_document(failure.evidence_bytes))
 
 
+def attach_root_search_metadata(outcome, searches):
+    """Attach synchronized host discovery facts without working packets.
+
+    Compiled branch output ordinals can be scalar JAX arrays. At this host-only
+    projection boundary they retain their exact integer indexing meaning; no
+    ordinal conversion enters a traced numerical function.
+    """
+    from dataclasses import replace
+    from operator import index
+    def start_index(value):
+        return index(np.asarray(value).item())
+    facts_by_start = {start_index(start):facts for start,facts in searches}
+    if not facts_by_start:
+        return outcome
+    def attach(aux):
+        rows = []
+        for start,result in aux.branch_results:
+            start = start_index(start)
+            if start in facts_by_start:
+                facts = record_document(result.evidence_bytes)
+                facts['root_search'] = facts_by_start[start]
+                result = replace(result,evidence_bytes=evidence_bytes(facts))
+            rows.append((start,result))
+        return aux._replace(branch_results=tuple(rows))
+    if hasattr(outcome,'primal'):
+        return outcome._replace(primal=outcome.primal._replace(aux=attach(outcome.primal.aux)),
+                                aux=attach(outcome.aux))
+    return outcome._replace(aux=attach(outcome.aux))
+
+
 def require_primal(outcome):
     """Restore the established numerical failure for one checked program value."""
     from .jax_core import FAILURES
@@ -162,6 +192,10 @@ def project_native_root(declaration, packet, *, compact_evidence=False):
     }[declaration.family] if declaration.kind == 'transfer_zero' else
         'selected_determinant_local_implicit' if declaration.kind == 'hybridized_pole' else
         'selected_operator_entry_local_implicit')
+    if declaration.kind == 'transfer_zero':
+        from .native_transfer import Z_ITERATION_RESIDUAL
+        facts['iteration_residual'] = (Z_ITERATION_RESIDUAL if declaration.family == 'Z'
+                                       else 'full_family_entry_newton')
     facts['derivative_limit'] = ('physical local implicit derivative at a machine-closed root; '
         'not finite-Newton differentiation or an exact-zero/forward-accuracy guarantee')
     status = int(packet.status)
@@ -455,11 +489,12 @@ def project_native_derivative_outcome(native, result, checked_error, *, output_c
     return DerivativeOutcome(primal, _detach_native(derivative) if complete else None, aux)
 
 
-def project_native_jvp_outcome(native, result, checked_error, *, error_frames=()):
+def project_native_jvp_outcome(native, result, checked_error, *, error_frames=(), compact_evidence=False):
     """Preserve each independent available physical output directional block."""
     from .program_models import DerivativeOutcome
     aggregate = project_native_derivative_outcome(native, result, checked_error,
-                                                 output_covectors=None, error_frames=error_frames)
+                                                 output_covectors=None, error_frames=error_frames,
+                                                 compact_evidence=compact_evidence)
     flat = np.asarray(result[1])
     blocks = native.output_layout['blocks']
     values = []
@@ -477,7 +512,7 @@ def project_native_jvp_outcome(native, result, checked_error, *, error_frames=()
 
 
 def project_native_jacobian_outcome(native, result, checked_error, *, output_indices=None,
-                                    derivative_errors=None, basis_kind=None, basis_indices=(), error_frames=()):
+                                    derivative_errors=None, basis_kind=None, basis_indices=(), error_frames=(), compact_evidence=False):
     """Return only available authoritative rows, retaining requested row order."""
     from .program_models import DerivativeOutcome, JacobianPayload
     matrix = np.asarray(result[1])
@@ -494,7 +529,8 @@ def project_native_jacobian_outcome(native, result, checked_error, *, output_ind
         weights[np.asarray(selected, dtype=np.intp)] = True
     aggregate = project_native_derivative_outcome(native, result, checked_error,
                                                  output_covectors=weights, _directional_errors=derivative_errors,
-        _basis_kind=basis_kind, _basis_indices=basis_indices, error_frames=error_frames)
+        _basis_kind=basis_kind, _basis_indices=basis_indices, error_frames=error_frames,
+        compact_evidence=compact_evidence)
     intervals = tuple((block['offset'], block['offset'] +
         math.prod(block['shape']) * len(block['components']))
         for block, available in zip(blocks, aggregate.aux.observable_available, strict=True)

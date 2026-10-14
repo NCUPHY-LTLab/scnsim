@@ -20,7 +20,7 @@ semantics and this documentation remain `CONVERGING`; Alpha is neither a
 stable release nor a new scientific-validation claim. Public API and saved
 workspace compatibility may change before a stable release.
 
-The development candidate is `1.0.0.dev31`. The differentiable physical-program
+The development candidate is `1.0.0.dev32`. The differentiable physical-program
 target and SQLite operation evidence v7 remain `CONVERGING`; declaration and
 execution integration are in progress. [The physical-program contract](docs/v1-runtime-contract.qmd#physical-program-target)
 binds value, Jacobian/JVP/VJP and optimization to one model, fixed meshes for
@@ -29,7 +29,7 @@ restart. Derivatives are local to the bound discrete model, not a global optimum
 or continuum accuracy guarantee. Existing Julia code is frozen legacy/reference
 capability, without an automatic derivative fallback. Native body formats remain
 independent and unchanged.
-The dev31 candidate supports `run.optimize(...)` with `storage="memory"`,
+The retained dev31 implementation supports `run.optimize(...)` with `storage="memory"`,
 using the same CMA/local/Hybrid physical execution and caller-owned immutable
 failure/accepted histories. No Workspace, saved receipt or checkpoint is
 invented. Memory optimizer integration and the distinct value-first reject-aware
@@ -38,14 +38,21 @@ unchanged. Current observations retain their exact candidate identities; impleme
 does not imply improved search or Human acceptance.
 See the [memory optimization contract](docs/v1-runtime-contract.qmd#memory-optimization-storage).
 
+The dev32 CONVERGING candidate connects checked JAX memory evaluate, Sensitivity
+and declared ParameterSpace/Sweep using the same physical producer and detached
+Result ownership. Existing selected reports accept actual checked detached
+projections through the same pure composer, without saved identities. RF root localization is separate and requires caller-declared region and
+selection semantics; memory support does not itself repair root convergence.
+See the [checked JAX memory target](docs/v1-runtime-contract.qmd#jax-memory-completion).
+
 For a JAX point Direct comparison with all SCNSim storage disabled, use
 `CircuitRun(plan=plan, storage="memory")`, then the same `run.warmup(view, spec)`
 and `run.solve(view, spec)` calls. No Workspace is created. The detached
 `InMemoryDirectSolveResult` retains S/Y/Z and trace presentation, and
 `result.benchmark` records that call in memory. This mode has no saved identity
-or `resolve`; Sweep, evaluate, Sensitivity and Julia execution remain Workspace
-capabilities. Memory Optimization is the in-progress dev31 target described
-above. See the [memory ownership contract](docs/v1-runtime-contract.qmd#memory-direct-storage).
+or `resolve`. Checked JAX evaluate, declared Sweep, Sensitivity and Optimization
+use the memory ownership described above; Julia execution remains a Workspace
+capability. See the [memory ownership contract](docs/v1-runtime-contract.qmd#memory-direct-storage).
 
 The [lifecycle contract](docs/v1-runtime-contract.qmd#package-lifecycle) defines
 optional Run close, automatic operation cleanup, fixed lazy Results, bounded

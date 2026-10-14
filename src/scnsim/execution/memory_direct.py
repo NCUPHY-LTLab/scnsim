@@ -15,6 +15,27 @@ import numpy as np
 from ..errors import RuntimePreparationError
 
 
+def direct_result_metadata(metadata, spec, frequencies_hz):
+    """Project Direct axes and units for both point and Sweep RAM owners."""
+    result = dict(metadata)
+    terminal_ids = tuple(result["terminal_ids"])
+    channels = tuple((identifier, ()) for identifier in terminal_ids)
+    result.update({
+        "operation": "solve_direct",
+        "result_kind": "direct_solve",
+        "point_count": len(frequencies_hz),
+        "terminal_count": len(terminal_ids),
+        "input_channels": channels,
+        "output_channels": channels,
+        "traces": tuple(spec.get("traces", ())),
+        "frequencies_hz": frequencies_hz,
+        "frequency_count": len(frequencies_hz),
+        "frequency_unit": "hertz",
+        "family_units": {"S": "dimensionless", "Y": "siemens", "Z": "ohm"},
+    })
+    return result
+
+
 def _freeze_metadata(value):
     if isinstance(value, Mapping):
         return MappingProxyType({key: _freeze_metadata(item) for key, item in value.items()})
@@ -98,23 +119,9 @@ class InMemoryDirectSink:
         if not bool(np.all(self._filled)):
             raise RuntimeError("in-memory Direct occurrence layout was not fully populated")
 
-        metadata = dict(self._metadata)
-        terminal_ids = tuple(metadata["terminal_ids"])
-        channels = tuple((identifier, ()) for identifier in terminal_ids)
-        spec = self._request["spec"]
-        metadata.update({
-            "operation": "solve_direct",
-            "result_kind": "direct_solve",
-            "point_count": len(self._frequencies),
-            "terminal_count": len(terminal_ids),
-            "input_channels": channels,
-            "output_channels": channels,
-            "traces": tuple(spec.get("traces", ())),
-            "frequencies_hz": self._frequencies,
-            "frequency_count": len(self._frequencies),
-            "frequency_unit": "hertz",
-            "family_units": {"S": "dimensionless", "Y": "siemens", "Z": "ohm"},
-        })
+        metadata = direct_result_metadata(
+            self._metadata, self._request["spec"], self._frequencies,
+        )
         frequencies = self._frequencies
         frequencies.setflags(write=False)
         families = {}

@@ -8,9 +8,9 @@ The reader-facing [Simulation conventions](concepts/simulation-conventions.qmd)
 connect these version-bound rules to the canonical phasor, wave-reference, and
 linewidth definitions without adding a second runtime contract.
 
-## JAX-native physical program target (dev31) {#physical-program-target}
+## JAX-native physical program target (dev32) {#physical-program-target}
 
-This is the **CONVERGING dev31 candidate**. It retains the dev28 native callable
+This is the **CONVERGING dev32 candidate**. It retains the dev28 native callable
 authority while refining shared compilation and owned numerical hot paths;
 previous observations retain their original identities;
 source implementation does not establish native coverage, accuracy or Human acceptance. One physical program maps ordered
@@ -21,7 +21,49 @@ impedances. Existing units, phasor signs, physical equations, ordinary transpose
 and numerical certification conditions remain in force. Schematic work remains
 incomplete and deferred.
 
-### Workspace and memory-only Direct ownership {#memory-direct-storage}
+### Complete checked JAX memory target (dev32) {#jax-memory-completion}
+
+The authorized CONVERGING target extends the existing memory Direct and
+Optimization flows to checked JAX `evaluate`, Sensitivity and declared
+ParameterSpace/Sweep. Storage selection changes result ownership and publication,
+not physical equations, branch certification, units, declaration order or
+failure semantics. The same prepared request and physical numerical producer
+feed either a RAM result sink or Workspace publication. No second evaluator,
+unchecked replacement, fabricated saved identity or disk-spill path is admitted.
+
+The RAM sink owns actual synchronized output arrays and typed numerical evidence.
+Point and Sweep Results retain declared parameter/frequency order, realized
+mesh/View/loading, units and actual failure information. Sensitivity retains
+ordered primal values, requested derivative blocks, partial availability and
+one shared equation-evidence authority. Detached immutable Results and existing
+selected presentation/report consumers remain usable after Run close without
+hidden numerical execution. Run keeps only the last compact operation Benchmark;
+its compile owner remains bounded and operation-local factors/AD frames drain
+before a Result is returned. Full requested output/history retention is explicit
+RAM ownership, not a disk cache or permission to silently discard results.
+Memory Sweep selectors retain a detached binding from the same captured Plan
+alias table and prepared View. Public ElectricNodeRef and scoped CoordinateRef
+handles, canonical IDs and derived View coordinates use the existing pure
+selector encoder; foreign-Plan handles and ambiguous aliases retain their
+existing failure semantics. No Run, Plan, saved decoder/reader closure or live
+capture is stored in the Result. Filtered selections preserve original source
+indices and order rather than inventing new point identities.
+
+Saved `resolve`, durable checkpoint and crash resume remain Workspace
+responsibilities. Julia/HB memory support is excluded. Memory analysis and Sensitivity use their real checked producer/Result
+consumer handoffs; unsupported saved recovery and Julia/HB still fail before
+numerical work. Such a capability error is not a root-finding failure. Compile-only warmup uses the same actual variants and bounded declared
+preparation-point traversal, without root/baseline evaluation or invented frame
+consumer signatures.
+
+RF root localization is a separate numerical scope. A caller-declared search
+region and selection policy must be explicit and separate from the existing
+Hint/anchor. No default multiplied frequency range or new tolerance is inferred.
+Opening memory storage cannot itself change the root residual, locate a branch
+or establish that an RF root is absent. Original observations and the inactive
+root-policy proposal retain their original identities and limits.
+
+### Workspace and checked memory ownership {#memory-direct-storage}
 
 `CircuitRun(plan=plan, storage="workspace", workspace=path)` retains the saved
 default: binding, recovery, fixed saved Results and readonly resolution.
@@ -31,19 +73,20 @@ storage is invalid. Construction, preparation, warmup, solve and cleanup in
 this mode create no SCNSim Workspace, SQLite record, filesystem operation lease,
 scratch/spool, object/index, checkpoint or timing publication.
 
-The currently complete memory numerical flow is one JAX `DirectSolveSpec` point with a
-`ParameterSet` or the captured baseline. Its View operations, declaration
-dependencies, detached `prepare` and compile-only `warmup` remain available.
-Warmup and solve use the same physical candidate and frequency kernels, cache
-keys, precision and bounded Run compile owner as the Workspace path. Numerical
-equations, selected loading, sparse certificates and native failures are
-unchanged; memory storage is not a raw unchecked solver or a different physics
-implementation. Memory Optimization is the separate dev31 candidate scope described below.
-Sweep, evaluate, Sensitivity, Julia/HB,
-Workspace recovery and saved-result `resolve` are outside this memory scope
-and fail before storage or numerical work.
+Memory point Direct retains its existing dedicated typed response adapter.
+Declared Direct ParameterSpace and checked evaluate point/Sweep consume the
+same ordinary numerical producer through a RAM sink; checked Sensitivity uses
+the same primal/derivative producer. View operations, declaration dependencies,
+detached `prepare` and compile-only `warmup` remain available. Warmup and
+execution use the same physical variants, precision and bounded Run compile
+owner as the Workspace path. Numerical equations, selected loading, sparse
+certificates and native failures remain authoritative; memory storage is not
+an unchecked solver or different physics implementation. Memory Optimization
+retains the existing shared strategy coordinator. Julia/HB, Workspace recovery
+and saved-result `resolve` remain outside the memory scope and fail before
+storage or numerical work.
 
-`solve` returns `InMemoryDirectSolveResult`, a `Result` with detached immutable
+Point Direct `solve` returns `InMemoryDirectSolveResult`, a `Result` with detached immutable
 S/Y/Z matrices, trace leaves, units, View/loading and discretization metadata.
 It is not a receipt-backed `AnalysisResult` and has no fabricated saved
 `ResultIdentity`, attempt, completion or persistence authority. Existing matrix
@@ -74,7 +117,7 @@ comparison.
 |---|---|
 | `run.dependencies(quantities=...)` | Declared direct and indirect physical dependencies; no execution or proof of globally nonzero derivatives |
 | `run.sensitivity(SensitivitySpec(...), parameters=...)` | Ordered primal values and requested `Jacobian`, `JVP` or `VJP`, with separate primal and derivative status |
-| `run.optimize(OptimizationSpec(...))` | Existing CMA-ES, bounded local L-BFGS-B and ordered Hybrid stages share the quantity/objective evaluator |
+| `run.optimize(OptimizationSpec(...))` | CMA-ES, genuine L-BFGS-B, projected L-BFGS and ordered Hybrid stages share the quantity/objective evaluator |
 | `run.resolve(..., attempt={'attempt_id': recorded_attempt_id})` | Explicit readonly terminal partial Sensitivity selection; partial evidence is excluded from complete-success caches and default resolution |
 
 Complex outputs have explicit real/imaginary coordinates. Jacobian entry
@@ -2302,6 +2345,84 @@ requires its selected transfer denominator to
 remain finite and nonsingular at the zero. A coincident numerator zero and pole
 is rejected as an unresolved cancellation rather than published as a transfer
 zero.
+`RootSearchSpec` is an optional `search` declaration on the existing root
+Specs. `method` and exact-tie choice `tie="unavailable"|"source_order"` are
+required. The caller supplies exactly one real region as
+`real_frequency_interval=(lower, upper)` or `hint_frequency_factor=<factor>`.
+An optional `imag_frequency_interval` supplies two real frequency endpoints;
+`None` adds no imaginary selection cutoff and is omitted from canonical bytes,
+not represented by an infinite physical token.
+
+A caller-declared "within ten times Hint" domain is expressed explicitly as
+`RootSearchSpec(method="polynomial_transfer_zero", hint_frequency_factor=10,
+tie="unavailable")`. For an original authored positive-real Hint/anchor $h$
+and caller factor $k$, the positive RF real-frequency upper bound is $k h$.
+A baseline or tracked branch anchor $a$ is a separate seed, not a replacement
+for the original declaration $h$. No $h/k$ lower cutoff or imaginary envelope
+is inferred. The captured factor is resolved against $h$, never the changing
+tracked anchor $a$, so tracking cannot enlarge the declared region.
+
+`method="polynomial_transfer_zero"` accepts no caller seeds. It applies only to
+the supported intrinsic/non-Port Z transfer model with fixed mesh, declared
+pure-inductive sections, static K/C/G and actual endpoint loads/View. The
+same assembly coefficient authority forms the `2*n+1` Rosenbrock transfer-zero
+pencil with the actual input/output, rather than treating pole eigenvalues as
+transfer zeros. Candidates still require the original certified corrector.
+Unsupported model capability fails explicitly. `method="finite_seeds"` requires
+ordered nonempty caller complex-frequency seeds; it is an explicitly selected
+alternative, never an automatic fallback. No sampling grid, epsilon,
+deduplication, multiplier or smoothing is invented.
+
+Omitting search preserves Hint/anchor-as-seed canonical fields. Every actual
+corrected candidate or failure keeps its ordinal. A certified root outside the
+caller region remains certified with an outside-selection fact, not a rewritten
+numerical failure. Selection uses nearest-Hint complex-frequency Euclidean
+distance and the caller's exact tie choice. No eligible certified candidate
+means "not found from the declared trials", not "no root exists"; neither
+method guarantees every physical root or global spectral uniqueness.
+Discovery runs only at the initial requested point or optimizer original-point
+anchor. Later points track the selected branch without rediscovery or
+completion-order anchor updates. Implicit AD is local to the selected root,
+not the discrete candidate sort. A same-point Objective may consume the actual completed root
+packets together with their original selected checked Error archive. Its native
+callable still rebuilds candidate(theta) and uses the local implicit rule, so
+View/material coefficient derivatives are not frozen. Packets and Errors remain
+runtime operands, never static cached values. The distinct completed Objective
+variant key binds shape/dtype and the owned Error PyTree metadata, excluding
+physical point and loss coefficient values. Compile-only warmup lists this
+consumer as lazy until the actual producer tree is known; it does not solve a
+root or claim that a normal raw variant warmed the completed consumer.
+Region extent informs authored mesh planning;
+explicit fixed meshes retain their limitations without a new adequacy Gate.
+
+`PreparedFunction` raw callables remain array-only local branch controls. Their
+metadata records the declared search scope, but raw external AD does not run
+high-level discovery/selection or acquire its certification. The high-level
+corrector's actual selected packet carries the same candidate/program/View/
+mesh/dtype and implicit equation derivative; it is not a frozen-root derivative
+or a closure over Run, Result or executable ownership.
+
+For the dev32 CONVERGING Z-transfer candidate, only the primal Newton update
+residual changes to `r = cof_ji(F_eff)` for the actual ordered Z projection,
+where `F_eff = (-i * omega) * Y` uses the same checked family state. Intrinsic
+non-Port projections reuse its already checked selected `F/Fp`. Port
+projections use the actual `Y/Yp`, with
+`F_eff_prime = (-i) * Y + (-i * omega) * Yp`. The scaled represented
+cofactor/determinant value and frequency-prime exponent ratio control the
+update; no independent assembly, alternate loading or second transfer solve is
+introduced. Nonzero omega is this mathematical representation's domain, not a
+new frequency cutoff or search envelope.
+
+Original cofactor(Y), full Z value/slope, denominator/rank, correction and
+closure checks remain the success authority. The existing 32-step limit,
+stagnation, failure stages and unexpected-fatal responsibility remain intact.
+Y and S transfer update equations are unchanged. Implicit derivatives retain
+the existing cofactor equation at a certified nonzero root; Newton iteration
+history is not differentiated. The successor has a distinct numerical
+algorithm identity, without a retained old/new execution switch or implied
+bitwise trajectory continuity. Explicit caller-region candidate localization
+and selection are a separate scope, not supplied by this residual change.
+
 For the canonical `exp(-i * Omega * t)` convention, `.root` is the complex
 angular-frequency Quantity, `.frequency` is `real(Omega) / (2 * pi)`, and the
 positive passive linewidth is `-2 * imag(Omega) / (2 * pi)`. The Result records
@@ -3087,8 +3208,15 @@ These ownership changes do not alter numerical, ledger-order or winner meaning.
 
 `ExplanationResult`, `CircuitDiagramResult`, and `ReportResult` are derived
 Results. They do not fabricate request or receipt identity. `ReportSpec.inputs`
-accepts explicit `AnalysisResult` objects, including inputs from different
-Plans, and preserves each source identity independently.
+accepts explicit saved `AnalysisResult` objects or privately constructed
+checked detached memory Results, including inputs from different Plans. A
+report-only predicate verifies the actual typed consumer capability; saved
+identity verification remains unchanged. Memory sources record ephemeral
+Plan/request/execution provenance, never a fabricated saved identity. Each
+source keeps its own provenance independently. Memory Direct/Operator matrices,
+root/coupling summaries, Sweep outcomes, Sensitivity summaries and Optimization
+history use the same pure composer, only where the materialized typed projection
+supports that panel. No report access performs a numerical solve.
 
 `ReportPanel` selects presentation from one exact object in
 `ReportSpec.inputs`; an identity-equal replacement object is not that input.

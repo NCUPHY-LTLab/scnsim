@@ -36,6 +36,145 @@ def _auxiliary_by_ordinal(rows):
     return {int(np.asarray(ordinal).item()): value for ordinal, value in rows}
 
 
+def execute_native_branch_packet(native, candidate, start_index, seed, *, backend,
+                                 program_owner, operation_resources=None, compact_evidence=False):
+    from ..numerics.native_sparse import SparseEquationCheck, checked_native
+    from ..numerics.evidence import native_primal_exception, project_native_root
+
+    import jax.numpy as jnp
+
+    # Construct selected complex operands under the same x64/device scope
+    # used by execute_native. JAX otherwise truncates complex128 inputs at
+    # creation time when the ambient x64 setting is disabled.
+    with backend.jax.enable_x64(True), backend.jax.default_device(backend.device):
+        seed = jnp.asarray(seed, dtype=backend.complex_dtype)
+    operands = (candidate, seed)
+    branch = checked_native(native.branch_function(start_index))
+    compile_key = native.branch_variant_key(
+        start_index, device=backend.device, operands=operands,
+        transform='checked_value',
+    )
+    candidate_scope = (nullcontext() if operation_resources is None else
+                       operation_resources.candidate_compute())
+    with candidate_scope:
+        error, packet = backend.execute_native(
+            branch, *operands, precision=backend.precision,
+            compile_key=compile_key, owner=program_owner,
+            phase='native_root_branch', details={'start_index': start_index},
+        )
+    exception = native_primal_exception(error)
+    if exception is not None and not isinstance(exception, SparseEquationCheck):
+        error.throw()
+    row = next(row for row in native.root_layout if row['start_index'] == start_index)
+    result = project_native_root(row['declaration'], packet, compact_evidence=compact_evidence)
+    return result, packet, error
+
+
+def acquire_native_root(program, native, candidate, row, seed, *, backend,
+                        program_owner, operation_resources=None, compact_evidence=False,
+                        discover=True):
+    """Discover once at the initial point; later points use owned anchors."""
+    from ..errors import RuntimePreparationError
+    from ..numerics.root_search import complex_frequency, select_declared_root
+    from ..numerics.native_polynomial import transmission_zero_spectrum
+    from ..numerics.native_sparse import checked_native
+    spec = row['spec']
+    search = spec.get('search')
+    def correct(omega):
+        result,packet,error = execute_native_branch_packet(
+            native,candidate,row['start_index'],omega,backend=backend,
+            program_owner=program_owner,operation_resources=operation_resources,
+            compact_evidence=compact_evidence)
+        actual_errors[id(packet)] = error
+        return result,packet
+    actual_errors = {}
+    if search is None or not discover:
+        result,packet = correct(seed)
+        return result,packet,actual_errors[id(packet)],None
+    hint = complex_frequency(spec['root_hint'] if 'root_hint' in spec else spec['anchor'])
+    catalogue = None
+    if search['method'] == 'polynomial_transfer_zero':
+        if row['kind'] != 'transfer_zero' or row['declaration'].family != 'Z':
+            raise RuntimePreparationError(
+                'Polynomial discovery supports intrinsic Z transmission zeros only',
+                stage='root_search_prepare')
+        view_index = row['view_index']
+        function = checked_native(native.polynomial_coefficient_function(view_index))
+        operands = (candidate,)
+        error, coefficients = backend.execute_native(
+            function, *operands, precision=backend.precision,
+            compile_key=native.variant_key('polynomial_coefficients',
+                device=backend.device, operands=operands, view_index=view_index,
+                transform='checked_coefficients'), owner=program_owner,
+            phase='native_root_search_coefficients')
+        error.throw()
+        if int(np.asarray(coefficients[3])) != 0:
+            from ..numerics.jax_core import FAILURES
+            status = int(np.asarray(coefficients[3]))
+            kind,stage = FAILURES[status]
+            failure = NumericalFailure(kind,stage,
+                'Original assembly coefficient formation failed',
+                evidence_bytes({'status':status,'phase':'root_search_coefficients'}))
+            return EvaluationResult(row['declaration'].quantity_key,failure=failure),None,None,None
+        frequency = native.core.frequency_programs[view_index]
+        scope = (nullcontext() if operation_resources is None else
+                 operation_resources.exclusive_assembly())
+        with scope:
+            spectrum = transmission_zero_spectrum(frequency.assembly.pattern,
+                coefficients[:3], frequency.view_program.selected,
+                input_index=row['declaration'].input_index,
+                output_index=row['declaration'].output_index,
+                reference_omega_rad_s=abs(hint.real)*2*np.pi)
+        catalogue = spectrum._asdict()
+        candidates = tuple(complex(value) if defined else None for value,defined
+                           in zip(spectrum.omega_rad_s,spectrum.defined,strict=True))
+    elif search['method'] == 'finite_seeds':
+        candidates = tuple(complex_frequency(value)*2*np.pi for value in search['seeds'])
+    else:
+        raise RuntimePreparationError('Unsupported root discovery method',stage='root_search_prepare')
+    result,packet,facts = select_declared_root(search,hint,candidates,
+        correct,
+        catalogue=catalogue)
+    return result,packet,(None if packet is None else actual_errors[id(packet)]),facts
+
+
+def acquire_completed_root_frame(program, inputs, *, backend, program_owner,
+                                 operation_resources=None, compact_evidence=False,
+                                 discover=False):
+    """Acquire current-point packets/archives once for value and local AD.
+
+    Only original-point acquisition enables declared discovery. Later points
+    use supplied branch anchors; each owns its own checked packets and Errors.
+    The caller releases this working bundle after synchronous consumption.
+    """
+    from ..numerics.evidence import require_native_candidate
+    native = program.native_program(inputs,program_owner=program_owner,admit_core=True)
+    borrowed = (nullcontext() if program_owner is None else
+                program_owner.hold_exact_core(native.core))
+    completed,errors,results,searches = [],[],[],[]
+    with borrowed,backend.jax.enable_x64(True),backend.jax.default_device(backend.device):
+        theta = backend.jax.numpy.asarray(inputs.theta,dtype=backend.jax.numpy.float64)
+        operands = (theta,)
+        candidate = backend.execute_native(native.candidate_function,*operands,
+            precision=backend.precision,compile_key=native.variant_key('candidate',
+                device=backend.device,operands=operands),owner=program_owner,
+            phase='native_completed_root_candidate')
+        require_native_candidate(candidate)
+        for row in native.root_layout:
+            start = row['start_index']
+            result,packet,error,facts = acquire_native_root(program,native,candidate,row,
+                inputs.branch_starts_rad_s[start],backend=backend,program_owner=program_owner,
+                operation_resources=operation_resources,compact_evidence=compact_evidence,
+                discover=discover)
+            results.append((start,result))
+            if facts is not None:
+                searches.append((start,facts))
+            if result.failure is not None:
+                raise numerical_error(result.failure)
+            completed.append((start,packet));errors.append(error)
+    return native,(tuple(completed),tuple(errors)),tuple(results),tuple(searches)
+
+
 class ChunkedResultSink:
     """Bounded operation-local staging for one Direct or Sweep completion.
 
@@ -284,6 +423,7 @@ def point_contexts(program, inputs):
         **{key:views[row['view_index']][key] for key in ('terminal_ids','probe_loads',
               'reference_coordinate_ids','reference_impedances_ohm','load_mask')},
         'discretization': metadata['discretization'],
+        'root_search_requests': metadata['root_search_requests'],
     } for row in metadata['observables']}
 
 
@@ -343,6 +483,7 @@ class PhysicalAnalysis:
         self.execution_policy = (ExecutionPolicy() if execution_policy is None
                                  else execution_policy)
         self.result_sink = result_sink
+        self.ephemeral = bool(getattr(result_sink, "in_memory_analysis", False))
         self.operation_resources = operation_resources
         self._native_slot_admission = None
         self.spec = analysis['spec']
@@ -355,8 +496,19 @@ class PhysicalAnalysis:
         }
         self.baseline_values = parameter_values(self.baseline)
         self.anchors = {}
+        self._root_search_metadata = {}
         self._plan = plan
         self._program_owner = program_owner
+        def has_search(value):
+            if isinstance(value, Mapping):
+                return 'search' in value or any(has_search(item) for item in value.values())
+            return isinstance(value, (tuple,list)) and any(has_search(item) for item in value)
+        if (self.analysis['parameter_source']['kind'] == 'point'
+                and first_point is not None and has_search(self.spec)):
+            # An explicit search initializes the branch at the requested
+            # original point, not a different Plan-default circuit.
+            self.baseline = first_point
+            self.baseline_values = parameter_values(first_point)
         initial_point = (self.baseline if self.spec['type'] in _ROOT_TYPES
                          or first_point is None else first_point)
         self._initial_point_key = point_identity(initial_point)
@@ -370,12 +522,26 @@ class PhysicalAnalysis:
         elif self.result_sink is not None and self.result_sink.domain == 'sweep':
             self.result_sink.set_metadata(self._sweep_metadata(initial_point))
 
+    def _store_array(self, value):
+        if self.ephemeral:
+            from ..numerics.evidence import _detach_native
+            return _detach_native(np.asarray(value))
+        return array_record(np.asarray(value))
+
+    def _load_array(self, value):
+        return np.asarray(value) if self.ephemeral else array_from_record(value)
+
+    def _anchor_references(self):
+        if self.ephemeral:
+            return {key: value.root_omega_rad_s for key, value in self.anchors.items()}
+        return {key: quantity_body_id(value)[0] for key, value in self.anchors.items()}
+
     def _direct_metadata(self, point):
         """Bind the one-point Direct index to its exact compiled declaration."""
         if self.spec['type'] != 'direct_solve':
             raise TypeError('Direct result sink requires a direct_solve declaration')
-        program = self.program
-        observable = self.metadata[0]
+        program = self.program_at(point)
+        observable = program.observable_metadata()[0]
         context = point_contexts(program, program.inputs(point))[observable['observable_index']]
         descriptors = tuple(program.program.observables)
         first_view = descriptors[observable['observable_index']].view_index
@@ -436,15 +602,29 @@ class PhysicalAnalysis:
 
     def context(self, point):
         program = self.program_at(point)
-        return point_contexts(program, program.inputs(point))[0]
+        context = point_contexts(program, program.inputs(point))[0]
+        if self._root_search_metadata:
+            context = dict(context, root_search=tuple(self._root_search_metadata.values()))
+        return context
+
+    def _search_native_branch(self, program, native, candidate, row, seed):
+        key = self._dependency_key(row)
+        result,packet,error,facts = acquire_native_root(program,native,candidate,row,seed,
+            backend=self.backend,program_owner=self._program_owner,
+            operation_resources=self.operation_resources,compact_evidence=self.ephemeral,
+            discover=key not in self.anchors)
+        if facts is not None:
+            self._root_search_metadata[key] = facts
+        return result,packet,error
 
     @staticmethod
     def _dependency_key(row):
         return canonical_json_bytes({'spec': row['spec'], 'view': row['view'],
                                      'type': row['spec']['type']}).decode()
 
-    @staticmethod
-    def _dependencies(results):
+    def _dependencies(self, results):
+        if self.ephemeral:
+            return {('root_start', index): result for index, result in results.items()}
         return dict(quantity_body_id(result) for result in results.values())
 
     def evaluate(self, point, identity, *, baseline=False):
@@ -456,7 +636,24 @@ class PhysicalAnalysis:
                 # its actual root packets. Do not solve those roots in a
                 # separate prepass and then repeat them in the aggregate.
                 inputs = program.inputs(point)
-                outcome = self._execute_native_value(program, inputs, operation='evaluate')
+                if any(row['spec'].get('search') for row in program.observable_metadata()
+                       if row['start_index'] is not None):
+                    native = program.native_program(inputs,program_owner=self._program_owner,admit_core=True)
+                    candidate = self._execute_native_candidate(native,inputs,operation='evaluate')
+                    completed,completed_errors = [],[]
+                    for row in native.root_layout:
+                        result,packet,error = self._search_native_branch(program,native,candidate,row,
+                            inputs.branch_starts_rad_s[row['start_index']])
+                        branch_results[row['start_index']] = result
+                        if result.failure is not None:
+                            raise EvaluationFailure(result.failure,result=result,
+                                dependencies=self._dependencies(branch_results))
+                        completed.append((row['start_index'],packet))
+                        completed_errors.append(error)
+                    outcome = self._execute_native_completed_value(program,point,tuple(completed),
+                        completed_branch_errors=tuple(completed_errors),operation='evaluate')
+                else:
+                    outcome = self._execute_native_value(program, inputs, operation='evaluate')
             else:
                 # First evaluate the complete candidate once, using the
                 # baseline roots only as Newton starts. Healthy roots and all
@@ -466,10 +663,11 @@ class PhysicalAnalysis:
                 outcome, native, raw_frame = self._execute_native_value(
                     program, inputs, operation='evaluate', return_frame=True,
                 )
-                raw_aux = raw_frame[1]
+                raw_result,current_error = raw_frame
+                raw_aux = raw_result[1]
                 packet_by_start = _auxiliary_by_ordinal(raw_aux.branch_packets)
                 projected_by_start = _auxiliary_by_ordinal(outcome.aux.branch_results)
-                packets = {}
+                packets,packet_errors = {},{}
                 needs_completed_frame = False
                 branch_packets_by_id = {}
                 for row in native.root_layout:
@@ -477,6 +675,13 @@ class PhysicalAnalysis:
                     key = self._dependency_key(row)
                     initial = projected_by_start[start_index]
                     packet = packet_by_start[start_index]
+                    from ..numerics.native_sparse import root_error_frame
+                    declaration = row['declaration']
+                    dependency = ('root_occurrence',row['view_index'],start_index,
+                        (declaration.kind,declaration.coordinate_index,declaration.row_index,
+                         declaration.column_index,declaration.family,declaration.output_index,
+                         declaration.input_index))
+                    packet_error = root_error_frame(current_error,dependency)
                     if initial.failure is not None:
                         if initial.failure.kind != 'numerical_resolution_unresolved':
                             branch_results[start_index] = initial
@@ -493,12 +698,12 @@ class PhysicalAnalysis:
                         def evaluate(jobs):
                             values_at = []
                             for job in jobs:
-                                result_at, packet_at = self._native_branch_at(
+                                result_at, packet_at, error_at = self._native_branch_at(
                                     job.point, start_index, job.omega,
-                                    operation='evaluate', return_packet=True,
+                                    operation='evaluate',
                                 )
                                 result_at = replace(result_at, id=job.id)
-                                branch_packets_by_id[job.id] = packet_at
+                                branch_packets_by_id[job.id] = (packet_at,error_at)
                                 values_at.append(result_at)
                             return tuple(values_at)
 
@@ -522,7 +727,7 @@ class PhysicalAnalysis:
                             make_job=make_job, evaluate=evaluate,
                             identity=str(identity), observe=observe,
                         )
-                        packet = branch_packets_by_id[initial.id]
+                        packet,packet_error = branch_packets_by_id[initial.id]
                     if row['kind'] == 'diagonal_root':
                         initial = diagonal_passive_policy(initial)
                     if initial.failure is not None:
@@ -533,16 +738,19 @@ class PhysicalAnalysis:
                         )
                     branch_results[start_index] = initial
                     packets[start_index] = packet
+                    packet_errors[start_index] = packet_error
                 if needs_completed_frame:
                     completed_branches = tuple(
                         (row['start_index'], packets[row['start_index']])
                         for row in native.root_layout
                     )
                     outcome = self._execute_native_completed_value(
-                        program, point, completed_branches, operation='evaluate',
+                        program, point, completed_branches,
+                        completed_branch_errors=tuple(packet_errors[row['start_index']] for row in native.root_layout),
+                        operation='evaluate',
                     )
             program.require_primal(outcome)
-            bodies = project_primal_bodies(program, outcome, inputs)
+            bodies = project_primal_bodies(program, outcome, inputs, ephemeral=self.ephemeral)
             branches = _auxiliary_by_ordinal(outcome.aux.branch_results)
             for row in self.roots:
                 index = row['start_index']
@@ -584,6 +792,23 @@ class PhysicalAnalysis:
 
 
     def record(self, point, result, dependencies, **occurrence):
+        if self.ephemeral:
+            context = self.context(point)
+            program = self.program_at(point)
+            if self.spec['type'] == 'direct_solve':
+                from .memory_direct import direct_result_metadata
+                context = dict(context, metadata=direct_result_metadata(
+                    self._direct_metadata(point), self.spec,
+                    self._store_array(np.asarray(
+                        [quantity(value) for value in self.spec['frequencies']],
+                        dtype=np.float64,
+                    )),
+                ))
+            return dict(id=result.id, parameters=point, result=result,
+                status='failure' if result.failure is not None else 'success',
+                dependencies=tuple(dependencies.items()), context=context,
+                program_sha256=program.program_sha256,
+                **{'source_index':None,'cache_hit':False,**occurrence})
         record = quantity_record(result)
         context = self.context(point)
         record.update(parameters=point, dependencies=dependencies, **context, **occurrence)
@@ -703,21 +928,21 @@ class PhysicalAnalysis:
                     compile_key=compile_key, owner=self._program_owner,
                     phase='native_physical_value', details={'operation': operation},
                 )
-            outcome = project_native_outcome(native, result, checked_error)
+            outcome = project_native_outcome(native, result, checked_error, compact_evidence=self.ephemeral)
         if return_frame:
             # The detached branch values explain typed outcomes; this short
             # lived raw frame is needed only when an unresolved endpoint must
             # continue from its actual final root packet.
-            return outcome, native, result
+            return outcome, native, (result,checked_error)
         return outcome
 
-    def _execute_native_completed_value(self, program, point, completed_branches, *, operation):
+    def _execute_native_completed_value(self, program, point, completed_branches, *, completed_branch_errors, operation):
         """Finish one endpoint frame from actual continuation packets, without re-rooting."""
         import jax.numpy as jnp
         from ..numerics.native_sparse import checked_native
         from ..numerics.evidence import project_native_outcome
 
-        starts = self._native_branch_starts(point, baseline=False)
+        starts = self._native_branch_starts(point, baseline=not self.anchors)
         for start_index, packet in completed_branches:
             starts[start_index] = np.asarray(packet.omega).item()
         inputs = program.inputs(point, branch_starts_rad_s=starts)
@@ -732,15 +957,16 @@ class PhysicalAnalysis:
             omega = omega_source[jnp.asarray(source_indices, dtype=jnp.int32)]
         candidate = self._execute_native_candidate(native, inputs, operation=operation)
 
-        def complete(candidate_state, frequencies, *actual_packets):
+        errors = completed_branch_errors
+        def complete(candidate_state, frequencies, actual_packets, actual_errors):
             ordered = tuple(zip(branch_starts, actual_packets, strict=True))
-            return native.completed_primal_function(candidate_state, frequencies, ordered)
+            return native.completed_primal_function(candidate_state, frequencies, ordered, actual_errors)
 
-        operands = (candidate, omega, *packets)
+        operands = (candidate, omega, packets, errors)
         function = checked_native(complete)
         compile_key = native.variant_key(
             'value', device=self.backend.device, operands=operands,
-            transform='checked_completed_value',
+            transform=('checked_completed_value',str(self.backend.jax.tree.structure(errors))),
         )
         candidate_scope = (nullcontext() if self.operation_resources is None else
                            self.operation_resources.candidate_compute())
@@ -753,44 +979,7 @@ class PhysicalAnalysis:
                     phase='native_completed_physical_value',
                     details={'operation': operation},
                 )
-            return project_native_outcome(native, result, error)
-
-    def _execute_native_branch(self, native, candidate, start_index, seed):
-        result, _ = self._execute_native_branch_packet(
-            native, candidate, start_index, seed,
-        )
-        return result
-
-    def _execute_native_branch_packet(self, native, candidate, start_index, seed):
-        from ..numerics.native_sparse import SparseEquationCheck, checked_native
-        from ..numerics.evidence import native_primal_exception, project_native_root
-
-        import jax.numpy as jnp
-
-        # Construct selected complex operands under the same x64/device scope
-        # used by execute_native. JAX otherwise truncates complex128 inputs at
-        # creation time when the ambient x64 setting is disabled.
-        with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
-            seed = jnp.asarray(seed, dtype=self.backend.complex_dtype)
-        operands = (candidate, seed)
-        branch = checked_native(native.branch_function(start_index))
-        compile_key = native.branch_variant_key(
-            start_index, device=self.backend.device, operands=operands,
-            transform='checked_value',
-        )
-        candidate_scope = (nullcontext() if self.operation_resources is None else
-                           self.operation_resources.candidate_compute())
-        with candidate_scope:
-            error, packet = self.backend.execute_native(
-                branch, *operands, precision=self.backend.precision,
-                compile_key=compile_key, owner=self._program_owner,
-                phase='native_root_branch', details={'start_index': start_index},
-            )
-        exception = native_primal_exception(error)
-        if exception is not None and not isinstance(exception, SparseEquationCheck):
-            error.throw()
-        row = next(row for row in native.root_layout if row['start_index'] == start_index)
-        return project_native_root(row['declaration'], packet), packet
+            return project_native_outcome(native, result, error, compact_evidence=self.ephemeral)
 
     def _execute_native_chunk(self, native, candidate, rows, omega_source, *,
                               prior_check_status, prior_certificate_status,
@@ -1017,19 +1206,21 @@ class PhysicalAnalysis:
 
             root_results = {}
             root_packets = {}
+            root_errors = {}
             if include_roots:
                 for row in native.root_layout:
                     start_index = row['start_index']
-                    result, packet = self._execute_native_branch_packet(
-                        native, candidate, start_index,
+                    result, packet, error = self._search_native_branch(
+                        program, native, candidate, row,
                         inputs.branch_starts_rad_s[start_index],
                     )
                     root_results[start_index] = result
                     root_packets[start_index] = packet
+                    root_errors[start_index] = error
                     if result.failure is not None:
                         break
 
-        return program, inputs, native, candidate, root_results, root_packets
+        return program, inputs, native, candidate, root_results, root_packets, root_errors
 
     def _run_native_direct(self, point):
         """Run one Direct candidate, then stream ordered native output chunks."""
@@ -1096,7 +1287,7 @@ class PhysicalAnalysis:
                 complex_dtype=self.backend.complex_dtype,
             )
 
-        program, inputs, native, candidate, _, _ = self._execute_native_work(
+        program, inputs, native, candidate, _, _, _ = self._execute_native_work(
             point, operation='solve_direct', validate_work=validate_work,
             consume_work=consume_work, failure_certificates=failure_certificates,
             frequency_slots=None, prepare_work=prepare_work,
@@ -1156,8 +1347,7 @@ class PhysicalAnalysis:
         return {'type': 'direct_solve', 'point_count': len(frequencies),
                 'backend': self.backend.native_program_identity('direct')}
 
-    def _native_branch_at(self, point, start_index, omega, *, operation,
-                          return_packet=False):
+    def _native_branch_at(self, point, start_index, omega, *, operation):
         """Evaluate one existing declared root branch on the same native core."""
         program = self.program_at(point)
         base = program.inputs(point)
@@ -1170,10 +1360,9 @@ class PhysicalAnalysis:
         with ExitStack() as stack:
             self._pin_native_core(native, stack)
             candidate = self._execute_native_candidate(native, inputs, operation=operation)
-            result, packet = self._execute_native_branch_packet(
-                native, candidate, start_index, omega,
-            )
-            return (result, packet) if return_packet else result
+            return execute_native_branch_packet(native,candidate,start_index,omega,
+                backend=self.backend,program_owner=self._program_owner,
+                operation_resources=self.operation_resources,compact_evidence=self.ephemeral)
 
     def _native_branch_starts(self, point, *, baseline):
         program = self.program_at(point)
@@ -1234,7 +1423,7 @@ class PhysicalAnalysis:
                 'certificate_position': certificate_position,
                 'certificates': certificates,
                 'families': {
-                    family: array_record(np.asarray(getattr(outcomes, family)[lane]))
+                    family: self._store_array(getattr(outcomes, family)[lane])
                     for family in row['demand']
                 },
             })
@@ -1249,7 +1438,7 @@ class PhysicalAnalysis:
 
         starts = self._native_branch_starts(point, baseline=baseline)
         try:
-            program, inputs, native, candidate, root_results, root_packets = self._execute_native_work(
+            program, inputs, native, candidate, root_results, root_packets, root_errors = self._execute_native_work(
                 point, operation=operation, validate_work=validate_work,
                 consume_work=consume_work, failure_certificates=failure_certificates,
                 include_roots=self.spec['type'] != 'direct_solve',
@@ -1277,7 +1466,7 @@ class PhysicalAnalysis:
                     )
                 families = {
                     family: np.stack(tuple(
-                        array_from_record(self.result_sink.native_work(
+                        self._load_array(self.result_sink.native_work(
                             namespace, work_index,
                         )['families'][family])
                         for work_index in work_indices
@@ -1334,16 +1523,17 @@ class PhysicalAnalysis:
                     def evaluate(jobs):
                         values_at = []
                         for job in jobs:
-                            result_at, packet_at = self._native_branch_at(
+                            result_at, packet_at, error_at = self._native_branch_at(
                                 job.point, start_index, job.omega,
-                                operation='evaluate', return_packet=True,
+                                operation='evaluate',
                             )
-                            branch_packets_by_id[job.id] = packet_at
+                            branch_packets_by_id[job.id] = (packet_at,error_at)
                             values_at.append(replace(result_at, id=job.id))
                         return tuple(values_at)
 
                     def observe(values_at, actual, attempt, t):
-                        record = quantity_record(attempt)
+                        record = (self.record(actual, attempt, {}, origin='root_continuation')
+                                  if self.ephemeral else quantity_record(attempt))
                         record.update(parameters=actual, origin='root_continuation',
                                       source_index=ordinal, continuation_t_f64=bits(t),
                                       **self.context(actual))
@@ -1363,7 +1553,7 @@ class PhysicalAnalysis:
                         identity=str(ordinal),
                         observe=observe,
                     )
-                    root_packets[start_index] = branch_packets_by_id[result.id]
+                    root_packets[start_index],root_errors[start_index] = branch_packets_by_id[result.id]
                 if row['kind'] == 'diagonal_root' and not (
                         baseline and self.spec['type'] == 'diagonal_root'):
                     result = diagonal_passive_policy(result)
@@ -1372,9 +1562,8 @@ class PhysicalAnalysis:
                 if result.failure is not None:
                     raise EvaluationFailure(
                         result.failure, result=result,
-                        dependencies={body_id: body for item in root_results.values()
-                                      if item.failure is None
-                                      for body_id, body in (quantity_body_id(item),)},
+                        dependencies=self._dependencies({index:item for index,item in root_results.items()
+                                                        if item.failure is None}),
                     )
                 if baseline:
                     self.anchors[key] = result
@@ -1403,15 +1592,22 @@ class PhysicalAnalysis:
                         self.backend.jax.numpy.asarray(0, dtype=self.backend.complex_dtype)
                         if coupling['midpoint'] else omega_source[coupling['evaluation_index']]
                     )
-                operands = (candidate, branch_packets, evaluation)
-                from ..numerics.native_sparse import SparseEquationCheck, checked_native
+                branch_errors = tuple(root_errors[index] for index in coupling['branch_indices'])
+                operands = (candidate, branch_packets, evaluation, branch_errors)
+                from ..numerics.native_sparse import (SparseEquationCheck, checked_native,
+                    archive_completed_primal_errors, sparse_certificates)
                 from ..numerics.evidence import (
                     native_primal_exception, project_native_coupling,
                 )
-                checked = checked_native(native.coupling_function(public['observable_index']))
+                coupling_function = native.coupling_function(public['observable_index'])
+                def complete_coupling(point, packets, frequency, errors):
+                    archive_completed_primal_errors(errors)
+                    return coupling_function(point,packets,frequency)
+                checked = checked_native(complete_coupling)
                 compile_key = native.coupling_variant_key(
                     public['observable_index'], device=self.backend.device,
-                    operands=operands, transform='checked_value',
+                    operands=operands, transform=('checked_completed_value',
+                        str(self.backend.jax.tree.structure(branch_errors))),
                 )
                 candidate_scope = (nullcontext() if self.operation_resources is None else
                                    self.operation_resources.candidate_compute())
@@ -1429,6 +1625,11 @@ class PhysicalAnalysis:
                 if exception is not None and not isinstance(exception, SparseEquationCheck):
                     checked_error.throw()
                 selected = project_native_coupling(public['quantity_key'], packet)
+                from dataclasses import asdict
+                facts = record_document(selected.evidence_bytes)
+                facts['equation_certificates'] = tuple(asdict(value)
+                    for value in sparse_certificates(checked_error))
+                selected = replace(selected,evidence_bytes=evidence_bytes(facts))
                 dependencies = {}
                 for row in program.observable_metadata():
                     if not row['hidden']:
@@ -1438,8 +1639,11 @@ class PhysicalAnalysis:
                         id=f"{row['quantity_key']}:observable:{row['observable_index']}",
                     )
                     if body.failure is None:
-                        body_id, body_bytes = quantity_body_id(body)
-                        dependencies[body_id] = body_bytes
+                        if self.ephemeral:
+                            dependencies[('observable', row['observable_index'])] = body
+                        else:
+                            body_id, body_bytes = quantity_body_id(body)
+                            dependencies[body_id] = body_bytes
                 if selected.failure is not None:
                     raise EvaluationFailure(selected.failure, result=selected,
                                             dependencies=dependencies)
@@ -1457,7 +1661,7 @@ class PhysicalAnalysis:
                 family_values = []
                 for work_index in occurrence['work_indices']:
                     work_record = self.result_sink.native_work(namespace, work_index)
-                    family_values.append(array_from_record(work_record['families'][family]))
+                    family_values.append(self._load_array(work_record['families'][family]))
                 matrices.append(np.stack(tuple(family_values)))
             with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
                 public = native.project_public_values(tuple(matrices))
@@ -1554,8 +1758,7 @@ class PhysicalAnalysis:
             self.emit('baseline_ready', {
                 'schema': 'scnsim.benchmark_root_anchor', 'schema_version': 1,
                 'baseline': baseline_record,
-                'anchors': {key: quantity_body_id(value)[0]
-                            for key, value in self.anchors.items()},
+                'anchors': self._anchor_references(),
                 'resume_state': None,
             })
             key = point_identity(self.baseline)
@@ -1624,7 +1827,7 @@ class PhysicalAnalysis:
             self.emit('baseline_ready', {
                 'schema': 'scnsim.benchmark_root_anchor', 'schema_version': 1,
                 'baseline': record,
-                'anchors': {key: quantity_body_id(value)[0] for key, value in self.anchors.items()},
+                'anchors': self._anchor_references(),
                 'resume_state': None,
             })
             if self.spec['type'] == 'diagonal_root':

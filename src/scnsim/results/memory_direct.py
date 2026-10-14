@@ -21,7 +21,7 @@ from .base import (
     _sha256,
 )
 from .derived import TraceResult
-from .factory import _verified_result
+from .factory import _MEMORY_RESULT_TOKEN, _verified_result
 from .matrix import ScatteringMatrixResult
 
 if TYPE_CHECKING:
@@ -47,6 +47,7 @@ class InMemoryDirectSolveResult(Result):
     discretization: tuple[LineDiscretization, ...] | None
     metadata: Mapping[str, object]
     _benchmark: InMemoryBenchmarkResult | None = field(default=None, repr=False, compare=False)
+    _memory_report_token: object = field(default=None, init=False, repr=False, compare=False)
     _quantity_fields = frozenset({"frequencies"})
 
     def __init__(self) -> None:
@@ -63,6 +64,10 @@ class InMemoryDirectSolveResult(Result):
     @property
     def benchmark(self) -> InMemoryBenchmarkResult:
         return object.__getattribute__(self, "_benchmark")  # type: ignore[return-value]
+
+    @property
+    def persistence_kind(self) -> Literal["memory"]:
+        return "memory"
 
     def _family(self, family: Literal["S", "Y", "Z"]) -> MatrixFamilyResult:
         if family == "S":
@@ -181,6 +186,10 @@ def build_memory_direct_result(
     presentation = {
         "view": raw_metadata["view"],
         "ref_lineage": raw_metadata["lineage"],
+        "persistence": "memory",
+        "plan_sha256": plan_sha256,
+        "request_sha256": request_sha256,
+        "execution_id": execution_id,
     }
     probe_loads = raw_metadata["probe_loads"]
 
@@ -251,6 +260,7 @@ def build_memory_direct_result(
         metadata=metadata,
         _benchmark=benchmark,
     )
+    object.__setattr__(result, "_memory_report_token", _MEMORY_RESULT_TOKEN)
     return result
 
 

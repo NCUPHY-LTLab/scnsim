@@ -59,11 +59,22 @@ def _parameter_field_data(result: Any, *, x: Any, y: Any | None) -> dict[str, An
     ])
     source_indices = [str(sample["source_index"]) for sample in result._samples]
     identities: list[str] = []
+    provenance: list[Mapping[str, object]] = []
     for sample in result._samples:
-        identity = getattr(sample["identity"], "parameters_sha256", None)
-        if not isinstance(identity, str) or not identity:
-            raise ValueError("ParameterField sample parameter identity is malformed")
-        identities.append(identity)
+        if "identity" in sample:
+            identity = getattr(sample["identity"], "parameters_sha256", None)
+            if not isinstance(identity, str) or not identity:
+                raise ValueError("saved ParameterField sample identity is malformed")
+            identities.append(identity)
+            provenance.append({"parameters_sha256": identity})
+        elif "execution_id" in sample:
+            execution_id = sample["execution_id"]
+            if not isinstance(execution_id, str) or not execution_id:
+                raise ValueError("in-memory ParameterField execution identity is malformed")
+            identities.append(f"not persisted; execution {execution_id}")
+            provenance.append({"persistence": "memory", "execution_id": execution_id})
+        else:
+            raise TypeError("ParameterField sample lacks saved or in-memory provenance")
     statuses = ["success" if sample["failure"] is None else "failure" for sample in result._samples]
     failures = [
         "—"
@@ -85,6 +96,7 @@ def _parameter_field_data(result: Any, *, x: Any, y: Any | None) -> dict[str, An
         },
         "source_indices": source_indices,
         "identities": identities,
+        "provenance": provenance,
         "statuses": statuses,
         "failures": failures,
         "failure_indices": [index for index, status in enumerate(statuses) if status == "failure"],
@@ -163,14 +175,12 @@ def _parameter_field_trace(result: Any, *, data: Mapping[str, Any], y: Any | Non
             meta=_trace_meta(
                 x_axis=data["x_axis"],
                 y_axis=data["y_axis"],
-                source={
-                    "samples": [
-                        {"source_index": source, "parameters_sha256": identity, "status": status}
-                        for source, identity, status in zip(
-                            data["source_indices"], data["identities"], data["statuses"], strict=True
-                        )
-                    ]
-                },
+                source={"samples": [
+                    {"source_index": source, **record, "status": status}
+                    for source, record, status in zip(
+                        data["source_indices"], data["provenance"], data["statuses"], strict=True
+                    )
+                ]},
             ),
             customdata=np.asarray(
                 list(zip(data["statuses"], data["source_indices"], data["identities"], data["failures"], strict=True)),
@@ -179,7 +189,7 @@ def _parameter_field_trace(result: Any, *, data: Mapping[str, Any], y: Any | Non
             hovertemplate=(
                 f"{data['x_label']}=%{{x}}<br>value=%{{y}} {data['unit']}"
                 "<br>status=%{customdata[0]}<br>source=%{customdata[1]}"
-                "<br>parameters=%{customdata[2]}<br>%{customdata[3]}<extra></extra>"
+                "<br>provenance=%{customdata[2]}<br>%{customdata[3]}<extra></extra>"
             ),
         )
     return go.Heatmap(
@@ -188,9 +198,9 @@ def _parameter_field_trace(result: Any, *, data: Mapping[str, Any], y: Any | Non
         meta=_trace_meta(
             x_axis=data["x_axis"], y_axis=data["y_axis"],
             source={"samples": [
-                {"source_index": source, "parameters_sha256": identity, "status": status}
-                for source, identity, status in zip(
-                    data["source_indices"], data["identities"], data["statuses"], strict=True
+                {"source_index": source, **record, "status": status}
+                for source, record, status in zip(
+                    data["source_indices"], data["provenance"], data["statuses"], strict=True
                 )
             ]},
         ),
@@ -198,7 +208,7 @@ def _parameter_field_trace(result: Any, *, data: Mapping[str, Any], y: Any | Non
         hovertemplate=(
             f"{data['x_label']}=%{{x}}<br>{data['y_label']}=%{{y}}"
             f"<br>value=%{{z}} {data['unit']}<br>status=%{{customdata[0]}}"
-            "<br>source=%{customdata[1]}<br>parameters=%{customdata[2]}"
+            "<br>source=%{customdata[1]}<br>provenance=%{customdata[2]}"
             "<br>%{customdata[3]}<extra></extra>"
         ),
     )
@@ -214,7 +224,7 @@ def _parameter_field_status_table(result: Any, data: Mapping[str, Any]) -> Any:
         for sample in result._samples
     ]
     return go.Table(
-        header={"values": ["source", "status", "parameters identity", "parameters", "failure"]},
+        header={"values": ["source", "status", "parameter provenance", "parameters", "failure"]},
         cells={"values": [
             [escape(value) for value in data["source_indices"]],
             [escape(value) for value in data["statuses"]],
@@ -452,9 +462,13 @@ def points_plot(points: Sequence[Any], *, theme: Theme = Theme.AUTO, title: str 
             ),
             width=56,
         )
-        identity, identity_lines = _wrapped_table_cell(
-            str(row["parameters_sha256"]), width=32
-        )
+        if "parameters_sha256" in row:
+            identity_text = f"saved parameters SHA-256: {row['parameters_sha256']}"
+        elif "execution_id" in row:
+            identity_text = f"not persisted; execution {row['execution_id']}"
+        else:
+            raise TypeError("parameter outcome row lacks saved or in-memory provenance")
+        identity, identity_lines = _wrapped_table_cell(identity_text, width=40)
         failure = row["failure"]
         if failure is None:
             failure_text = "—"
@@ -476,7 +490,7 @@ def points_plot(points: Sequence[Any], *, theme: Theme = Theme.AUTO, title: str 
     figure = go.Figure(data=[go.Table(
         columnwidth=[0.08, 0.10, 0.40, 0.20, 0.22],
         header={
-            "values": ["source index", "status", "parameter values", "parameters SHA-256", "failure"],
+            "values": ["source index", "status", "parameter values", "parameter provenance", "failure"],
             "height": 36,
             "font": {"size": 13},
         },

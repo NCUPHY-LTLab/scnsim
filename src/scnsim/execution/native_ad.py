@@ -15,11 +15,12 @@ _BASIS_WIDTH = 8
 def _abstract_operands(operands):
     """Keep only the pytree's array signature in a reusable variant recipe."""
     import jax
+    from ..numerics.native_program import native_operand_abstract
 
-    return jax.tree.map(
-        lambda value: jax.ShapeDtypeStruct(tuple(value.shape), value.dtype),
-        operands,
-    )
+    def abstract(value):
+        aval = native_operand_abstract(value)
+        return jax.ShapeDtypeStruct(tuple(aval.shape), aval.dtype, weak_type=aval.weak_type)
+    return jax.tree.map(abstract, operands)
 
 
 def _bucket_sizes(count, width):
@@ -105,11 +106,17 @@ def _candidate_tangents(native, frame, directions, *, backend, owner, basis_kind
 
 
 def _branch_frame(native, candidate, omega, seeds, check_status, certificate_status,
-                  *, backend, owner):
+                  *, backend, owner, completed_branches=None, completed_branch_errors=None):
+    if completed_branches is not None:
+        from ..numerics.native_program import bind_completed_branches
+        completed_branches = bind_completed_branches(completed_branches)
     variant = branch_ad_variant(native, candidate, omega, seeds, check_status,
-                                certificate_status, device=backend.device)
+                                certificate_status, device=backend.device,
+                                completed_branches=completed_branches,
+                                completed_branch_errors=completed_branch_errors)
     error, frame = backend.execute_native(
         variant.function, candidate, omega, seeds, check_status, certificate_status,
+        *((completed_branches,completed_branch_errors) if completed_branches is not None else ()),
         precision=backend.precision, compile_key=variant.key,
         owner=owner, phase='native_ad_joint_branches',
     )
@@ -131,15 +138,22 @@ def candidate_ad_variant(native, theta, *, device):
 
 
 def branch_ad_variant(native, candidate, omega, seeds, check_status,
-                      certificate_status, *, device):
+                      certificate_status, *, device, completed_branches=None, completed_branch_errors=None):
     """Return the exact checked joint-branch frame recipe shared with warmup."""
     from ..numerics.native_sparse import checked_native
     from .variant_plan import ExecutionVariant
+    import jax
 
     operands = candidate, omega, seeds, check_status, certificate_status
+    if completed_branches is not None:
+        from ..numerics.native_program import bind_completed_branches
+        completed_branches = bind_completed_branches(completed_branches)
+        operands = (*operands, completed_branches, completed_branch_errors)
     key = native.variant_key(
         'branch_ad', device=device, operands=operands,
-        transform='checked_joint_branch_linearization',
+        transform=('checked_joint_branch_linearization' if completed_branches is None
+                   else ('checked_completed_branch_linearization',
+                         str(jax.tree.structure(completed_branch_errors)))),
     )
     return ExecutionVariant('branch_ad', key,
         checked_native(native.branch_ad_function), _abstract_operands(operands))
@@ -608,7 +622,31 @@ def _basis_directions(jnp, count, dimension, *, dtype, indices=None):
 
 def sensitivity_derivative(native, arguments, *, derivative_kind, quantity_program,
                            inputs, prepared_analysis, backend, program_owner,
-                           execution_policy, frame_owner):
+                           execution_policy, frame_owner, compact_evidence=False,
+                           completed_branches=None, completed_branch_errors=None):
+    """Acquire optional original-point search, then consume its local implicit AD."""
+    searches = ()
+    if completed_branches is None and any(row['spec'].get('search')
+            for row in quantity_program.observable_metadata() if row['start_index'] is not None):
+        from .physical_analysis import acquire_completed_root_frame
+        native,completed,_,searches = acquire_completed_root_frame(quantity_program,inputs,
+            backend=backend,program_owner=program_owner,
+            operation_resources=backend.operation_resources,
+            compact_evidence=compact_evidence,discover=True)
+        completed_branches,completed_branch_errors = completed
+    outcome = _sensitivity_derivative(native,arguments,derivative_kind=derivative_kind,
+        quantity_program=quantity_program,inputs=inputs,prepared_analysis=prepared_analysis,
+        backend=backend,program_owner=program_owner,execution_policy=execution_policy,
+        frame_owner=frame_owner,compact_evidence=compact_evidence,
+        completed_branches=completed_branches,completed_branch_errors=completed_branch_errors)
+    from ..numerics.evidence import attach_root_search_metadata
+    outcome = attach_root_search_metadata(outcome,searches)
+    return outcome
+
+
+def _sensitivity_derivative(native, arguments, *, derivative_kind, quantity_program,
+                           inputs, prepared_analysis, backend, program_owner,
+                           execution_policy, frame_owner, compact_evidence=False, completed_branches=None, completed_branch_errors=None):
     """Evaluate one checked JVP, VJP, or blocked Jacobian on the shared core."""
     import jax
     import jax.numpy as jnp
@@ -650,7 +688,9 @@ def sensitivity_derivative(native, arguments, *, derivative_kind, quantity_progr
                 frame_owner=frame_owner)
             error_frames.extend(frames)
             branch_error, branch_frame = _branch_frame(native, candidate, omega, seeds,
-                checks, certificates, backend=backend, owner=owner)
+                checks, certificates, backend=backend, owner=owner,
+                completed_branches=completed_branches,
+                completed_branch_errors=completed_branch_errors)
             branch_theta, branch_errors = _branch_direction_frames(
                 native, candidate_frame, branch_frame, directions, omega, seeds,
                 backend=backend, owner=frame_owner, basis_kind=basis_kind,
@@ -665,7 +705,7 @@ def sensitivity_derivative(native, arguments, *, derivative_kind, quantity_progr
                               branch_frame.outcome.check_status,
                               branch_frame.outcome.certificate_status)
             return project_native_jvp_outcome(native, (raw, derivative), branch_error,
-                                              error_frames=tuple(error_frames))
+                                              error_frames=tuple(error_frames), compact_evidence=compact_evidence)
 
         if derivative_kind == 'jacobian':
             output_count = sum(block.row_count for block in quantity_program.output_layout.blocks)
@@ -681,7 +721,9 @@ def sensitivity_derivative(native, arguments, *, derivative_kind, quantity_progr
                     frame_owner=frame_owner)
                 error_frames.extend(frames)
                 branch_error, branch_frame = _branch_frame(native, candidate, omega, seeds,
-                    checks, certificates, backend=backend, owner=owner)
+                    checks, certificates, backend=backend, owner=owner,
+                completed_branches=completed_branches,
+                completed_branch_errors=completed_branch_errors)
                 branch_tangents, branch_errors = _branch_direction_frames(
                     native, candidate_frame, branch_frame, directions, omega, seeds,
                     backend=backend, owner=frame_owner, basis_kind=basis_kind,
@@ -700,7 +742,9 @@ def sensitivity_derivative(native, arguments, *, derivative_kind, quantity_progr
                     initial_certificates=initial_certificates)
                 error_frames.extend(value_frames)
                 branch_error, branch_frame = _branch_frame(native, candidate, omega, seeds,
-                    checks, certificates, backend=backend, owner=owner)
+                    checks, certificates, backend=backend, owner=owner,
+                completed_branches=completed_branches,
+                completed_branch_errors=completed_branch_errors)
                 flat, projection = _project(native, response_values, branch_frame)
                 gradient_banks = []
                 for start in range(0, output_count, _BASIS_WIDTH):
@@ -745,7 +789,7 @@ def sensitivity_derivative(native, arguments, *, derivative_kind, quantity_progr
                               branch_frame.outcome.certificate_status)
             return project_native_jacobian_outcome(native, (raw, jacobian),
                 branch_error,
-                error_frames=tuple(error_frames))
+                error_frames=tuple(error_frames), compact_evidence=compact_evidence)
 
         if derivative_kind == 'vjp':
             weights = jnp.asarray(quantity_program.weight_vector(
@@ -756,7 +800,9 @@ def sensitivity_derivative(native, arguments, *, derivative_kind, quantity_progr
                 initial_certificates=initial_certificates)
             error_frames.extend(value_frames)
             branch_error, branch_frame = _branch_frame(native, candidate, omega, seeds,
-                checks, certificates, backend=backend, owner=owner)
+                checks, certificates, backend=backend, owner=owner,
+                completed_branches=completed_branches,
+                completed_branch_errors=completed_branch_errors)
             flat, projection = _project(native, response_values, branch_frame)
             response_covectors, branch_covectors, output_covectors, _, _ = _projection_pullback(
                 native, response_values, branch_frame, backend=backend, weights=weights)
@@ -788,14 +834,14 @@ def sensitivity_derivative(native, arguments, *, derivative_kind, quantity_progr
                               branch_frame.outcome.check_status,
                               branch_frame.outcome.certificate_status)
             return project_native_derivative_outcome(native, (raw, gradient), branch_error,
-                output_covectors=output_covectors, error_frames=tuple(error_frames))
+                output_covectors=output_covectors, error_frames=tuple(error_frames), compact_evidence=compact_evidence)
 
         raise TypeError(f'unsupported Sensitivity derivative {derivative_kind!r}')
 
 
 def objective_value_and_gradient(native, arguments, loss, *, active_keys, backend,
                                  coefficients, program_owner, execution_policy,
-                                 frame_owner, compact_evidence=False):
+                                 frame_owner, compact_evidence=False, completed_branches=None, completed_branch_errors=None):
     """Differentiate the exact shared Objective loss through bounded chunks."""
     import jax
     import jax.numpy as jnp
@@ -815,7 +861,9 @@ def objective_value_and_gradient(native, arguments, loss, *, active_keys, backen
             policy=execution_policy, initial_checks=initial_checks,
             initial_certificates=jnp.int32(0))
         branch_error, branch_frame = _branch_frame(native, candidate, omega, seeds,
-            checks, certificates, backend=backend, owner=owner)
+            checks, certificates, backend=backend, owner=owner,
+                completed_branches=completed_branches,
+                completed_branch_errors=completed_branch_errors)
         flat, projection = _project(native, response_values, branch_frame)
         payload, output_covectors = _objective_loss_payload_and_covectors(
             native, loss, projection.output_values, coefficients,

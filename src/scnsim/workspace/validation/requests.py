@@ -1009,6 +1009,52 @@ def _hb_declared_modes_from_spec(spec: Mapping[str, object], *, response: bool) 
             retained.append(list(mode))
     return retained
 
+def _verify_root_search(search: object) -> None:
+    """Validate closed caller discovery facts, not numerical root success."""
+    if not isinstance(search, dict):
+        raise _integrity("Root search declaration is malformed.")
+    method = search.get("method")
+    if method not in {"polynomial_transfer_zero", "finite_seeds"}:
+        raise _integrity("Root search method is malformed.")
+    fields = {"method", "region", "selection", "tracking"}
+    if method == "finite_seeds":
+        fields.add("seeds")
+    if set(search) != fields:
+        raise _integrity("Root search declaration is open or malformed.")
+    region = search["region"]
+    if not isinstance(region, dict) or not set(region) <= {"real_frequency_interval", "hint_frequency_factor_f64", "imag_frequency_interval"}:
+        raise _integrity("Root search region is malformed.")
+    if ("real_frequency_interval" in region) == ("hint_frequency_factor_f64" in region):
+        raise _integrity("Root search requires exactly one real-region mode.")
+    if "hint_frequency_factor_f64" in region:
+        factor = region["hint_frequency_factor_f64"]
+        if not _finite_f64(factor) or _f64_value(factor) <= 0:
+            raise _integrity("Root search Hint factor encoding is malformed.")
+    for axis in ("real_frequency_interval", "imag_frequency_interval"):
+        if axis not in region:
+            continue
+        interval = region[axis]
+        if not isinstance(interval, list) or len(interval) != 2:
+            raise _integrity("Root search interval is malformed.", axis=axis)
+        for value in interval:
+            _verify_quantity_role(value, complex_value=False, unit="hertz", dimensionality="inverse_time")
+        if _f64_value(interval[0]["si_value_f64"]) > _f64_value(interval[1]["si_value_f64"]):
+            raise _integrity("Root search interval is reversed.", axis=axis)
+    if method == "finite_seeds":
+        seeds = search["seeds"]
+        if not isinstance(seeds, list) or not seeds:
+            raise _integrity("Root search trial seeds are malformed.")
+        for value in seeds:
+            _verify_quantity_role(value, complex_value=True, unit="hertz", dimensionality="inverse_time")
+    selection = search["selection"]
+    if (not isinstance(selection, dict) or set(selection) != {"kind", "metric", "tie"}
+            or selection["kind"] != "nearest_hint" or selection["metric"] != "complex_frequency_euclidean"
+            or selection["tie"] not in {"unavailable", "source_order"}):
+        raise _integrity("Root search selection is malformed.")
+    if search["tracking"] != {"kind": "baseline_anchor"}:
+        raise _integrity("Root search tracking is malformed.")
+
+
 def _verify_v1_evaluation_spec(
     spec: object,
     terminal: list[str],
@@ -1019,26 +1065,28 @@ def _verify_v1_evaluation_spec(
     if not isinstance(spec, dict) or not isinstance(spec.get("type"), str):
         raise _integrity("Direct evaluation Spec is malformed.")
     kind = spec["type"]
+    if kind in {"diagonal_root", "operator_element_root", "hybridized_pole", "transfer_zero"} and "search" in spec:
+        _verify_root_search(spec["search"])
     if kind == "diagonal_root":
         coordinate = spec.get("coordinate")
         invalid = coordinate not in terminal or (residue_branch and len(terminal) < 2)
-        if set(spec) != {"type", "coordinate", "root_hint"} or invalid:
+        if set(spec) - {"search"} != {"type", "coordinate", "root_hint"} or invalid:
             raise _integrity("Diagonal-root Spec is incompatible with its final View.")
         _verify_quantity_role(spec.get("root_hint"), complex_value=False, unit="hertz", dimensionality="inverse_time")
         if _f64_value(spec["root_hint"]["si_value_f64"]) <= 0.0:
             raise _integrity("Diagonal-root hint must be positive.")
     elif kind == "operator_element_root":
-        if set(spec) != {"type", "row", "column", "root_hint"} or spec.get("row") not in terminal or spec.get("column") not in terminal:
+        if set(spec) - {"search"} != {"type", "row", "column", "root_hint"} or spec.get("row") not in terminal or spec.get("column") not in terminal:
             raise _integrity("Operator-element-root Spec is incompatible with its final View.")
         _verify_quantity_role(spec.get("root_hint"), complex_value=False, unit="hertz", dimensionality="inverse_time")
         if _f64_value(spec["root_hint"]["si_value_f64"]) <= 0.0:
             raise _integrity("Operator-element-root hint must be positive.")
     elif kind == "hybridized_pole":
-        if set(spec) != {"type", "coordinates", "anchor"} or len(terminal) < 2 or _identifiers(spec.get("coordinates"), field="Hybridized-pole coordinates") != terminal:
+        if set(spec) - {"search"} != {"type", "coordinates", "anchor"} or len(terminal) < 2 or _identifiers(spec.get("coordinates"), field="Hybridized-pole coordinates") != terminal:
             raise _integrity("Hybridized-pole coordinates must equal the complete retained View.")
         _verify_frequency_anchor(spec.get("anchor"))
     elif kind == "transfer_zero":
-        if set(spec) != {"type", "anchor", "family", "input_coordinate", "output_coordinate"} or spec.get("family") not in {"S", "Y", "Z"} or spec.get("input_coordinate") not in terminal or spec.get("output_coordinate") not in terminal:
+        if set(spec) - {"search"} != {"type", "anchor", "family", "input_coordinate", "output_coordinate"} or spec.get("family") not in {"S", "Y", "Z"} or spec.get("input_coordinate") not in terminal or spec.get("output_coordinate") not in terminal:
             raise _integrity("Transfer-zero Spec is malformed.")
         if spec.get("family") == "S" and not port_realizable:
             raise _integrity("S-family transfer-zero evaluation is not Port-realizable.")

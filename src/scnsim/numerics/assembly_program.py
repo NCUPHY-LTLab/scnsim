@@ -74,6 +74,17 @@ class AssemblyProgram:
         prepared = tuple(group[:7] + (inverse, code) for group, (inverse, code) in zip(groups, constants, strict=True))
         return jnp.arange(len(self.pattern.rows), dtype=jnp.int32), base, load, prepared
 
+    def polynomial_coefficients(self, operands, *, view_status, dtype):
+        """Use the same fixed sparse stamps for an admitted pure-inductive pencil."""
+        from .jax_core import polynomial_coefficients, first
+        from ..errors import RuntimePreparationError
+        if any(not all(group.pure) for group in self.groups):
+            raise RuntimePreparationError(
+                'Polynomial transfer-zero discovery requires declared pure-inductive series sections',
+                stage='root_search_prepare')
+        K, C, G, status = polynomial_coefficients(operands, loaded=True, dtype=dtype)
+        return K, C, G, first(view_status, status != 0, status)
+
     def __call__(self, theta, omega, *, loaded, compensated=False, port_realizable=None):
         import jax.numpy as jnp
         from .jax_core import assemble, first

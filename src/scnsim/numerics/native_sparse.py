@@ -406,6 +406,35 @@ def _archive_primal_error(error):
     _primal_archive_p.bind(*operands, error_tree=tree)
 
 
+def archive_completed_primal_errors(errors):
+    """Recharge actual selected branch archives at their consuming frame.
+
+    Errors are operation-owned outputs of the original checked branch calls.
+    No equation is repeated and no success or performed fact is manufactured.
+    """
+    for error in errors:
+        _archive_primal_error(error)
+
+
+def root_error_frame(error, dependency):
+    """Project one root occurrence's actual checks from a synchronized frame.
+
+    This finite host projection retains original payloads/codes/presence; it
+    does not rerun equations or turn failures into success. Other occurrences
+    belong to their own packet and cannot contaminate a completed replacement.
+    """
+    effects = tuple(effect for effect in error._pred
+        if isinstance(effect,(SparseCertificateEffect,DerivativeAvailabilityEffect))
+        and effect.dependency == tuple(dependency))
+    codes = {int(value) for effect in effects
+             for value in np.asarray(error._code[effect]).reshape(-1)}
+    return error._replace(
+        _pred={effect:error._pred[effect] for effect in effects},
+        _code={effect:error._code[effect] for effect in effects},
+        _payload={effect:error._payload[effect] for effect in effects},
+        _metadata={code:tree for code,tree in error._metadata.items() if code in codes})
+
+
 _primal_archive_p.def_impl(lambda *operands, error_tree: [])
 
 

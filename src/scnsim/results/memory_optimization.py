@@ -22,7 +22,7 @@ from ..errors import SCNSimStateError
 from ..numerics.models import EvaluationResult
 from ..visualization.presentation import Theme
 from .base import LineDiscretization, Result, _sha256
-from .factory import _verified_result
+from .factory import _MEMORY_RESULT_TOKEN, _verified_result
 
 if TYPE_CHECKING:
     from plotly.graph_objects import Figure
@@ -116,6 +116,7 @@ class InMemoryOptimizationResult(Result):
     comparison_stage_id: str | None
     _presentation: Mapping[str, object] = field(repr=False, compare=False)
     _benchmark: InMemoryBenchmarkResult | None = field(default=None, repr=False, compare=False)
+    _memory_report_token: object = field(default=None, init=False, repr=False, compare=False)
 
     def __init__(self) -> None:
         unavailable("InMemoryOptimizationResult construction")
@@ -136,6 +137,10 @@ class InMemoryOptimizationResult(Result):
 
     @property
     def persistence(self) -> Literal["memory"]:
+        return "memory"
+
+    @property
+    def persistence_kind(self) -> Literal["memory"]:
         return "memory"
 
     @property
@@ -514,7 +519,7 @@ def build_memory_optimization_result(
         "baseline_ref": execution_ref(baseline),
         "winner_ref": execution_ref(best),
     }
-    return _verified_result(
+    result = _verified_result(
         InMemoryOptimizationResult,
         plan_sha256=plan_sha256,
         request_sha256=request_sha256,
@@ -533,6 +538,8 @@ def build_memory_optimization_result(
         _presentation=presentation,
         _benchmark=benchmark,
     )
+    object.__setattr__(result, "_memory_report_token", _MEMORY_RESULT_TOKEN)
+    return result
 
 
 def attach_memory_optimization_benchmark(

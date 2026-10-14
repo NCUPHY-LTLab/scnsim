@@ -225,6 +225,12 @@ def _metadata_value(value: object) -> object:
 
 def _presentation_source(result: Any, **selected: object) -> dict[str, object]:
     source: dict[str, object] = dict(selected)
+    persistence = getattr(result, "persistence_kind", None)
+    if persistence == "memory":
+        source["persistence"] = "memory"
+        execution_id = getattr(result, "execution_id", None)
+        if isinstance(execution_id, str):
+            source["execution_id"] = execution_id
     identity = getattr(result, "identity", None)
     if identity is None:
         identity = getattr(result, "_parent_identity", None)
@@ -244,6 +250,12 @@ def _presentation_source(result: Any, **selected: object) -> dict[str, object]:
         ):
             if name in presentation and name not in source:
                 source[name] = _metadata_value(presentation[name])
+        if presentation.get("persistence") == "memory":
+            for name in ("plan_sha256", "request_sha256", "execution_id"):
+                value = presentation.get(name)
+                if isinstance(value, str):
+                    source[name] = value
+            source["persistence"] = "memory"
     lineage = presentation.get("ref_lineage") if isinstance(presentation, Mapping) else None
     if isinstance(lineage, Mapping) and isinstance(lineage.get("lineage_sha256"), str):
         source["view_lineage_sha256"] = lineage["lineage_sha256"]

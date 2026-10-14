@@ -1166,6 +1166,7 @@
         ]
       }
     },
+    "rootSearchSpec": {"type": "object", "additionalProperties": false, "required": ["method", "region", "selection", "tracking"], "properties": {"region": {"type": "object", "additionalProperties": false, "required": [], "properties": {"real_frequency_interval": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"allOf": [{"$ref": "#/$defs/quantity"}, {"properties": {"si_unit": {"const": "hertz"}, "dimensionality": {"const": "inverse_time"}}}]}}, "imag_frequency_interval": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"allOf": [{"$ref": "#/$defs/quantity"}, {"properties": {"si_unit": {"const": "hertz"}, "dimensionality": {"const": "inverse_time"}}}]}}, "hint_frequency_factor_f64": {"$ref": "#/$defs/f64"}}, "oneOf": [{"required": ["real_frequency_interval"]}, {"required": ["hint_frequency_factor_f64"]}]}, "seeds": {"type": "array", "minItems": 1, "items": {"allOf": [{"$ref": "#/$defs/complexQuantity"}, {"properties": {"si_unit": {"const": "hertz"}, "dimensionality": {"const": "inverse_time"}}}]}}, "selection": {"type": "object", "additionalProperties": false, "required": ["kind", "metric", "tie"], "properties": {"kind": {"const": "nearest_hint"}, "metric": {"const": "complex_frequency_euclidean"}, "tie": {"enum": ["unavailable", "source_order"]}}}, "tracking": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "baseline_anchor"}}}, "method": {"enum": ["polynomial_transfer_zero", "finite_seeds"]}}, "allOf": [{"if": {"properties": {"method": {"const": "finite_seeds"}}}, "then": {"required": ["seeds"]}, "else": {"not": {"required": ["seeds"]}}}]},
     "frequencyAnchor": {
       "oneOf": [
         { "allOf": [{ "$ref": "#/$defs/quantity" }, { "properties": { "si_unit": { "const": "hertz" }, "dimensionality": { "const": "inverse_time" } } }] },
@@ -1178,7 +1179,8 @@
       "properties": {
         "type": { "const": "hybridized_pole" },
         "coordinates": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/identifier" } },
-        "anchor": { "$ref": "#/$defs/frequencyAnchor" }
+        "anchor": { "$ref": "#/$defs/frequencyAnchor" },
+        "search": { "$ref": "#/$defs/rootSearchSpec" }
       }
     },
     "transferZeroSpec": {
@@ -1189,7 +1191,8 @@
         "anchor": { "$ref": "#/$defs/frequencyAnchor" },
         "family": { "enum": ["S", "Y", "Z"] },
         "input_coordinate": { "$ref": "#/$defs/identifier" },
-        "output_coordinate": { "$ref": "#/$defs/identifier" }
+        "output_coordinate": { "$ref": "#/$defs/identifier" },
+        "search": { "$ref": "#/$defs/rootSearchSpec" }
       }
     },
     "rootBranchSpec": {
@@ -1365,7 +1368,8 @@
       "properties": {
         "type": { "const": "diagonal_root" },
         "coordinate": { "$ref": "#/$defs/identifier" },
-        "root_hint": { "allOf": [{ "$ref": "#/$defs/quantity" }, { "properties": { "si_unit": { "const": "hertz" }, "dimensionality": { "const": "inverse_time" } } }] }
+        "root_hint": { "allOf": [{ "$ref": "#/$defs/quantity" }, { "properties": { "si_unit": { "const": "hertz" }, "dimensionality": { "const": "inverse_time" } } }] },
+        "search": { "$ref": "#/$defs/rootSearchSpec" }
       }
     },
     "operatorElementRootSpec": {
@@ -1375,7 +1379,8 @@
         "type": { "const": "operator_element_root" },
         "row": { "$ref": "#/$defs/identifier" },
         "column": { "$ref": "#/$defs/identifier" },
-        "root_hint": { "allOf": [{ "$ref": "#/$defs/quantity" }, { "properties": { "si_unit": { "const": "hertz" }, "dimensionality": { "const": "inverse_time" } } }] }
+        "root_hint": { "allOf": [{ "$ref": "#/$defs/quantity" }, { "properties": { "si_unit": { "const": "hertz" }, "dimensionality": { "const": "inverse_time" } } }] },
+        "search": { "$ref": "#/$defs/rootSearchSpec" }
       }
     },
     "networkViewDeclaration": {
