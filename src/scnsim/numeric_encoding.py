@@ -39,11 +39,33 @@ def record_document(value: bytes) -> dict:
     return decode_record(json.loads(value))
 
 
-def array_record(value: object) -> dict[str, object]:
-    """Exact row-major numeric payload, preserving selected numerical precision."""
+# One closed portable array vocabulary. Integers/booleans are used by exact
+# evidence records; default callers retain their historical projection bytes.
+_ARRAY_DTYPES = {
+    "bool": "|b1",
+    "int8": "|i1", "uint8": "|u1",
+    "int16": "<i2", "uint16": "<u2",
+    "int32": "<i4", "uint32": "<u4",
+    "int64": "<i8", "uint64": "<u8",
+    "float32": "<f4", "float64": "<f8",
+    "complex64": "<c8", "complex128": "<c16",
+}
+
+
+def array_record(value: object, *, exact_dtype: bool = False) -> dict[str, object]:
+    """Encode one row-major array in the existing dtype/shape/bits record.
+
+    Host certificate evidence requests exact_dtype to retain integer, boolean
+    and selected floating channels, including zero-dimensional arrays. The
+    default keeps existing model/result/snapshot callers' projection bytes;
+    it does not change physical or request identities outside this hotfix.
+    """
     source = np.asarray(value)
-    complex_ = np.iscomplexobj(source)
-    dtype = "<c8" if source.dtype == np.dtype("complex64") else "<f4" if source.dtype == np.dtype("float32") else "<c16" if complex_ else "<f8"
+    if exact_dtype:
+        dtype = _ARRAY_DTYPES[source.dtype.name]
+    else:
+        complex_ = np.iscomplexobj(source)
+        dtype = "<c8" if source.dtype == np.dtype("complex64") else "<f4" if source.dtype == np.dtype("float32") else "<c16" if complex_ else "<f8"
     array = np.asarray(source, dtype=dtype)
     return {
         "dtype": array.dtype.name,
@@ -54,7 +76,7 @@ def array_record(value: object) -> dict[str, object]:
 
 def array_from_record(record: dict[str, object]) -> np.ndarray:
     """Reconstruct immutable typed arrays; native decoding/shape errors propagate."""
-    dtype = {"float32": "<f4", "float64": "<f8", "complex64": "<c8", "complex128": "<c16"}[record["dtype"]]
+    dtype = _ARRAY_DTYPES[record["dtype"]]
     return np.frombuffer(bytes.fromhex(record["data_hex"]), dtype=dtype).reshape(record["shape"])
 
 

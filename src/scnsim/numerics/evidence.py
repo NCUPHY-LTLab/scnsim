@@ -1,20 +1,28 @@
 """Encode numerical diagnostics without acquiring persistence or runtime ownership."""
 from __future__ import annotations
 import math
+from collections.abc import Mapping
 import numpy as np
 from ..numeric_encoding import array_record, record_bytes, record_document
 from .. import errors
 from .models import NumericalFailure
 
 def evidence_bytes(value: object) -> bytes:
-    """Represent numerical diagnostics, including unresolved nonfinite values."""
+    """Encode synchronized host facts, retaining exact certificate array bits.
+
+    Only concrete NumPy/JAX arrays use the exact typed array codec. Conversion
+    is at this host publication boundary, never a traced numerical operation;
+    native conversion/unsupported-type errors propagate without a fallback.
+    Python/NumPy scalar evidence retains its established scalar convention.
+    """
+    from jax import Array
     def encode(item: object) -> object:
-        if isinstance(item, dict):
+        if isinstance(item, Mapping):
             return {str(k): encode(v) for k, v in item.items()}
         if isinstance(item, (tuple, list)):
             return [encode(v) for v in item]
-        if isinstance(item, np.ndarray):
-            return array_record(item)
+        if isinstance(item, (np.ndarray, Array)):
+            return array_record(item, exact_dtype=True)
         if isinstance(item, np.generic):
             return encode(item.item())
         if isinstance(item, complex):
