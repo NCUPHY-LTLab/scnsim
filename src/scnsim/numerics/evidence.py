@@ -378,7 +378,7 @@ def project_native_outcome(native, result, checked_error, *, _derivative_frame=F
         certificates, np.bool_(all(available)), tuple(reason for row in reasons for reason in row),
         tuple(bool(value) for value in aux.realized_capabilities), available, reasons,
         branches, quantities, _detach_native(aux.observable_values),
-        _detach_native(aux.observable_raw_values))
+        _detach_native(aux.observable_raw_values), _detach_native(aux.static_facts))
     return ProgramOutcome(_detach_native(aux.output_values), projected)
 
 

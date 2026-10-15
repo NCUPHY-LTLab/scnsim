@@ -16,7 +16,7 @@ from .hb import HBCaseOutcome, HBBatchResult
 from .matrix import (
     DiagonalRootResult, DirectQuantityResult, DirectSolveResult,
     OperatorElementRootResult, OperatorPointResult, OperatorResult,
-    ReconciliationEvidence,
+    ReconciliationEvidence, StaticCapacitanceResult, StaticCapacitanceElementResult,
 )
 from .optimization import OptimizationBest, OptimizationResult, OptimizationStage
 from .sensitivity import (
@@ -231,6 +231,8 @@ def _is_verified_analysis_result(value: object) -> bool:
             OperatorElementRootResult,
             DirectQuantityResult,
             OperatorResult,
+            StaticCapacitanceResult,
+            StaticCapacitanceElementResult,
             OptimizationResult,
             SensitivityResult,
             HBBatchResult,

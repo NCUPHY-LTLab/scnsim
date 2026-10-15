@@ -18,6 +18,8 @@ from ..specs import (
     HBSolveSpec,
     HybridizedPoleSpec,
     OperatorSpec,
+    StaticCapacitanceSpec,
+    StaticCapacitanceElementSpec,
     OptimizationSpec,
     SensitivitySpec,
     JVP,
@@ -112,7 +114,7 @@ def _quantity_selectors(value: object) -> tuple[QuantitySelector, ...]:
 def source_units(
         source_provenance,
         parameter_lookup,
-        spec: DirectSolveSpec | HBSolveSpec | DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | OptimizationSpec,
+        spec: DirectSolveSpec | HBSolveSpec | DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | StaticCapacitanceSpec | StaticCapacitanceElementSpec | OptimizationSpec,
         parameters: ParameterSet,
         *,
         parameter_space: ParameterSet | ParameterSpace | None,
@@ -371,6 +373,8 @@ def source_units(
             add(_source_unit_identity(scope="request_spec", parameter_id="transfer_zero", field="anchor"), spec.anchor, "hertz")
         elif isinstance(spec, ResponseElementSpec):
             add(_source_unit_identity(scope="request_spec", parameter_id="response_element", field="frequency"), spec.frequency, "hertz")
+        elif isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
+            pass  # Coordinate-only declaration introduces no frequency/source unit.
         elif isinstance(spec, OperatorSpec):
             add(_source_unit_identity(scope="request_spec", parameter_id="operator", field="frequencies"), spec.frequencies, "hertz")
         elif isinstance(spec, ResidueNormalizedCouplingSpec):
@@ -485,6 +489,9 @@ def prepare_request(*, plan_sha256, operation, view, encoded_spec,
         semantic["algorithm_id"] = "scnsim.direct_response.v1"
     elif operation == "solve_hb":
         semantic["algorithm_id"] = "scnsim.hb_response.josephsoncircuits.v1"
+    elif operation == "evaluate_direct" and backend == "jax":
+        from .request import _JAX_ALGORITHMS
+        semantic["algorithm_id"] = _JAX_ALGORITHMS[encoded_spec["type"]]
     elif operation == "evaluate_direct":
         semantic["algorithm_id"] = {
             "diagonal_root": "scnsim.diagonal_root.newton32.v2",

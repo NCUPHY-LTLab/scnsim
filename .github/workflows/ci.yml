@@ -652,6 +652,17 @@ jobs:
           Set-Location $env:RUNNER_TEMP
           & $python $script smoke --repository $repository --chapter $chapter --wheelhouse $wheelhouse --output $output
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check installed wheel Path Portability Set on Windows
+        shell: pwsh
+        env:
+          SCNSIM_PATH_TEST_CONTEXT: installed-wheel
+        run: |
+          $repository = $env:GITHUB_WORKSPACE
+          $python = Join-Path $repository '.venv-windows-wheel/Scripts/python.exe'
+          $test = Join-Path $repository 'tests/test_path_portability.py'
+          Set-Location $env:RUNNER_TEMP
+          & $python -W error::ResourceWarning $test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -799,6 +810,28 @@ jobs:
                   'python': sys.version, 'observations': observations, 'benchmark': benchmark}, default=str))
           PY
 
+      - name: Check installed wheel Path Portability Set on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          SCNSIM_PATH_TEST_CONTEXT: installed-wheel
+        run: |
+          repository="$GITHUB_WORKSPACE"
+          python="$repository/.venv-jax-wheel/bin/python"
+          test="$repository/tests/test_path_portability.py"
+          cd "$RUNNER_TEMP"
+          "$python" -W error::ResourceWarning "$test"
+      - name: Check installed wheel Path Portability Set on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          SCNSIM_PATH_TEST_CONTEXT: installed-wheel
+        run: |
+          repository="$GITHUB_WORKSPACE"
+          python="$repository/.venv-jax-wheel/bin/python"
+          test="$repository/tests/test_path_portability.py"
+          cd "$RUNNER_TEMP"
+          "$python" -W error::ResourceWarning "$test"
       - name: Explicitly provision Julia and prepare the packaged runtime
         env:
           JULIA_DEPOT_PATH: ${{ runner.temp }}/scnsim-julia-depot

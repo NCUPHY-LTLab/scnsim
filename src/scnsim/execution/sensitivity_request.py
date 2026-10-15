@@ -72,6 +72,8 @@ def _output_unit(expression):
         return {'S': 'dimensionless', 'Y': 'siemens', 'Z': 'ohm'}[expression['projection']]
     if kind == 'operator_projection':
         return 'siemens / second'
+    if kind in ('static_capacitance_projection', 'static_capacitance_element_projection'):
+        return 'farad'
     if kind == 'response_element_projection':
         return {'S': 'dimensionless', 'Y': 'siemens', 'Z': 'ohm'}[expression['spec']['family']]
     if kind == 'residue_coupling_projection':

@@ -33,8 +33,13 @@
   description: "Declare derivatives and read their units and availability."
   topic: run
   order: 6
+- title: "Static capacitance"
+  path: "static-capacitance.qmd"
+  description: "Evaluate finite compiled capacitance matrices and zero-charge reductions."
+  topic: run
+  order: 7
 - title: "Benchmark"
   path: "../guides/benchmark.qmd"
   description: "Separate preparation, numerical work, storage, and public-call clocks."
   topic: run
-  order: 7
+  order: 8

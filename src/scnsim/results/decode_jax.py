@@ -35,6 +35,8 @@ from .matrix import (
     OperatorElementRootResult,
     OperatorPointResult,
     OperatorResult,
+    StaticCapacitanceResult,
+    StaticCapacitanceElementResult,
     ScatteringMatrixResult,
 )
 from .lazy_direct import DirectTraceMapping
@@ -156,6 +158,20 @@ def _point_result(identity, record, request):
     kind = request["spec"]["type"]
     grid = _discretization(record.get("discretization"))
     presentation = _presentation(record, request)
+    if kind in {"static_capacitance", "static_capacitance_element"}:
+        evidence = _quantity_evidence(record, request)
+        axes = {name: tuple(evidence[name]) for name in ("row_coordinates", "column_coordinates", "zero_charge")}
+        value = _numeric_quantity(record, "capacitance_values", "farad")
+        if kind == "static_capacitance":
+            if np.asarray(value.magnitude).shape != (len(axes["row_coordinates"]), len(axes["column_coordinates"])):
+                raise EvidenceIntegrityError("Static capacitance shape differs from its compiled coordinate axes", stage="result_decode")
+            return _verified_result(StaticCapacitanceResult, identity=identity, discretization=grid,
+                                    matrix=value, **axes, evidence=evidence)
+        if np.asarray(value.magnitude).shape != ():
+            raise EvidenceIntegrityError("Static capacitance element is not scalar", stage="result_decode")
+        return _verified_result(StaticCapacitanceElementResult, identity=identity, discretization=grid,
+                                value=value, row=request["spec"]["row"], column=request["spec"]["column"],
+                                zero_charge=axes["zero_charge"], evidence=evidence)
     if kind == "diagonal_root":
         root = _numeric_quantity(record, "root_omega_rad_s", "radian / second")
         frequency, linewidth = _root_frequency_linewidth(record, root.magnitude)

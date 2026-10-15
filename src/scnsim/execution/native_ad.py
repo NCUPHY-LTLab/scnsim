@@ -606,6 +606,9 @@ def _raw_result(native, candidate_frame, branch_frame, flat, projection, checks,
         projection.derivative_available, branch_frame.outcome.branch_packets,
         branch_frame.outcome.quantity_packets, projection.observable_values,
         projection.observable_raw_values, projection.output_values,
+        tuple((index, candidate.views[native.occurrence_layout[index]['view_index']].coordinate_transform)
+              for index in native.branch_observable_indices
+              if native.occurrence_layout[index]['family'] in ('static_capacitance', 'static_capacitance_element')),
     )
     return (flat, aux)
 

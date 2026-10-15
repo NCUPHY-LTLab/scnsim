@@ -30,6 +30,8 @@ class ObservableDescriptor:
     axes: tuple[tuple[str, tuple[str, ...]], ...] = ()
     dependency_indices: tuple[int, ...] = ()
     frequency_mode: str | None = None
+    zero_charge_indices: tuple[int, ...] = ()
+    retained_indices: tuple[int, ...] = ()
 
 
 
@@ -46,6 +48,7 @@ class ProgramAux(NamedTuple):
     quantity_results: tuple = ()
     observable_values: tuple = ()
     observable_raw_values: tuple = ()
+    static_facts: tuple = ()
 
 
 

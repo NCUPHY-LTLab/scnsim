@@ -83,7 +83,10 @@ from .errors import (
 from .io import load_q2d_rlgc
 from .diagnostics.memory_operation import InMemoryBenchmarkResult
 from .results.memory_direct import InMemoryDirectSolveResult
-from .results.memory_analysis import InMemoryAnalysisResult, InMemoryParameterSweepResult
+from .results.memory_analysis import (
+    InMemoryAnalysisResult, InMemoryParameterSweepResult,
+    InMemoryStaticCapacitanceResult, InMemoryStaticCapacitanceElementResult,
+)
 from .results.memory_sensitivity import InMemorySensitivityResult
 from .results.memory_optimization import (
     InMemoryOptimizationResult, InMemoryOptimizationStage, InMemoryOptimizationTrial,
@@ -107,6 +110,8 @@ from .results import (
     MatrixView,
     OperatorPointResult,
     OperatorResult,
+    StaticCapacitanceResult,
+    StaticCapacitanceElementResult,
     OptimizationBest,
     OptimizationResult,
     ParameterField,
@@ -152,6 +157,8 @@ from .specs import (
     HBTruncation,
     HybridizedPoleSpec,
     OperatorSpec,
+    StaticCapacitanceSpec,
+    StaticCapacitanceElementSpec,
     OptimizationSpec,
     OptimizationDomain,
     OptimizationProgress,
@@ -273,6 +280,8 @@ __all__ = [
     "DirectSolveResult",
     "InMemoryDirectSolveResult",
     "InMemoryAnalysisResult",
+    "InMemoryStaticCapacitanceResult",
+    "InMemoryStaticCapacitanceElementResult",
     "InMemoryParameterSweepResult",
     "InMemorySensitivityResult",
     "InMemoryOptimizationResult",
@@ -308,7 +317,11 @@ __all__ = [
     "NumericalResolutionUnresolved",
     "OperatorPointResult",
     "OperatorResult",
+    "StaticCapacitanceResult",
+    "StaticCapacitanceElementResult",
     "OperatorSpec",
+    "StaticCapacitanceSpec",
+    "StaticCapacitanceElementSpec",
     "OptimizationBest",
     "OptimizationResult",
     "OptimizationSpec",

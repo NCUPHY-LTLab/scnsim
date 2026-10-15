@@ -34,7 +34,8 @@ class PhysicalLayout:
         if any(view.model_program is not model_program for view in views):
             raise ValueError('all Views must bind this same ModelProgram')
         supported = {'S', 'Y', 'Z', 'operator', 'response_element', 'diagonal_root',
-                     'operator_element_root', 'hybridized_pole', 'transfer_zero', 'residue_coupling'}
+                     'operator_element_root', 'hybridized_pole', 'transfer_zero', 'residue_coupling',
+                     'static_capacitance', 'static_capacitance_element'}
         for descriptor in observables:
             if descriptor.kind not in supported:
                 raise TypeError(f'unknown declared native numerical route: {descriptor.kind}')
@@ -46,6 +47,9 @@ class PhysicalLayout:
             count = descriptor.frequency_slice[1] - descriptor.frequency_slice[0]
             scalar = descriptor.kind in ('response_element', 'diagonal_root', 'operator_element_root', 'hybridized_pole', 'transfer_zero', 'residue_coupling')
             shape = () if scalar and (count == 1 or descriptor.branch_indices) else (count,) if scalar else (count, len(view.terminal_ids), len(view.terminal_ids))
+            if descriptor.kind.startswith('static_capacitance'):
+                shape = ((len(descriptor.retained_indices),) * 2
+                         if descriptor.kind == 'static_capacitance' else ())
             key = descriptor.quantity_key or str(ordinal)
             components = ('real',) if descriptor.projection is not None else ('real', 'imag')
             blocks.append(OutputBlock(ordinal, key, shape, components, descriptor.si_unit, offset))
@@ -70,4 +74,7 @@ class PhysicalLayout:
     def _capabilities(self, inputs):
         # Original binary64 physical classification precedes selected casting.
         fields = self.model_program.physical_fields(inputs.theta)
-        return tuple(view.capability(fields) for view in self.views)
+        return tuple(view.capability(fields) if any(
+            item.view_index == index and not item.kind.startswith('static_capacitance')
+            for item in self.observables) else False
+            for index, view in enumerate(self.views))
