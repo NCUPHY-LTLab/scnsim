@@ -152,17 +152,15 @@ values, orientation, and each backend lowering are receipt evidence. Direct
 and HB therefore may use distinct realizations while remaining traceable to one
 expanded graph.
 
-## Compiled-diagram boundary
+## Numerical expansion and diagram boundary
 
-This page owns the complete ordered pi graph and its matrix evidence, not its
-visual layout or certification. The single `CONVERGING` target for
-`CircuitDiagramSpec(representation="compiled")`, including pages, native
-symbols, omitted-zero evidence, independent reconstruction, and the compiled
-audit table, is
-[Automatic Semantic Circuit Diagram Layout](../contracts/automatic-semantic-circuit-diagram-layout.qmd).
-Its implementation baseline is integrated; the
-[central evidence status](../contracts/index.qmd#implementation-evidence-status)
-keeps compiled-projection limitations separate from numerical evidence.
+This page owns the ordered pi graph and its mathematical matrix evidence.
+The compiled automatic diagram API is retired in the manual successor; the
+numerical compiler and its expansion remain unchanged. Historical compiled
+exports retain their original identities. Current caller-declared geometry,
+unit/span controls and actual-scene correspondence belong to the single
+[diagram contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd).
+A drawing is not an independent proof of numerical stamping or solver accuracy.
 
 ## Preflight evidence
 

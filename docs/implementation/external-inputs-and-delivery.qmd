@@ -1,10 +1,8 @@
 ---
-title: "External Inputs and Delivery Slices"
-subtitle: "What may be reused, parsed, and implemented first?"
+title: "External Inputs and Package Delivery"
+subtitle: "How are external artifacts parsed and published sources identified?"
 toc-depth: 2
 ---
-
-**Status:** `STABILIZED` Full V1 implementation.
 
 ## Parse one native Q2D artifact
 
@@ -52,70 +50,46 @@ Useful historical revisions include `af6a7b30` (progress), `3b41463e`
 (fixed-candidate evaluation), and `19c26e86` (resolved override binding). These
 hashes explain mechanics only; they do not transfer acceptance or consumers.
 
-## Deliver executable behavior in slices
+## Package versions and documentation
 
-The public V1 documentation and integrated runtime are complete in the
-Human-accepted dev1–dev6 scope. The 13 ordered QMD/IPYNB lesson pairs that
-existed at stabilization exercised that implementation. The current Engineer
-course organizes CONVERGING Chapters over the integrated implementation
-baseline; the [central evidence status](../contracts/index.qmd#implementation-evidence-status)
-does not claim whole-course execution. This does not retroactively
-change the historical slice identities below. Full V1 is `STABILIZED`;
-acceptance, stabilization, and integration do not imply release.
+The 1.0 beta is distributed as a GitHub prerelease with matching native wheels.
+A beta is a prerelease, not a stable release. Example regression coverage is
+still being established; retained course outputs keep their original execution
+identities rather than becoming beta-run evidence.
 
-The earlier `1.0.0.dev7` research showcase is a historical exception to the
-usual stable-version-on-`main` rule. Its README and presentation refinements
-remain classified by their recorded semantic state; that checkpoint did not
-change the accepted dev1–dev6 runtime slices or represent a stable release.
+A consumer should select an actually published tag or reviewed commit and a
+fixed environment. A version change does not migrate saved Workspaces or
+consumer pins automatically. Source builds require the documented C++17
+toolchain; platform wheel tags describe their binary targets separately from
+observed runtime coverage.
 
-The current Human-authorized promotion names exactly `1.0.0a2` as the main-line
-research exception, replacing `1.0.0a1` in the version check. Other prereleases
-receive no exception. The package and lockfile prepare this Alpha candidate with
-`CONVERGING` semantics; authorization to promote and publish is not a completed
-publication claim. The immutable first-Alpha tag and its historical execution
-identities remain unchanged. Consumers should pin an actually published tag or
-reviewed commit and a fixed environment while public API and saved workspace
-compatibility may change. No consumer migration or new semantic acceptance is
-implied.
+### Versioned Pages
 
-**Versioned Pages deployment status:** `CONVERGING`. The Pages root redirects to
-`/1.0.0-dev/`; Askr's native inline menu switches between that tracked develop
-render and the latest published Alpha for each version line, currently the
-exact `v1.0.0a1` tag at `/1.0.0a1/`. One catalog determines both menu copies and
-the Alpha tag/commit pin. A prior development line remains in the menu only
-when its exact content commit is explicitly pinned in that catalog. A final
-release can coexist with the same line's latest Alpha; it does not replace
-that Alpha's content. Replacing an Alpha removes the retired version's
-content directory from the next atomic artifact; its old URL receives an
-explanation and a current-version link, not newer content under the old name.
-Other version lines remain until deliberately changed. Unpublished future
-releases have no menu entry or page. A missing page within a current version
-returns to that version's home. Legacy `/develop/` links redirect to the same
-path under the development version; `/main/` explains the changed URL and is
-not an Alpha alias.
+The Pages root opens the development documentation. One version catalog owns
+its menu and the exact tag/commit for each retained release. A beta entry is
+added only for an actual published tag; no future tag is represented by a
+placeholder source digest. Existing Alpha content retains its original source
+and output identities.
 
-The catalog retains representative snapshots: at least the newest published
-snapshot for each X.Y family and meaningful milestones. Historical receipts,
-outputs, tags, and Git ancestry retain their original identities. The current
-two-entry catalog needs no deletion or new entry for this maintenance.
+One shared workflow lock precedes capture of the exact development source and
+verification of every catalog tag. Each clean source archive renders with
+Quarto 1.10.18, locked dependencies, and `--no-execute`. Versioned content uses
+the reviewed Askr 0.4.0 presentation in isolated build space. Footers distinguish
+content source from presentation revision, and View source links target the
+content source. Search stays within the selected version. A missing page links
+back to that version's home; it is not replaced by a page from another version.
 
-One shared workflow lock precedes capture of the exact develop commit and
-verification of the catalog's pinned Alpha tag. Each clean source archive
-renders with Quarto 1.10.18, locked dependencies, and `--no-execute`; the
-immutable Alpha content receives only the reviewed Askr 0.4.0 presentation
-and Pages profile in isolated build space. Footers distinguish content source
-from presentation revision, and Quarto View source controls target the content
-source. Search stays within each rendered version. Main carries deployment
-configuration, not a third content version. A push to main or develop
-publishes one validated combined artifact; a pull request validates without
-deploying, and manual dispatch can recover a deployment. Missing source/theme,
-tag mismatch, or render validation fails before publication. No workflow path
-executes a solver or relabels a Result.
+The catalog and [Pages preparation script](../../scripts/pages_site.py) define
+the exact retained version routes. The deployment workflow validates source,
+theme, tag, and render consistency before publishing its combined artifact.
+Documentation rendering never executes a solver or relabels a Result.
 
-Runtime implementation followed four independently reviewed and integrated
-slices. Each development version identifies the implementation introduced by
-that row; the current Full V1 acceptance covers their combined public
-semantics.
+## Historical runtime slices {#deliver-executable-behavior-in-slices}
+
+The table below records the original development slices and their boundaries.
+Later package versions do not rewrite those historical execution identities.
+The earlier Alpha research exceptions and their tags remain historical; beta
+publication does not require promoting a stable release to `main`.
 
 | Historical runtime slice | Executable scope at that slice | Behavior postponed by that slice |
 |---|---|---|

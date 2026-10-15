@@ -1,0 +1,66 @@
+---
+title: "Implementation"
+subtitle: "Choose the layer or numerical procedure you need to understand"
+listing:
+  - id: ownership-pages
+    contents: implementation-pages.yml
+    type: default
+    fields: [title, description]
+    include:
+      topic: ownership
+    sort: order
+    sort-ui: false
+    filter-ui: false
+  - id: physical-pages
+    contents: implementation-pages.yml
+    type: default
+    fields: [title, description]
+    include:
+      topic: physical
+    sort: order
+    sort-ui: false
+    filter-ui: false
+  - id: numerical-pages
+    contents: implementation-pages.yml
+    type: default
+    fields: [title, description]
+    include:
+      topic: numerical
+    sort: order
+    sort-ui: false
+    filter-ui: false
+  - id: execution-pages
+    contents: implementation-pages.yml
+    type: default
+    fields: [title, description]
+    include:
+      topic: execution
+    sort: order
+    sort-ui: false
+    filter-ui: false
+---
+
+Start with the layer that owns your question. These pages describe mechanisms;
+the [public contracts](../contracts/index.qmd) remain the authority for caller
+behavior, units, ownership, and failure. For root terminology before equations,
+read [Roots and branch selection](../guides/roots-and-branch-selection.qmd).
+
+## Ownership and identity
+
+::: {#ownership-pages}
+:::
+
+## Physical model and selected network
+
+::: {#physical-pages}
+:::
+
+## Numerical procedures
+
+::: {#numerical-pages}
+:::
+
+## Execution, storage, and presentation
+
+::: {#execution-pages}
+:::

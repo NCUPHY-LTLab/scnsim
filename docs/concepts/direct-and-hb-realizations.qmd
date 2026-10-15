@@ -72,11 +72,11 @@ no overlay, interpolation, or new agreement claim.
 ## A diagram does not choose either realization
 
 The Automatic Semantic Circuit Diagram Layout System (ASCDLS) projects the
-original authored Plan or its compiler expansion. It is not aware of the
+original authored Plan. It is not aware of the
 selected analysis View and cannot choose Direct, HB, a pump case, or a Result.
-A compiled diagram can explain lowering evidence, but it remains a Plan
-projection rather than the circuit evaluated after PTC, transforms, or
-retention.
+Historical compiled diagrams explained lowering evidence. The automatic
+producer is retired; current manual diagrams still do not depict the circuit
+evaluated after PTC, transforms or retention.
 
 ## What this concept deliberately excludes
 

@@ -246,7 +246,7 @@ def native_block(
     drawing = schemdraw.Drawing(show=False)
     drawing.config(unit=metrics.unit_length, fontsize=10, color=color)
     element = (
-        _symbol_element(kind, color=color).at((start.x, start.y)).to((end.x, end.y))
+        _symbol_element(kind, color=color).scale(metrics.unit_length / 2.2).at((start.x, start.y)).to((end.x, end.y))
     )
     element.label(
         label_text,
@@ -408,6 +408,7 @@ def native_block(
 def _cpw_box(
     *, origin: Point, title: str, conductor: str, length: str | None,
     section_text: str, section_role: str, minimum_axis: float, orientation: int,
+    exact_axis: bool, transverse_size: float | None,
     metrics: DiagramMetrics, correlation_key: str | None,
 ) -> ElectricalBox:
     """One-conductor line with upright measured facts and two physical leads."""
@@ -429,6 +430,16 @@ def _cpw_box(
                      max(row_widths) + 2 * padding)
     body_height = max(metrics.native_span if horizontal else minimum_axis,
                       sum(high - low for low, high in row_limits) + 3 * padding)
+    if exact_axis:
+        if horizontal:
+            body_width = minimum_axis
+        else:
+            body_height = minimum_axis
+    if transverse_size is not None:
+        if horizontal:
+            body_height = transverse_size
+        else:
+            body_width = transverse_size
     dx, dy = {0: (1, 0), 90: (0, 1), 180: (-1, 0), 270: (0, -1)}[orientation]
     center = origin.translated(dx * body_width / 2, dy * body_height / 2)
     body = Bounds(center.x - body_width / 2, center.y - body_height / 2,
@@ -455,7 +466,8 @@ def _cpw_box(
         "CPW", orientation, placed["line-title"], placed["line-kind"],
         placed.get("line-length"), (), (), None,
         ((f"head.{conductor}", head), (f"tail.{conductor}", tail)),
-        outline, paths, _bounds(body, *(path.bounds for path in paths)),
+        outline, paths, _bounds(body, *(path.bounds for path in paths),
+                               *(run.bounds for run in placed.values())),
         correlation_key, section_label=placed[section_role],
     )
 
@@ -471,6 +483,8 @@ def electrical_box(
     n_sections: int | None = None,
     resolution: Mapping[str, object] | None = None,
     width: float | None = None,
+    contact_span: float | None = None,
+    box=None,
     orientation: Literal[0, 90, 180, 270] = 0,
     metrics: DiagramMetrics = DEFAULT_METRICS,
     correlation_key: str | None = None,
@@ -491,6 +505,13 @@ def electrical_box(
     if any(_literal(item) != item for item in conductors):
         raise AssertionError("unreachable")
     minimum_axis = 2 * metrics.native_span if width is None else float(width)
+    if box is not None and box.width is not None:
+        minimum_axis = box.width
+    if contact_span is not None:
+        # The caller's span includes both actual terminal stubs. Text bounds
+        # may extend outside the body, but cannot move its contact planes.
+        minimum_axis = float(contact_span) - 2 * metrics.terminal_stub
+
     if not isfinite(minimum_axis) or minimum_axis <= 0:
         raise ValueError("electrical box width must be positive")
     if (n_sections is None) == (resolution is None):
@@ -506,6 +527,8 @@ def electrical_box(
                         section_text=section_text, section_role="line-policy" if policy_text is not None else "line-sections",
                         minimum_axis=minimum_axis,
                         orientation=orientation, metrics=metrics,
+                        exact_axis=contact_span is not None or box is not None and box.width is not None,
+                        transverse_size=None if box is None else box.height,
                         correlation_key=correlation_key)
 
     padding = metrics.label_clearance
@@ -658,6 +681,12 @@ def electrical_box(
             + gap * (4 if footer_height else 3)
         )
         body_height = max(minimum_axis, content_height)
+
+    if contact_span is not None:
+        if horizontal:
+            body_width = minimum_axis
+        else:
+            body_height = minimum_axis
 
     if orientation == 0:
         left, right = origin.x, origin.x + body_width
@@ -831,10 +860,13 @@ def electrical_box(
         low_y = footer_top + gap + low_height / 2
         high_y = header_y - header_height / 2 - gap - high_height / 2
         conductor_y = (low_y + low_height / 2 + high_y - high_height / 2) / 2
-        if conductor_y - conductor_height / 2 < low_y + low_height / 2 + gap:
-            raise RuntimeError("measured vertical line-box rows do not fit")
-        if conductor_y + conductor_height / 2 > high_y - high_height / 2 - gap:
-            raise RuntimeError("measured vertical line-box rows do not fit")
+        if contact_span is None:
+            # Default native sizing owns its text-fit invariant. An explicit
+            # contact span owns the anchors; upright text overlap is aesthetic.
+            if conductor_y - conductor_height / 2 < low_y + low_height / 2 + gap:
+                raise RuntimeError("measured vertical line-box rows do not fit")
+            if conductor_y + conductor_height / 2 > high_y - high_height / 2 - gap:
+                raise RuntimeError("measured vertical line-box rows do not fit")
 
         head_y, tail_y = (low_y, high_y) if orientation == 90 else (high_y, low_y)
         head_border_y = origin.y
@@ -955,7 +987,7 @@ def junction_mark(
     return NodeMark(at, None, (outline,), True, correlation_key)
 
 
-def winding_dot(at: Point, other: Point, bounds: Bounds, *, orientation: int = 0) -> tuple[Point, Path]:
+def winding_dot(at: Point, other: Point, bounds: Bounds, *, orientation: int = 0, metrics: DiagramMetrics = DEFAULT_METRICS) -> tuple[Point, Path]:
     """Place a nonconductive winding dot beside one geometric terminal lead.
 
     Unlike an electrical junction dot, its center is off the wire. A dotted
@@ -967,11 +999,11 @@ def winding_dot(at: Point, other: Point, bounds: Bounds, *, orientation: int = 0
         inverse = (-orientation) % 360
         canonical_bounds = Bounds.around(Point(x,y).rotated(inverse)
             for x in (bounds.xmin,bounds.xmax) for y in (bounds.ymin,bounds.ymax))
-        center, outline = winding_dot(at.rotated(inverse),other.rotated(inverse),canonical_bounds)
+        center, outline = winding_dot(at.rotated(inverse),other.rotated(inverse),canonical_bounds, metrics=metrics)
         return center.rotated(orientation), outline.rotated(orientation)
-    radius = DEFAULT_METRICS.port_circle_radius * 0.5
-    inset = DEFAULT_METRICS.terminal_stub / 2
-    gap = DEFAULT_METRICS.label_clearance + radius
+    radius = metrics.port_circle_radius * 0.5
+    inset = metrics.terminal_stub / 2
+    gap = metrics.label_clearance + radius
     if abs(at.y - other.y) <= COORDINATE_TOLERANCE:
         center = Point(at.x + (inset if other.x > at.x else -inset), bounds.ymin - gap)
     else:
@@ -1438,7 +1470,7 @@ def transform_text(run: TextRun, *, origin: Point):
             bounds=glyph.bounds.translated(origin.x, origin.y)) for glyph in run.glyphs))
 
 
-def measure_native(point, occurrence_ref, *, orientation, show_values, metrics):
+def measure_native(point, occurrence_ref, *, orientation, show_values, metrics, span=None, box=None):
     """Measure one captured physical target, without placement or routing.
 
     Cardinal variants select the native primitive before its upright labels are
@@ -1464,6 +1496,11 @@ def measure_native(point, occurrence_ref, *, orientation, show_values, metrics):
                     if tuple(row["path"]) == path)
         identity = leaf
         fields = {row["id"]: row for row in leaf["fields"]}
+        if box is not None and (leaf["model"] != "transmission_line"
+                                or len(point.resolved_fields[path, "rlgc"].conductors) != 1):
+            from ...errors import SCNSimValidationError
+            raise SCNSimValidationError("box sizing applies only to one-conductor CPW bodies",
+                                       stage="schematic_layout", evidence={"target": occurrence_ref.key})
 
         def field_text(name):
             if not show_values:
@@ -1478,17 +1515,20 @@ def measure_native(point, occurrence_ref, *, orientation, show_values, metrics):
                 origin=origin, orientation=orientation, title=path[-1],
                 conductors=tuple(rlgc.conductors), reference=rlgc.reference_conductor,
                 length=field_text("length"), n_sections=metadata.get("n_sections"),
-                resolution=metadata.get("discretization"), metrics=metrics)
+                resolution=metadata.get("discretization"), metrics=metrics, contact_span=span, box=box, correlation_key=occurrence_ref.key)
             boxes.append(box)
             anchors.update(box.anchors)
         else:
+            if span is not None:
+                from dataclasses import replace
+                metrics = replace(metrics, body_span=span)
             kind, field = {"resistor": ("R", "resistance"),
                 "capacitor": ("C", "capacitance"),
                 "inductor": ("L", "inductance"),
                 "josephson_junction": ("JJ", "josephson_inductance")}[leaf["model"]]
             end = Point(metrics.native_span, 0.0).rotated(orientation)
             symbol = native_block(kind, start=origin, end=end, name=path[-1],
-                                  value=field_text(field), metrics=metrics)
+                                  value=field_text(field), metrics=metrics, correlation_key=occurrence_ref.key)
             symbols.append(symbol)
             anchors.update(symbol.anchors)
             if leaf["model"] in {"inductor", "josephson_junction"}:
@@ -1499,7 +1539,7 @@ def measure_native(point, occurrence_ref, *, orientation, show_values, metrics):
                     for sign,pin,other in (("positive",branch["positive_pin"],branch["negative_pin"]),
                                            ("negative",branch["negative_pin"],branch["positive_pin"])):
                         center,stroke = winding_dot(anchors[pin],anchors[other],symbol.symbol_bounds,
-                                                    orientation=symbol.orientation)
+                                                    orientation=symbol.orientation, metrics=metrics)
                         sides[sign] = {"point":center,"path":stroke}
                     markers[branch["id"]] = sides
             if leaf["model"] == "josephson_junction" and "junction_capacitance" in fields:
@@ -1507,8 +1547,13 @@ def measure_native(point, occurrence_ref, *, orientation, show_values, metrics):
                 first, last = offset, end.translated(offset.x, offset.y)
                 symbols.append(native_block("C", start=first, end=last,
                     name=path[-1], value=field_text("junction_capacitance"),
-                    branch_label="Cj", metrics=metrics))
+                    branch_label="Cj", metrics=metrics, correlation_key=occurrence_ref.key))
                 wires.extend((ConductivePolyline((origin, first)), ConductivePolyline((end, last))))
+                # The emitted parallel branch creates real three-ray terminal
+                # junctions when external wires meet these same physical pins.
+                node_marks.extend(junction_mark(at, metrics=metrics,
+                                                correlation_key=occurrence_ref.key)
+                                  for at in (origin, end))
         contact_rows = [(pin, anchor, "left" if pin.startswith("head.") or pin == "terminal_1" else "right")
                         for pin, anchor in anchors.items()]
         contact_rows = [(pin, anchor, ("right", "top", "left", "bottom")[(
@@ -1526,7 +1571,8 @@ def measure_native(point, occurrence_ref, *, orientation, show_values, metrics):
         port = port_block(port_id=row["id"], role=row["role"],
             reference_impedance=format_envelope(row["reference_impedance"]),
             boundary_anchor=origin, side=direction,
-            load_side=("bottom", "right", "top", "left")[orientation // 90], metrics=metrics)
+            load_side=("bottom", "right", "top", "left")[orientation // 90], metrics=metrics,
+            correlation_key=occurrence_ref.key)
         ports.append(port)
         # The Port primitive owns this three-ray electrical T. Its filled dot
         # travels with the body, rather than requiring an authored hidden node.
@@ -1535,7 +1581,7 @@ def measure_native(point, occurrence_ref, *, orientation, show_values, metrics):
                  ("left", "bottom", "right", "top")[orientation // 90])]
     elif occurrence_ref.kind == "ground":
         # Rotation selects a ground glyph extending along its declared side.
-        guides.append(ground_mark(origin, side=direction, metrics=metrics))
+        guides.append(ground_mark(origin, side=direction, metrics=metrics, correlation_key=occurrence_ref.key))
         refs = [(occurrence_ref, origin, ("left", "bottom", "right", "top")[orientation // 90])]
     else:
         raise ValueError("native measurement requires occurrence, port, or ground ref")

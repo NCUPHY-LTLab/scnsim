@@ -4,9 +4,37 @@ subtitle: "How does root_hint initialize one reproducible loaded-root procedure?
 toc-depth: 2
 ---
 
+## At a glance
+
+This page follows one selected scalar root through its residual, analytic
+frequency derivative, numerical certificate, and parameter continuation. The
+selected View supplies the network and loading throughout the procedure.
+
+| Step | What to follow | Detailed section |
+| --- | --- | --- |
+| Form the scalar equation | Eliminate the complementary nodes and evaluate the selected Schur element and its slope. | [Residual and slope](#solve-one-scalar-schur-residual) |
+| Correct and certify | Apply the stated Newton procedure and inspect its residual and slope evidence. | [Machine-resolution certificate](#require-a-machine-resolution-certificate) |
+| Change parameters | Follow the stated baseline-owned continuation and its typed failures. | [Parameter continuation](#continue-every-parameterset-from-the-baseline) |
+
+**Reading path.** For Hint, explicit search, transfer zeros versus response
+notches, and local branch meaning, start with
+[Roots and branch selection](../guides/roots-and-branch-selection.qmd).
+For other characteristic quantities, continue to
+[Poles, zeros, couplings, and operators](direct-poles-zeros-and-operators.qmd).
+The equations and backend distinctions below give the exact procedure; this
+summary introduces no additional root-selection or success rule.
+
 **Status:** existing diagonal-root procedure plus `CONVERGING` selected-View
 element-root extension. The physical quantities are defined by the
 [Runtime Contract](../v1-runtime-contract.qmd#typed-direct-quantity-catalog).
+
+The equations below describe the selected scalar residual and its existing
+certificates. Dense factor details describe the retained Julia realization;
+current JAX uses the shared sparse native equation producer and its selected-dtype
+certificates. They are separate backend realizations, not selectable numerical
+fallbacks. For current Hint/search/branch semantics and the difference between a
+local root and a response notch, see the
+[reader guide](../guides/roots-and-branch-selection.qmd).
 
 ## Solve one scalar Schur residual
 
@@ -142,13 +170,15 @@ the normalized slope must also satisfy $|g'_{ij}|/s_{g'}>\tau(n)$. The checked
 rows of $Q(\omega)x$ are recomputed from C/G/K and series-RL branches rather
 than reconstructed from the Schur residual. The generic element root has no imaginary-sign policy;
 the diagonal consumer separately requires $\operatorname{Im}\omega\le0$,
-including when it reuses a numerical root. These normalized certificate values
-and any conditioning
-diagnostics are execution-time checks, not durable Result or receipt fields.
-The public Result retains the physical local `slope` $g'_{ij}$; its verified success
-binds its exact algorithm ID and semantic runtime source digest
-that performed the complete certificate. SCNSim adds no separate
-design-quality threshold.
+including when it reuses a numerical root. In the retained legacy Julia
+realization, these normalized checks are execution-time checks rather than
+additional durable Result or receipt fields. Current JAX projects the actual
+`RootPacket` certificate and performed equation facts into returned and saved
+evidence under the existing Result contracts; these facts are not discarded
+merely because a physical scalar field is also returned. The public Result
+retains the physical local `slope` $g'_{ij}$, and saved verified success binds
+the exact algorithm ID and semantic runtime source digest that performed the
+certificate. SCNSim adds no separate design-quality threshold.
 
 The normalized nonzero slope is machine-resolution evidence consistent with a
 simple, locally isolated root. It is not a validated complex enclosure or a

@@ -22,10 +22,11 @@ class DiagramMetrics:
     """The U2.2 spacing system shared by placement and emitted scenes."""
 
     unit_length: float = 2.2
+    body_span: float | None = None
 
     @property
     def native_span(self) -> float:
-        return self.unit_length
+        return self.unit_length if self.body_span is None else self.body_span
 
     @property
     def label_clearance(self) -> float:
@@ -102,23 +103,23 @@ class DiagramMetrics:
 
     @property
     def primary_text_size(self) -> float:
-        return 10.0 / 36.0
+        return 10.0 / 36.0 * (self.unit_length / 2.2)
 
     @property
     def port_id_text_size(self) -> float:
-        return 9.0 / 36.0
+        return 9.0 / 36.0 * (self.unit_length / 2.2)
 
     @property
     def secondary_text_size(self) -> float:
-        return 8.0 / 36.0
+        return 8.0 / 36.0 * (self.unit_length / 2.2)
 
     @property
     def tertiary_text_size(self) -> float:
-        return 7.0 / 36.0
+        return 7.0 / 36.0 * (self.unit_length / 2.2)
 
     @property
     def figure_inches_per_unit(self) -> float:
-        return 0.65
+        return 0.65 * (2.2 / self.unit_length)
 
     @property
     def symbol_linewidth(self) -> float:
@@ -134,6 +135,12 @@ class DiagramMetrics:
 
 
 DEFAULT_METRICS = DiagramMetrics()
+
+
+def metrics_for_unit(unit) -> DiagramMetrics:
+    """Preserve legacy geometry, or use the declared display scale everywhere."""
+    return DEFAULT_METRICS if unit is None else DiagramMetrics(unit_length=unit.units_per_u)
+
 _SHAPING_POINT_SIZE = 10.0
 
 

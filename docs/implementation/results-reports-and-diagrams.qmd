@@ -4,21 +4,15 @@ subtitle: "How does verified evidence become a Python-facing presentation?"
 toc-depth: 2
 ---
 
-**Status:** accepted numerical Result mechanics outside the new report surface
-remain `STABILIZED`. `ReportPanel`, automatic report selection, and the pure
-report composer are a `CONVERGING` candidate. Structured authoring, its
-identity integration, and certified diagrams are another `CONVERGING` scope
-with an integrated implementation baseline; see the
-[central evidence status](../contracts/index.qmd#implementation-evidence-status). Adaptive
-presentation-theme semantics remain a separate `CONVERGING` candidate.
-The scalar Quantity HTML/Figure presentation described below is also
-`CONVERGING`; it does not change numerical Result mechanics.
+Numerical Results, saved evidence, and presentation have separate owners.
+This page follows typed values into plots, reports, and caller-declared circuit
+diagrams. For the public reading and lifetime rules, start with
+[Result ownership](../concepts/requests-execution-and-result-ownership.qmd).
 
 ## Separate materialized values from analysis evidence
 
-`Result` is the shared immutable value or fixed evidence-selection role. The
-dev24 lazy-access boundary remains `CONVERGING`: readers keep fixed completion
-metadata, not a Run, worker, connection or full decoded history. The
+`Result` is the shared immutable value or fixed evidence-selection role. Readers keep fixed completion metadata, not a Run, worker, connection or full
+decoded history. The
 [Runtime lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle) owns
 its selection, short-snapshot and materialization rules. Already delivered
 values are detached; reading an unloaded portion may perform readonly evidence
@@ -26,7 +20,7 @@ I/O, never numerical execution.
 `AnalysisResult` is the receipt-backed terminal subset and exposes immutable
 `ResultIdentity(plan_sha256, request_sha256, attempt_sha256, result_sha256)`.
 The attempt digest remains the canonical completed terminal attempt document;
-SQLite v7 binds it through `terminal_attempt_ref`, not a running allocation.
+SCNSim operation-store schema v7 binds it through `terminal_attempt_ref`, not a running allocation.
 `DirectSolveResult`, `DiagonalRootResult`, `OptimizationResult`, and
 `HBBatchResult` derive from it. Each HB batch contains one `HBCaseOutcome` for
 every declared case. The outcome is a derived view of its parent receipt: a
@@ -200,18 +194,18 @@ The paired line cycle, in order, is
 `#a16207/#facc15`, `#be185d/#f472b6`, `#0e7490/#22d3ee`, and
 `#475569/#cbd5e1`. Each pair is the light/dark rendering of one trace index.
 
-## Structured diagram implementation target
+## Structured manual diagrams {#structured-diagram-implementation-target}
 
 The [diagram contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd)
-is the sole `CONVERGING` diagram authority. It consumes explicit series,
+owns the manual diagram behavior. It consumes explicit series,
 parallel, branch, bus, tap, link, exposure, coupling, and recursive ownership
 facts from the independent
 [assembly contract](../contracts/circuit-plan-assembly.qmd), not an inferred
 neighbor partition or pre-render catalog.
 
-The explicit-layout successor is CONVERGING. The design below retains the
-contract's required mechanisms; scoped validation does not establish universal
-layout support, whole-course execution, or Human acceptance.
+The caller supplies the complete geometry. Preparation measures the same native
+bodies that realization draws; the renderer does not place components or route
+wires automatically.
 
 ### Package and capture boundaries
 
@@ -229,17 +223,15 @@ Implementation remains separated behind private diagram boundaries:
 
 Capture must be pure. Coordinate promotion and normalization operate on copied
 records; the renderer cannot mutate a Plan temporarily and restore it. The
-same capture feeds compiler preflight. The existing canonical encoder remains
-the current implementation baseline. Target identity integration must
-deliberately add the structural declarations rather than claiming compatibility
-by similarity.
+same capture feeds compiler preflight. The existing canonical encoder owns the captured Plan and parameter binding.
+Drawing coordinates remain presentation state and do not change the numerical
+Plan identity.
 
 The expected-visible manifests derive independently from the structured source
-snapshot or compiled expansion. Complete authored operator, exposure,
+snapshot. Historical compiled exports retain their original expansion evidence. Complete authored operator, exposure,
 alias, parameter-definition, parameter-binding, effective-point, unit, bus,
 tap, ground-provenance, and ownership records remain separate verified source
-rows. Observed witnesses derive only from emitted neutral geometry and may not
-read placement tables, source rows, or hidden answers.
+rows. Observed continuity and pin incidence derive from the emitted scene. Declaration refs may associate bodies/pins with source occurrences, but cannot supply the observed net answer or turn an absent wire into a connection.
 
 ### One explicit authoring layout
 
@@ -249,7 +241,7 @@ Plan/point inventory and cardinal native measurements without requiring layout
 or initializing a numerical backend. Authoring `render_schematic()` requires a
 complete `SchematicLayout`; it does not fill omitted geometry.
 
-Every physical occurrence has an explicit rigid pose. Group membership and
+Every physical occurrence has an explicit cardinal pose and supported optional native body span. Group membership and
 order remain source facts, not a request to pack an entire Series/Parallel.
 Scope-local routes bind real contacts, named junction arms and complete
 cardinal waypoints; actual jumps, coupling guides and annotation anchors are explicit.
@@ -270,9 +262,94 @@ old hints, `SchematicComposition` and `to_composition()` are replaced rather
 than adapted. Expected source declarations and actual-ink witnesses remain
 separate authorities.
 
-### Compiled matrix-stamp projection
+### Declare, then show a diagram
 
-The compiled projection remains a complete **matrix-stamp** view, never a
+The following is the manual successor interface, under implementation. It is
+not an executed example or a rendering success claim. The caller's
+`layout_factory` must supply complete geometry from this preparation; it is an
+ordinary caller function, not package automatic completion.
+
+```python
+def declare_diagram(plan, layout_factory, *, point=None, drawing_unit=None):
+    from scnsim import CircuitDiagramSpec
+
+    prepared = plan.prepare_schematic(
+        CircuitDiagramSpec(drawing_unit=drawing_unit), parameters=point
+    )
+    layout = layout_factory(prepared)
+    diagram = plan.declare_schematic(
+        CircuitDiagramSpec(layout=layout, drawing_unit=drawing_unit),
+        parameters=point,
+    )
+    plan.show_schematic()
+    return diagram
+```
+
+A caller may supply `DiagramUnit(name, units_per_u)`; `None` retains existing
+native geometry. Coordinates remain binary64, including fractional drawing
+units, without physical-metre conversion or automatic snapping. Before routing,
+`prepared.measure_body(body_ref, rotation=0, span=span)` gives actual native
+anchors; the corresponding `DiagramPose(origin, rotation=0, span=span)` uses the
+same span. TL/MTL explicit spans are exact terminal-plane separation, not
+physical TL length, and labels cannot silently enlarge the body. Native default
+span remains available with `None`.
+
+For a one-conductor CPW, choose native measured content-fit or explicit box
+width/height through `DiagramBoxSize`. An omitted axis keeps native sizing;
+an explicit axis is exact even if caller text overlaps or overflows. Width is
+local longitudinal rectangle width, height transverse, before cardinal
+rotation. `span` and `box.width` are mutually exclusive; explicit width places
+contact planes at width plus the two unit-scaled terminal stubs. Height may
+accompany span. MTL keeps its existing span capability.
+
+The following preparation helper returns declarations for the caller's complete
+scope layout. `cpw_ref` comes from this exact preparation, and `caption_anchors`
+contains the caller's chosen TextRun-origin positions for the captured CPW
+caption refs. It supplies no Plan fields or replacement text:
+
+```python
+def cpw_geometry(preparation, cpw_ref, *, origin, caption_anchors,
+                 rotation=0, width=None, height=None):
+    from scnsim import DiagramBoxSize, DiagramCaption, DiagramPose
+
+    box = DiagramBoxSize(width=width, height=height)
+    fragment = preparation.measure_body(cpw_ref, rotation=rotation, box=box)
+    pose = DiagramPose(origin, rotation, box=box)
+    captions = tuple(
+        DiagramCaption(row["ref"], caption_anchors[row["ref"]])
+        for scope in preparation.scopes
+        for row in scope.captions
+        if row["source"]["kind"] == "native_field"
+        and row["target"] == cpw_ref
+    )
+    return fragment, pose, captions
+```
+
+Use `fragment.contacts` and measured text bounds to author the real routes and
+caption positions, then include the returned pose/captions in the complete
+layout. Native content-fit is calculated before arbitrary caller-relative
+caption positions, so these positions do not trigger resizing. Captured CPW
+kind/title/physical length/section text is retained; no clipping, font scaling
+or custom content silently changes it. This interface is still under
+implementation, not an executed rendering observation. The single
+[contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd#schematic-composition)
+retains exact structural/failure semantics.
+
+Declaration replaces one Plan association only after successful render/audit/
+freeze; failure preserves its previous association. `show_schematic()` displays
+the stored captured point through the existing FrozenDrawing notebook rich-
+display hook, with missing/stale binding errors and no layout realization,
+recertification, solver or parameter override. This serializes the held scene
+for notebook presentation, rather than calling a standalone GUI Figure.show.
+It uses existing IPython notebook support from the locked course-generation
+environment; import/serialization errors propagate without a new dependency
+or fallback. Detached prior Results remain readable. Unit/span,
+T/Cross/jump incidence and failure semantics are defined only by the linked
+[contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd).
+
+### Historical compiled matrix-stamp projection {#compiled-matrix-stamp-projection}
+
+The retired automatic compiled projection recorded a complete **matrix-stamp** view, never a
 scalar-equivalent circuit. With the existing `exp(-i omega t)` convention and
 $s=-i\omega$, each series station contributes
 
@@ -307,14 +384,14 @@ Authoring IR retains the declared hierarchy, physical occurrences and operators.
 Native measurement supplies immutable local fragments and actual contacts for
 each cardinal orientation. Full scope realization consumes declared frames,
 poses, boundaries, routes, junctions, jumps, captions and analysis leaders.
-It translates whole child fragments and preserves owner-aware obstacles and
-exact terminal-access sources; same-owner or same-net membership never grants
-blanket access. Missing geometry fails without search, padding or completion.
+It translates whole child fragments and preserves actual terminal-access
+sources. Aesthetic obstacle/label spacing is caller-owned; wrong-pin contact,
+missing wire and indistinguishable different-net conductive overlap still fail.
+Same-owner or same-net metadata cannot supply missing actual incidence. Missing geometry fails without search, padding or completion.
 
 Nonconductive structure envelopes derive from the declared member geometry
 without moving members. Actual visible ink supplies connectivity observations;
-layout metadata does not become an audit answer. Compiled lowering retains its
-existing geometry path independently of authoring layout.
+layout metadata does not become an observed net answer. The automatic compiled diagram producer is retired; mathematical compiler lowering remains independent of manual layout.
 
 ### Independent witnesses and frozen output
 
@@ -329,10 +406,10 @@ multi-incidence Tap cannot support an independent exact Tap-name-to-picture
 claim; its authored identity stays verified source evidence rather than an
 observed scene fact.
 
-Witness A reconstructs electrical bodies, terminals, wires, zero-wire
-equivalence, grounds, Ports, couplings, and compiled matrix associations. It
-checks authoring geometry against the exact Plan and point, or compiled geometry
-against the exact compiler-emitted expansion for that Plan and point. This is
+The electrical part of the single actual-scene witness (A) observes bodies,
+terminals, continuous wires, junction/jump incidence, grounds, Ports and
+couplings, then compares with the captured Plan and point. Source associations
+cannot replace real observed pin/wire continuity. This is
 projection correspondence. In authoring projections with
 `show_parameter_values=True`, A also
 reconstructs every displayed effective scalar physical value and displayed unit
@@ -341,8 +418,8 @@ projection of that same resolved point. This is not a tolerance or bit-exact
 Float64 roundtrip claim. The audit distinguishes displayed values from exact
 source values. Hidden value labels make no
 visible-scalar-label claim, although the certificate still binds the exact
-effective point. This qualification does not weaken the compiled projection's
-matrix, coefficient, sign, unit, half-shunt, or omission evidence.
+effective point. Historical compiled matrix/coefficient/sign/unit/half-shunt
+and omission evidence remains attributed to its original projection.
 
 Authoring scalar formatting uses Decimal `ROUND_HALF_EVEN` to six significant
 digits with trailing zeros removed. It starts from the exact captured Float64
@@ -362,7 +439,7 @@ as `1 section` or `<N> sections`. It omits
 conductor/reference/head-tail labels. A compares its two visible endpoints
 without claiming ordered head/tail identity; exact identity and RLGC are
 source-verified. MTL retains necessary ordered conductor/terminal evidence,
-and compiled scientific evidence stays unchanged.
+and numerical compiler evidence stays unchanged; compiled drawing exports remain historical.
 
 Open-pin observations come from actual visible stubs and terminal incidence,
 never open flags, expected maps, or placement answers. A required cut connection
@@ -385,8 +462,8 @@ Complete ordered model orientation remains separately verified source/provenance
 evidence. For mutually coupled branches, A reconstructs relative polarity from
 actual visible winding dots, their endpoint incidence, and coupling information;
 a consistent reference reversal carries the corresponding coupling-sign
-transformation, never deletion of sign evidence. Required oriented compiled
-evidence remains unchanged.
+transformation, never deletion of sign evidence. Historical oriented compiled
+evidence retains its original meaning.
 
 With `show_parameter_values=True`, the mutual annotation exposes its signed
 numerical coefficient. With values hidden, sign-only coupling information
@@ -447,21 +524,20 @@ They are documentation artifacts, not runtime evidence:
 - Chapters 5–6 teach deliberate Composite publication/reuse and bounded
   diagram customization on unchanged Plans.
 - Chapter 7 teaches ordered N=2 RLGC, labeled four-Port channels, and separate
-  authoring/compiled diagram limitations.
+  manual authoring geometry and explicitly historical compiled outcomes.
 - Chapter 8 persists Results and a Report, then reconstructs and resolves the
   exact root request in a second independent kernel.
 
-Every ASCDLS diagram remains a projection of the explicit authored or compiled
-Plan. It may bind one explicit `ParameterSet`, including an optimization
+Every current ASCDLS diagram remains a projection of the explicit authored
+Plan; automatic compiled drawing is retired. It may bind one explicit `ParameterSet`, including an optimization
 winner supplied by the caller; it rejects `ParameterSpace`. It does not create,
 select, or depict a request-specific View, PTC-effective topology, or solver
 Result. Exact point/audit identity belongs to the
 [Parameter System Contract](../contracts/parameter-system.qmd#parameterized-diagrams).
 
 Selected Engineer-course diagram exports are source-bound evidence, not a claim that
-all course cells executed. The central evidence status retains current
-limitations; Human acceptance and durable stabilization of reopened semantics
-remain separate lifecycle steps.
+all course cells executed. Their original provenance is retained in the
+[historical evidence record](../contracts/implementation-evidence-history.qmd).
 
 ## Bound history projections
 

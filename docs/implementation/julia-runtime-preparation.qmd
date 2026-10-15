@@ -23,8 +23,9 @@ backend checks rather than relying on a feature call to acquire it.
 Normal Direct, DiagonalRoot, ResponseElement, related sweeps and Optimization
 default to same-process JAX CPU in the 1.0.0a2 Alpha candidate and need no Julia.
 Explicit `backend="julia"`, HB and Julia-only quantity families require Julia.
-`run.explain()` compiler preflight and compiled schematics also need it when
-they invoke the native compiler. Authoring, read-only result/resolve/Benchmark
+Explicit Julia `run.explain()` compiler preflight also needs it when invoking
+the native compiler. Manual schematic acquisition needs no Julia; automatic
+compiled drawing is retired independently of mathematical compilation. Authoring, read-only result/resolve/Benchmark
 and verified cache reuse do not discover or execute Julia. The base Python 3.12
 installation supplies pinned JAX/CMA dependencies; Julia remains optional.
 Historical course sources explicitly select Julia to preserve their outputs.

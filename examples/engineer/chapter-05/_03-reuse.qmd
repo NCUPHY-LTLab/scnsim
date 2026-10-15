@@ -36,14 +36,14 @@ from examples.engineer.diagram_layouts import engineer_layout
 
 reused_preparation = plan.prepare_schematic(
     CircuitDiagramSpec(
-        representation="authoring", theme=Theme.AUTO,
+        theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )
 reused_layout = engineer_layout(reused_preparation, "reusable_lc")
 reused_diagram = plan.render_schematic(
     CircuitDiagramSpec(
-        layout=reused_layout, representation="authoring", theme=Theme.AUTO,
+        layout=reused_layout, theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )

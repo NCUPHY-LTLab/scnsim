@@ -175,7 +175,7 @@ from .specs import (
 if TYPE_CHECKING:
     from .visualization.diagram.spec import CircuitDiagramSpec
     from .results import CircuitDiagramAudit, CircuitDiagramResult
-    from .schematic import (DiagramRef, DiagramPose, DiagramEndpoint, DiagramRoute, DiagramJunction,
+    from .schematic import (DiagramUnit, DiagramBoxSize, DiagramRef, DiagramPose, DiagramEndpoint, DiagramRoute, DiagramJunction,
         DiagramJump, DiagramCaption, DiagramLeader, DiagramCoupling, SchematicScopeLayout, SchematicLayout,
         SchematicPreparation, ScopeInventory, MeasuredFragment, ScopeMeasurement, GeometryRealization)
     from .specs import DiagramSide
@@ -187,6 +187,8 @@ _LAZY_DIAGRAM_EXPORTS = {
     "CircuitDiagramResult": (".results", "CircuitDiagramResult"),
     "CircuitDiagramSpec": (".specs", "CircuitDiagramSpec"),
     "DiagramSide": (".specs", "DiagramSide"),
+    "DiagramUnit": (".schematic", "DiagramUnit"),
+    "DiagramBoxSize": (".schematic", "DiagramBoxSize"),
     "DiagramRef": (".schematic", "DiagramRef"),
     "DiagramPose": (".schematic", "DiagramPose"),
     "DiagramEndpoint": (".schematic", "DiagramEndpoint"),
@@ -354,6 +356,8 @@ __all__ = [
     "SCNSimStateError",
     "SCNSimValidationError",
     "SParameterTrace",
+    "DiagramUnit",
+    "DiagramBoxSize",
     "DiagramRef",
     "DiagramPose",
     "DiagramEndpoint",

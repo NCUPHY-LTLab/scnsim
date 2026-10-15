@@ -323,8 +323,10 @@ attaches to a replacement leaf. Already materialized detached values may
 outlive that interval. This responsibility split does not change request bytes,
 algorithms, process count, or public methods.
 
-`run.explain()` and a compiled schematic may use the same Julia compile
-preflight, but neither launches a solver nor writes the evidence workspace.
+Explicit Julia `run.explain()` may use compiler preflight without launching a
+solver or writing the evidence workspace. Caller-declared schematic acquisition
+is separate and performs no Julia initialization. Retiring automatic compiled
+drawing does not remove numerical compiler preflight.
 
 One ordered `ParameterSpace` operation is one request. The current JAX path
 executes in process and reuses operation-owned programs by actual static mesh
@@ -383,7 +385,7 @@ names. Pure `authoring/resolution.py` resolves a frozen snapshot and
 `ParameterSet`, while `authoring/physical_values.py` owns shared physical field
 validation. CircuitPlan convenience delegates and Runtime uses its own
 frozen snapshot directly. No numerical operation depends on rendering success, and
-compiled diagrams remain one-way evidence consumers.
+manual diagrams remain one-way Plan projections; historical compiled exports retain their original evidence.
 
 The base package uses Pint, NumPy, Zarr, Plotly, Matplotlib and Schemdraw.
 CPU JAX/CMA and sparse numerical dependencies belong to the base package.

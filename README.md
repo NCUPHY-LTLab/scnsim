@@ -1,148 +1,58 @@
 # SCNSim
 
-**Author one superconducting circuit, then ask typed network and quantity
-questions against it.**
+**Model a superconducting circuit, calculate its response, and explore how its
+parameters shape the quantities you care about.**
 
 [![CI](https://github.com/OrPenStrike/scnsim/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/OrPenStrike/scnsim/actions/workflows/ci.yml?query=branch%3Adevelop)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python requirement: >=3.12](https://img.shields.io/badge/python-%3E%3D3.12-blue.svg)](pyproject.toml)
 [![Tutorial: Engineer course](https://img.shields.io/badge/tutorial-Engineer%20course-blue.svg)](docs/index.qmd)
 
-![Conceptual SCNSim branding: an orca and penguin beside circuit schematics and network diagrams.](docs/assets/readme-hero-orca-penguin.png)
+![SCNSim orca and penguin branding.](docs/assets/readme-hero-orca-penguin.png)
 
-SCNSim is a notebook-first Python package for reproducible superconducting
-circuit-network analysis. A `CircuitPlan` owns physical components, wiring,
-ground, Ports, and reusable Subsystems; a `CircuitRun` solves explicit
-requests and returns typed Results with request and evidence identities.
+SCNSim is a notebook-first Python package for superconducting circuit-network
+analysis. Describe components and connections in a `CircuitPlan`, choose the
+network to observe through a View, and use `CircuitRun` to calculate typed
+Results with physical units. Reuse the same model for responses, characteristic
+quantities, derivatives and parameter searches.
 
-`1.0.0a1` is the first public Alpha for trial use. The package's newer
-semantics and this documentation remain `CONVERGING`; Alpha is neither a
-stable release nor a new scientific-validation claim. Public API and saved
-workspace compatibility may change before a stable release.
+## What do you want to calculate?
 
-The development candidate is `1.0.0.dev32`. The differentiable physical-program
-target and SQLite operation evidence v7 remain `CONVERGING`; declaration and
-execution integration are in progress. [The physical-program contract](docs/v1-runtime-contract.qmd#physical-program-target)
-binds value, Jacobian/JVP/VJP and optimization to one model, fixed meshes for
-all optimization stages, explicit terminal-partial selection and local-stage
-restart. Derivatives are local to the bound discrete model, not a global optimum
-or continuum accuracy guarantee. Existing Julia code is frozen legacy/reference
-capability, without an automatic derivative fallback. Native body formats remain
-independent and unchanged.
-The retained dev31 implementation supports `run.optimize(...)` with `storage="memory"`,
-using the same CMA/local/Hybrid physical execution and caller-owned immutable
-failure/accepted histories. No Workspace, saved receipt or checkpoint is
-invented. Memory optimizer integration and the distinct value-first reject-aware
-`ProjectedLBFGSSpec` are implemented candidates; genuine `LBFGSBSpec` remains
-unchanged. Current observations retain their exact candidate identities; implementation
-does not imply improved search or Human acceptance.
-See the [memory optimization contract](docs/v1-runtime-contract.qmd#memory-optimization-storage).
+| Calculation | Start here |
+|---|---|
+| **Circuit response** — S, Y and Z matrices or a named reflection/transmission trace | `run.solve(view, DirectSolveSpec(...))` |
+| **Characteristic quantities** — selected operator, root, pole, transfer zero or coupling | `run.evaluate(view, spec, parameters=point)` |
+| **Sensitivity** — how a quantity changes with circuit parameters | `run.sensitivity(SensitivitySpec(...))` for Jacobian, JVP or VJP |
+| **Parameter exploration** — compare a declared sweep or search scalar objectives | Supply a `ParameterSpace` to solve/evaluate, or use `run.optimize(view, OptimizationSpec(...))` |
 
-The dev32 CONVERGING candidate connects checked JAX memory evaluate, Sensitivity
-and declared ParameterSpace/Sweep using the same physical producer and detached
-Result ownership. Existing selected reports accept actual checked detached
-projections through the same pure composer, without saved identities. RF root localization is separate and requires caller-declared region and
-selection semantics; memory support does not itself repair root convergence.
-See the [checked JAX memory target](docs/v1-runtime-contract.qmd#jax-memory-completion).
+Read the [Concept overview](docs/concepts/index.qmd) to connect a physical model,
+View and quantity before choosing an API. The
+[roots and branch-selection guide](docs/guides/roots-and-branch-selection.qmd)
+explains why a sampled notch, a complex zero and a local Hint are different
+questions. The [Sensitivity guide](docs/guides/sensitivity.qmd) explains units
+and local derivatives. Optimization offers CMA-ES, L-BFGS-B, value-first
+projected L-BFGS and ordered Hybrid stages; choose the method for your objective
+and available derivatives.
 
-For a JAX point Direct comparison with all SCNSim storage disabled, use
-`CircuitRun(plan=plan, storage="memory")`, then the same `run.warmup(view, spec)`
-and `run.solve(view, spec)` calls. No Workspace is created. The detached
-`InMemoryDirectSolveResult` retains S/Y/Z and trace presentation, and
-`result.benchmark` records that call in memory. This mode has no saved identity
-or `resolve`. Checked JAX evaluate, declared Sweep, Sensitivity and Optimization
-use the memory ownership described above; Julia execution remains a Workspace
-capability. See the [memory ownership contract](docs/v1-runtime-contract.qmd#memory-direct-storage).
+## Work in memory or save a Workspace
 
-The [lifecycle contract](docs/v1-runtime-contract.qmd#package-lifecycle) defines
-optional Run close, automatic operation cleanup, fixed lazy Results, bounded
-recovery and managed Julia startup. Old operation Workspaces require recomputation;
-there is no migration or compatibility reader. Historical observations keep their
-original identities. Earlier-version observations remain historical evidence, not dev28
-execution or delivery evidence. Python 3.12 remains required. Normal
-`CircuitRun.solve`, `evaluate` and `optimize` default to same-process JAX CPU
-Float64/Complex128; Float32/Complex64 and explicit Julia are selectable.
-[Operation Benchmark](docs/guides/benchmark.qmd) reads recorded operations from
-the current Plan leaf without executing another calculation. Generation
-checkpoints and boundary diagnostics preserve recovery and numerical evidence.
-JAX Optimization defaults to `commit_every_generations=10`; explicit positive
-integers select a different group size in the Plan leaf’s SQLite store. Only
-complete post-tell generations count. The JAX baseline remains in memory until
-the first completed group saves its body once; there is no standalone baseline
-commit, generation-0 checkpoint or initial callback. Omitted
-intervals with explicit Julia keep its existing native value of 1. See the
-guide for recovery, durability and recomputation limits.
-For same-generation JAX Optimization, `configure_runtime(cpu_threads=N)`
-declares the task CPU budget. Persistent candidate threads preserve isolated
-candidate preparation and continuation state; capacity is bounded by N and the
-population size. Compatible ready JAX assembly requests share a finite batch,
-while native sparse work shares the budget. `None` retains serial execution with
-the existing environment; 1 is serial. The coordinator alone owns CMA order,
-cache admission, winner selection, SQLite commits and durable callbacks.
-`run.warmup(view, spec, parameters=None)` prepares JAX topology, Views and
-executable signatures without solving or saving a successful result. Exact
-signatures share the bounded Run compile owner on their actual device. Active entries stay pinned through synchronization;
-unused static entries may be evicted locally, without clearing global JAX caches.
-Known value and checked linearization producers are distinct from lazy
-frame-consuming derivative variants; raw Prepared transformations do not imply
-a checked chunk warm hit. Sensitivity declarations use their exact leaf Views.
-Unknown future shapes remain lazy.
-`run.prepare(quantities=..., parameters=..., wrt=...)` is the advanced detached
-callable acquisition in the dev27 candidate. Its explicit layouts bind SI inputs,
-outputs, fixed mesh and branch controls. Raw values/status are not certified
-Results; caller ownership survives Run close. Native coverage, resource and performance conclusions remain bound to actual
-installed-candidate observations, without a whole-capability success claim.
-Optimization display defaults to `progress=True` and reports completed versus
-committed work independently of durable `on_progress` notifications. Disable
-it with `progress=False`. Display errors warn and disable display; durable
-callback failures retain their normal error contract. Uncommitted generation
-bodies may use private operation-local scratch, which is not a checkpoint or
-per-candidate SQLite commit.
-Population wall time divided by population size is an average, not candidate
-latency. There is one scheduler and no public executor selector or fallback.
-The dev14 candidate extends JAX evaluation to operator-element roots, hybridized
-poles, S/Y/Z transfer zeros, residue-normalized coupling and loaded operators.
-Scalar quantity selectors also serve Optimization; operators remain matrix
-outputs. These additions remain `CONVERGING` pending source-bound functional
-observations; no performance or numerical acceptance is implied. Published
-Alpha snapshots and historical outputs retain their original identities.
+Both modes use the same JAX physical program. For interactive calculations,
+`CircuitRun(plan=plan, storage="memory")` keeps Results in RAM without creating
+a Workspace. Use `CircuitRun(plan=plan, workspace=path)` when you want to save
+calculations, read them again, or continue supported optimization work later.
+JAX CPU and Float64/Complex128 are the defaults.
 
-Run diagnostics default to `CircuitRun(..., timing="aggregate")`; per-call
-`solve/evaluate/optimize(..., timing=None)` inherits this setting, or explicit
-`"detailed"` records actual low-level intervals. Aggregates record phase counts,
-inclusive sum/min/max and maximum context; they cannot reconstruct a detailed
-timeline. Timing is separate from numerical evidence and does not force cache
-recomputation. Optional diagnostic write failure warns without hiding an already
-committed numerical result; required storage/integrity/callback failures retain
-their failure contract. Current operation evidence uses SQLite version6.
+Each operation releases its temporary numerical resources automatically.
+Returned Results remain usable after `run.close()`, so plotting, comparing and
+reporting do not require keeping a Run open. See
+[requests, execution and Result ownership](docs/concepts/requests-execution-and-result-ownership.qmd)
+for the storage-specific read, recovery and continuation capabilities.
 
-Scalar root, pole, zero, response and coupling Results offer themed HTML through
-`result.show(detailed=False)` and detached Figure tables through
-`result.plot(detailed=False)`. Set `detailed=True` to include provenance and
-original stored magnitude/unit values. This presentation remains `CONVERGING`
-and does not execute or modify a calculation.
-
-## Alpha 1.0.0a2 release notes
-
-This candidate retains `CONVERGING` semantics; it is not a stable release or a
-claim of new numerical certainty. Publication and its exact tag remain separate
-delivery steps. The immutable `v1.0.0a1` snapshot and historical course outputs
-keep their original identities.
-
-Python 3.12 or newer and pinned CPU JAX/CMA dependencies supply the default
-same-process JAX path. Julia is optional and explicitly selected; Julia-only
-features require the extra and a manually provided compatible executable.
-JAX Optimization now defaults to committing every 10 completed generations;
-explicit positive intervals remain available, and omitted Julia intervals retain
-its existing native value of 1. A larger interval trades fewer commits for more
-buffered evidence and possible recomputation after interruption.
-
-Current JAX operation evidence uses a Plan-leaf SQLite store. Same-version exact
-checkpoint references resume only committed full CMA/RNG state; checkpoint off
-creates no resumable state. Readonly access never repairs a hot journal: recovery
-is explicit on the bound Run. Older operation Workspaces are unsupported: use a new Workspace and recompute;
-there is no legacy reader or migration, and old data are not automatically deleted. Public interfaces and saved workspace compatibility may change before
-a stable release; pin exact versions and preserve their environments.
+For repeated calculations, `run.warmup(...)` prepares known executable work
+without solving the model. Advanced JAX users can acquire a detached callable
+with `run.prepare(...)`. [Benchmark](docs/guides/benchmark.qmd) helps explain
+where a calculation spends time. These tools support the calculations above;
+they do not change which physical quantity you requested.
 
 ## A first Direct S11 result
 
@@ -227,18 +137,9 @@ baseline_s11.show(component="magnitude", magnitude="db")
 selected_s11.show(component="magnitude", magnitude="db")
 ```
 
-The example uses the default same-process JAX backend and does not require
-Julia. Explicit `backend="julia"` execution requires the optional Julia support
-and an already installed Julia 1.12.6; it may prepare the committed native
-project dependencies. The figures below are previously published Chapter 1
-Julia results—not generated by this example or the website build—and show the
-same model, sample grid, and `signal_in ← signal_in` channel. The figures present
-the complete S11 magnitude and phase; the named
-`reflection` trace above is a typed projection of that Direct result.
-
-![Certified Chapter 1 authoring projection of the grounded LC, coupler, and terminated Port.](examples/engineer/figures/01-authoring.svg)
-
-*Authoring projection of the physical Plan; it is not a numerical result.*
+The code uses the default JAX backend. The S11 figures below are the existing
+Chapter 1 Julia outputs for this authored case and channel; the website does
+not run the example to regenerate them.
 
 ![Previously published baseline S11 for 110 fF on the 401-point 5.75–6.25 GHz grid.](examples/engineer/figures/01-s11-baseline.svg)
 
@@ -248,106 +149,34 @@ the complete S11 magnitude and phase; the named
 
 *Stored Chapter 1 selected Result: 120 fF, with the same 5.8 nH inductor, 6 fF coupler, 50 Ω Port, and 401-point grid. No dip or resonance is inferred from this plot. [Exact complex samples](examples/engineer/figures/01-s11-data.csv).*
 
-Continue with the [Alpha Tutorial — Engineer course](docs/index.qmd).
+Continue with the [Engineer course](docs/index.qmd).
 
-## What the model can answer
+## Install
 
-- **Direct responses:** full finite-grid S, Y, and Z matrices, with named
-  channel traces projected from the same Result.
-- **Direct quantities:** loaded roots, coupled poles, transfer zeros, and
-  residue-normalized couplings without requiring a fitted external model.
-- **Views and Optimization:** Views select a derived analysis network without
-  changing physical ownership. Optimization binds declared parameters and
-  compares typed scalar objectives; a lower cost does not guarantee every
-  target, improvement, or a global optimum.
-- **Harmonic balance:** explicit pump, drive, operating-point, and response
-  requests return their own typed outcomes. Direct and HB traces are comparable
-  only when their selected boundary, channel, work point, pump state, and
-  linearization agree.
-
-These are research-model results, not universal accuracy or performance
-guarantees. Fitting remains useful for measurements and model identification;
-SCNSim does not claim automatic global root search or independent model
-validation. Physical layout and electromagnetic simulation are SCGSim
-responsibilities.
-
-## Install and learn
-
-After the `v1.0.0a2` Alpha tag is published, install the current Alpha with
-Python 3.12 or newer and retain the resulting lockfile and environment for
-reproducibility:
+The 1.0 beta is distributed through [GitHub Releases](https://github.com/OrPenStrike/scnsim/releases).
+Choose the matching CPython 3.12 wheel for Linux x86_64 or macOS arm64:
 
 ```bash
-uv add "scnsim @ git+https://github.com/OrPenStrike/scnsim.git@v1.0.0a2"
-uv run python -c "import scnsim; print(scnsim.__version__)"
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python /path/to/scnsim-wheel.whl
 ```
 
-The immutable first-Alpha [`v1.0.0a1` snapshot](https://github.com/OrPenStrike/scnsim/tree/v1.0.0a1)
-remains available for historical trial use; its original outputs retain their
-original identities.
+A matching prebuilt SCNSim wheel does not require a C++ compiler. Installing
+from source requires a C++17 toolchain. For a notebook environment, source
+installation and optional backends, see the
+[setup guide](examples/engineer/setup.qmd). Julia-only features use explicit
+backend selection and a separately provided Julia installation; see
+[Direct and HB realizations](docs/concepts/direct-and-hb-realizations.qmd).
 
-For the current development checkout, `uv sync --locked` installs the pinned CPU
-JAX/CMA runtime on Python 3.12. The default JAX path does not install JuliaPkg,
-discover Julia or launch a numerical child process. Configure its CPU pool before
-first execution with `configure_runtime(cpu_threads=...)`; per-call `backend`
-and `precision` override the Run defaults. `run.benchmark()` and `resolve()` are
-read-only. See the [operation guide](docs/guides/benchmark.qmd).
+## Learn the model, then choose the calculation
 
-`run.explain(ref, spec, backend=None, precision=None)` inherits the Run defaults.
-Its JAX route uses sparse Python lowering and View realization without Julia,
-JIT or a numerical solve. Explicit Julia execution, HB, Julia compiler
-preflight and compiled schematics require
-`uv sync --locked --extra julia` and manually provided Julia 1.12.6 on PATH or
-`PYTHON_JULIAPKG_EXE`. Feature calls never download Julia or change backends.
-Historical Engineer-course execution sources explicitly select Julia so their
-original outputs retain their original numerical authority.
-
-The Engineer-course generators use repository-local Jupyter tooling and an
-optional static-export extra:
-
-```bash
-uv sync --locked --group course-generation --extra static-export --extra julia
-```
-
-The site uses the vendored, unmodified Askr v0.4.0 `askr-html` format with
-the Quiet Quartz light/dark theme. To build it, use Quarto 1.10.18 or later and run
-`quarto render --no-execute --no-clean`. Start with the
-[Alpha Engineer course](docs/index.qmd); its aggregate Chapter notebooks are the
-execution units for Lessons 1–4, while Chapter 7 Lesson 5 has its own standalone
-notebook and result artifacts. The [documentation root](https://orpenstrike.github.io/scnsim/)
-opens the [1.0.0 development site](https://orpenstrike.github.io/scnsim/1.0.0-dev/).
-The version catalog follows one latest Alpha per release line. After the
-`v1.0.0a2` tag and its catalog deployment are published, Askr's version menu
-will select the separately rendered 1.0.0a2 Alpha site while preserving the
-page path when it exists. That deployment is a separate delivery step and is
-not claimed live here. Each site has branch-local search and shows its exact
-content source; the Alpha content comes from its immutable version tag, with
-only the reviewed Askr presentation and Pages profile overlaid at render time.
-Quarto's View source controls point to the content
-source. A missing page in a current version returns to that version's home;
-a retired Alpha URL explains its replacement rather than serving newer content
-under the old version. The former `/develop/` path redirects to the matching
-development path; `/main/` is not an Alpha alias. Main carries the same
-deployment configuration, not a third content version. The site executes no
-notebooks or solvers. Both source renders must validate before one Pages
-artifact is published. For a consuming
-repository preferring a reviewed commit over the Alpha tag, pin that commit
-in its `pyproject.toml` and lockfile:
-
-```bash
-uv add "scnsim @ git+https://github.com/OrPenStrike/scnsim.git@<reviewed-commit-sha>"
-```
+Start with the [Concept overview](docs/concepts/index.qmd) for the mental model,
+or follow the [Engineer course](docs/index.qmd) to build and calculate an
+example. Use the focused guides for
+[roots and branch selection](docs/guides/roots-and-branch-selection.qmd),
+[Sensitivity](docs/guides/sensitivity.qmd) and
+[Benchmark](docs/guides/benchmark.qmd) when those questions arise.
 
 ## License
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-
-The dev28 candidate keeps the existing public simulation interfaces and SQLite
-operation format v7. Warmup and execution share one immutable variant plan,
-including declared Objective and derivative work; frame-dependent consumers are
-reported as lazy when their exact producer tree is unavailable. Owner-local
-single-flight coordinates compilation without a global JAX cache purge.
-Prebuilt native CPU wheels target Python3.12/Linux x86_64 glibc>=2.28 and macOS
-Apple ARM>=12; source installation requires a C++17 compiler. Platform execution
-and performance remain separately observed CONVERGING scope.

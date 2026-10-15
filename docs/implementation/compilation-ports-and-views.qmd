@@ -60,8 +60,10 @@ scales, budget, seed, and algorithm IDs. It omits unsupported RLGC,
 PTC/transform, N-port, and HB sections instead of printing fabricated `N/A`
 rows.
 
-A compiled schematic projects the same expanded physical graph, while an
-authoring schematic remains a Python projection of the Plan.
+A caller-declared schematic projects the authored Plan through actual body,
+pin and wire correspondence. Historical compiled exports projected this
+expanded graph; automatic compiled drawing is retired, while the numerical
+expansion remains maintained.
 
 ## Lower one logical Port two ways
 

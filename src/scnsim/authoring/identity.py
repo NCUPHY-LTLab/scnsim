@@ -203,13 +203,9 @@ def canonical_resolved_plan_point(
     })  # type: ignore[return-value]
 
 
-def canonical_diagram_digests(
-    plan: object, *, representation: str
-) -> dict[str, str]:
-    """Return the representation-tagged diagram facts owned by canonicalization."""
+def canonical_diagram_digests(plan: object) -> dict[str, str]:
+    """Return the single authoring diagram authority's canonical facts."""
 
-    if representation not in {"authoring", "compiled"}:
-        raise ValueError("representation must be 'authoring' or 'compiled'")
     if isinstance(plan, Mapping):
         raw = dict(plan)
         if raw.get("schema") == "scnsim.plan":
@@ -220,7 +216,7 @@ def canonical_diagram_digests(
     plan_sha256 = sha256_hex(document)
     common = {
         "schema_version": 2,
-        "representation": representation,
+        "representation": "authoring",
         "plan_sha256": plan_sha256,
     }
     connectivity = sha256_hex({

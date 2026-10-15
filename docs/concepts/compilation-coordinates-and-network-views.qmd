@@ -135,5 +135,5 @@ port lists.
 - [Selective Port-Termination Compensation](../v1-runtime-contract.qmd#selective-port-termination-compensation-ptc-is-a-shared-topology-step)
 - [Automatic paired-node coordinates](../v1-runtime-contract.qmd#automatic-paired-node-coordinates-are-a-shared-view-step)
 - [Retain an arbitrary node-coordinate view](../v1-runtime-contract.qmd#retain-an-arbitrary-node-coordinate-view)
-- [Authoring and compiled schematics](../v1-runtime-contract.qmd#authoring-and-compiled-schematics)
+- [Caller-declared schematics](../v1-runtime-contract.qmd#authoring-and-compiled-schematics)
 - [Parameter System contract](../contracts/parameter-system.qmd)

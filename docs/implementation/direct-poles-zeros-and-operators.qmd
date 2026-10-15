@@ -9,14 +9,16 @@ toc-depth: 3
 `STABILIZED`. Selected-View element roots are `CONVERGING` and specified in
 the [root procedure](diagonal-root-numerical-procedure.qmd).
 
-The dev14 JAX implementation scope is `CONVERGING`: it adds the existing
-`OperatorElementRootSpec`, `HybridizedPoleSpec`, S/Y/Z `TransferZeroSpec`,
-`ResidueNormalizedCouplingSpec` and `OperatorSpec` to same-process public
-`evaluate`, ordered parameter sweeps, and every existing scalar Optimization
-selector/expression. Operators remain matrix outputs, not scalar objectives.
-These are implementation targets pending source-bound installed-wheel
-observations, not completed functionality or Human acceptance. Explicit Julia
-keeps its current numerical and storage contract; HB is outside this scope.
+The current JAX route supplies `OperatorElementRootSpec`, `HybridizedPoleSpec`,
+S/Y/Z `TransferZeroSpec`, `ResidueNormalizedCouplingSpec` and `OperatorSpec` to
+public `evaluate`, declared parameter sweeps and scalar Optimization selectors.
+Operators remain matrix outputs, not scalar objectives. Functionality and
+performance conclusions remain bound to exact installed-source observations,
+not an implied full Example regression or Human acceptance. Explicit Julia
+retains its separate legacy/reference contract; HB is outside this route.
+For the reader-facing distinction between Hint, a plotted notch, explicit
+search and a tracked branch, start with the
+[root and branch-selection guide](../guides/roots-and-branch-selection.qmd).
 
 This page realizes the previously accepted Direct quantity catalog. It does not change
 the definitions in the
@@ -50,16 +52,14 @@ ordered a/b branch bindings and their already-certified roots, slopes, optional
 vectors, residues and certificates. Each read recursively detaches nested Pint
 wrappers over immutable array backing, mappings and tuples.
 
-Candidate ledger terms identify canonical numerical bodies by `body_id` in the
-candidate's `dependencies` map. Version5 `benchmark_value` stores each canonical
-scientific body directly as `record_bytes(body)`, without a task/key wrapper.
-Intrinsic parameters, identity, dependencies and evidence remain in that body;
-ordered occurrences retain task-local context and reference it. Readers batch
-reference hydration within one verified snapshot, with no version3 fallback.
-Coupling branch references join that same map;
-they are not child Result identities or duplicated numerical artifacts. The
-verified decoder projects these supplied bodies without storage access or
-recalculation.
+Candidate terms and coupling branch dependencies refer to canonical numerical
+bodies instead of duplicating their evidence. Ordered occurrences retain their
+own task-local context and reference the supplied body. The current Workspace
+operation store is v7; readonly selected access hydrates exact immutable
+references within a short verified snapshot, without a latest-result selector,
+legacy fallback or numerical recomputation. Memory Results retain detached
+actual bodies without inventing a saved receipt. The decoder projects supplied
+values and evidence; it is not another numerical evaluator.
 
 No new threshold is introduced by this dtype distinction.
 

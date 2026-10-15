@@ -1,0 +1,95 @@
+- title: "System architecture"
+  path: "system-architecture.qmd"
+  description: "Locate layer responsibilities and acquisition, use, and release boundaries."
+  topic: ownership
+  order: 0
+- title: "Plan sealing and identity"
+  path: "plan-sealing-and-identity.qmd"
+  description: "Follow immutable Plan capture and the bytes that identify it."
+  topic: ownership
+  order: 1
+- title: "Canonical identities and schemas"
+  path: "canonical-identities-and-schemas.qmd"
+  description: "Find canonical records and their schema boundaries."
+  topic: ownership
+  order: 2
+- title: "Catalog and runtime identity"
+  path: "catalog-and-runtime-identity.qmd"
+  description: "Understand how catalog and execution identities are made portable."
+  topic: ownership
+  order: 3
+- title: "Composite snapshots"
+  path: "composite-snapshots-and-recursive-expansion.qmd"
+  description: "Trace reusable component capture and recursive expansion."
+  topic: physical
+  order: 4
+- title: "Compilation, Ports, and Views"
+  path: "compilation-ports-and-views.qmd"
+  description: "Follow primitive lowering and logical Ports into one physical graph."
+  topic: physical
+  order: 5
+- title: "RLGC and pi expansion"
+  path: "rlgc-q2d-and-pi-expansion.qmd"
+  description: "See how ordered coupled matrices become a finite line model."
+  topic: physical
+  order: 6
+- title: "View lineage"
+  path: "view-lineage-and-selected-networks.qmd"
+  description: "Follow a Ref lineage into the final selected network."
+  topic: physical
+  order: 7
+- title: "Diagonal-root procedure"
+  path: "diagonal-root-numerical-procedure.qmd"
+  description: "Follow the scalar residual, analytic slope, certificates, and continuation."
+  topic: numerical
+  order: 8
+- title: "Poles, zeros, couplings, and operators"
+  path: "direct-poles-zeros-and-operators.qmd"
+  description: "Locate the selected equations for characteristic quantities."
+  topic: numerical
+  order: 9
+- title: "Direct quantities and optimization"
+  path: "direct-quantities-and-optimization.qmd"
+  description: "Trace physical objective evaluation and optimizer responsibilities."
+  topic: numerical
+  order: 10
+- title: "HB realization"
+  path: "hb-realization-and-outcomes.qmd"
+  description: "Follow HB normalization and per-case outcomes."
+  topic: numerical
+  order: 11
+- title: "Benchmark and backends"
+  path: "benchmark-and-backends.qmd"
+  description: "Understand preparation, bounded execution, and measured clock scopes."
+  topic: execution
+  order: 12
+- title: "Workspace and artifacts"
+  path: "workspace-attempts-and-artifacts.qmd"
+  description: "Trace attempts, receipts, arrays, and exact saved Result readback."
+  topic: execution
+  order: 13
+- title: "Results, reports, and diagrams"
+  path: "results-reports-and-diagrams.qmd"
+  description: "Follow typed Results into detached plots, reports, and manual drawings."
+  topic: execution
+  order: 14
+- title: "Julia preparation"
+  path: "julia-runtime-preparation.qmd"
+  description: "Locate retained Julia installation and runtime preparation."
+  topic: execution
+  order: 15
+- title: "Python–Julia protocol"
+  path: "python-julia-protocol.qmd"
+  description: "Inspect the retained process boundary and failure transport."
+  topic: execution
+  order: 16
+- title: "External inputs and delivery"
+  path: "external-inputs-and-delivery.qmd"
+  description: "Locate provenance boundaries and implementation delivery slices."
+  topic: execution
+  order: 17
+- title: "Engineer course map"
+  path: "engineer-course-migration-map.qmd"
+  description: "Find course placement and retained tutorial entry points."
+  topic: execution
+  order: 18

@@ -12,14 +12,14 @@ select a numerical View or execute a solver.
 from examples.engineer.diagram_layouts import engineer_layout
 
 presentation = CircuitDiagramSpec(
-    representation="authoring", theme=Theme.AUTO,
+    theme=Theme.AUTO,
     show_parameter_values=True, show_provenance=True,
 )
 diagram_preparation = plan.prepare_schematic(presentation)
 diagram_layout = engineer_layout(diagram_preparation, "coupled_lc")
 diagram = plan.render_schematic(
     CircuitDiagramSpec(
-        layout=diagram_layout, representation="authoring", theme=Theme.AUTO,
+        layout=diagram_layout, theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )

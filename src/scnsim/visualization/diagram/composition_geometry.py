@@ -15,8 +15,7 @@ import json
 from ...errors import SCNSimValidationError
 from ..schematic import DiagramRef, ScopeMeasurement, _scope_layout_sha256
 from .composition_obstacles import OwnedObstacle, TerminalAccess
-from .metrics import DEFAULT_METRICS
-from .native import (emit_native, jump_arc, junction_mark,
+from .native import (emit_native, fragment_scene, jump_arc, junction_mark,
                      measured_obstacles, transform_fragment, transform_text)
 from .scene import (Bounds, BoundarySite, ConductivePolyline,
                     COORDINATE_TOLERANCE, GuideMark, NeutralScene, Path, Point,
@@ -78,9 +77,9 @@ def _check_path(points, *, route_id, scope):
                             route=route_id, intersection=relation)
 
 
-def _region(bounds, header):
+def _region(bounds, header, *, metrics):
     """The existing rounded ownership contour, in the supplied exact frame."""
-    r = DEFAULT_METRICS.label_clearance
+    r = metrics.label_clearance
     x0,y0,x1,y1 = bounds.xmin,bounds.ymin,bounds.xmax,bounds.ymax
     outline = Path((Point(x0+r,y0),Point(x1-r,y0),Point(x1,y0),Point(x1,y0),
         Point(x1,y0+r),Point(x1,y1-r),Point(x1,y1),Point(x1,y1),Point(x1-r,y1),
@@ -101,9 +100,8 @@ def _exact_keys(actual, expected, *, label, scope):
             scope=scope, missing=tuple(set(expected)-set(actual)), extra=tuple(set(actual)-set(expected)))
 
 
-def _emit_routes(routes, jumps, contacts, junctions, *, obstacles, access, frame, scope):
+def _emit_routes(routes, jumps, contacts, junctions, *, obstacles, access, frame, scope, metrics):
     """Validate complete authored paths, then split only explicitly named jumps."""
-    from .routing import _segment_clear
 
     paths, endpoints = {}, {}
     for route in routes:
@@ -130,19 +128,8 @@ def _emit_routes(routes, jumps, contacts, junctions, *, obstacles, access, frame
         for row,a,b in ((ends[0],points[0],points[1]),(ends[1],points[-1],points[-2])):
             if _direction(a,b) != row["side"]:
                 raise _fail("declared route does not leave its actual terminal side", scope=scope, route=route.id)
-        legal = tuple(fact for row in ends for fact in access.get(row["source"], ()))
-        for a,b in pairwise(points):
-            for obstacle in obstacles:
-                # Conductive intersections are checked below and by independent
-                # ink reconstruction; they are not rectangular body barriers.
-                if obstacle.kind == "conductive":
-                    continue
-                bounds = obstacle.bounds
-                gap = DEFAULT_METRICS.obstacle_clearance
-                expanded = replace(obstacle, bounds=Bounds(bounds.xmin-gap,bounds.ymin-gap,bounds.xmax+gap,bounds.ymax+gap))
-                if not _segment_clear(a,b,(expanded.bounds,)) and not any(fact.permits(expanded,a,b) for fact in legal):
-                    raise _fail("declared route intersects occupied geometry", scope=scope, route=route.id,
-                        first=a, second=b, obstacle_source=obstacle.source, obstacle_kind=obstacle.kind)
+        # Caller owns text/body overlap. Actual conductive incidence is still
+        # checked by route geometry and the one scene topology witness.
         paths[route.id], endpoints[route.id] = points, ends
     declared = {}
     for jump in jumps:
@@ -191,15 +178,12 @@ def _emit_routes(routes, jumps, contacts, junctions, *, obstacles, access, frame
             cursor = a
             for jump in selected:
                 at = Point(*jump.at)
-                half = DEFAULT_METRICS.jump_gap/2
+                half = metrics.jump_gap/2
                 start,end = at.translated(-dx*half,-dy*half),at.translated(dx*half,dy*half)
                 if not _on(start,cursor,b) or not _on(end,cursor,b) or _same(start,cursor) or _same(end,b):
                     raise _fail("native jump span does not fit its declared segment", scope=scope, route=name, at=at)
                 wires.append(ConductivePolyline((cursor,start)))
-                arc = jump_arc(start,end)
-                for obstacle in obstacles:
-                    if obstacle.kind != "conductive" and arc.path.bounds.overlaps(obstacle.bounds):
-                        raise _fail("declared jump intersects occupied geometry", scope=scope, route=name, source=obstacle.source)
+                arc = jump_arc(start,end,metrics=metrics)
                 arcs.append(arc)
                 cursor = end
             wires.append(ConductivePolyline((cursor,b)))
@@ -208,6 +192,7 @@ def _emit_routes(routes, jumps, contacts, junctions, *, obstacles, access, frame
 
 def realize_explicit_scope(preparation, scope_layout, *, native_measurements, children: Mapping[DiagramRef, ScopeMeasurement]):
     """Emit exactly one complete declared scope, without automatic geometry."""
+    metrics = preparation.metrics
     inventory = next(row for row in preparation.scopes if row.ref == scope_layout.scope)
     scope = inventory.ref.scope_path
     frame = Bounds(*scope_layout.frame)
@@ -250,7 +235,7 @@ def realize_explicit_scope(preparation, scope_layout, *, native_measurements, ch
             moved = {**dict(row), "point": row["point"].translated(*pose.origin)}
             contacts[ref] = moved
             local.append((ref,moved["point"],moved["side"]))
-        ink, rays = measured_obstacles(scene,owner=target,scope=scope,contacts=local,metrics=DEFAULT_METRICS)
+        ink, rays = measured_obstacles(scene,owner=target,scope=scope,contacts=local,metrics=metrics)
         obstacles.extend(ink)
         for ray in rays:
             access.setdefault(ray.source[0],[]).append(ray)
@@ -260,10 +245,13 @@ def realize_explicit_scope(preparation, scope_layout, *, native_measurements, ch
         if measurement.scope != target or measurement.preparation_sha256 != preparation.identity["preparation_sha256"]:
             raise _fail("child measurement has a different capture binding", scope=scope, child=target)
         pose = scope_layout.poses[target]
+        if pose.span is not None or pose.box is not None:
+            raise _fail("body span or box sizing does not apply to a child scope", scope=scope, target=target.key)
         origin = Point(*pose.origin)
         scene = transform_fragment(measurement.fragment,origin=origin,rotation=pose.rotation)
         adopt(scene)
-        payload["regions"].extend(replace(region,kind="composite") for region in scene.regions if region.kind == "root")
+        # The child's visible contour already belongs to its composite region.
+        # Its undrawn envelope is extent, never an additional ownership contour.
         sides = ("right","top","left","bottom")
         for ref,row in measurement.contacts.items():
             contacts[ref] = {**dict(row),"point": row["point"].rotated(pose.rotation).translated(*pose.origin),
@@ -304,14 +292,14 @@ def realize_explicit_scope(preparation, scope_layout, *, native_measurements, ch
             raise _fail("junction requires distinct declared cardinal arms",scope=scope,junction=junction.id)
         for side in sides:
             dx,dy=VECTORS[side]
-            tip=center.translated(dx*DEFAULT_METRICS.terminal_stub,dy*DEFAULT_METRICS.terminal_stub)
+            tip=center.translated(dx*metrics.terminal_stub,dy*metrics.terminal_stub)
             wire=ConductivePolyline((center,tip))
             payload["conductive"].append(wire)
             obstacles.append(OwnedObstacle((inventory.ref.key,),scope,"conductive",
                 (inventory.ref.key,"junction",junction.id,side),wire.bounds))
             junctions[junction.id,side]={"point":tip,"side":side,"source":(junction.id,side)}
         if len(sides)>=3:
-            mark=junction_mark(center)
+            mark=junction_mark(center,metrics=metrics)
             payload["node_marks"].append(mark)
             for index,stroke in enumerate(mark.paths):
                 obstacles.append(OwnedObstacle((inventory.ref.key,),scope,"conductive",
@@ -354,7 +342,7 @@ def realize_explicit_scope(preparation, scope_layout, *, native_measurements, ch
         dx,dy=VECTORS[contact["side"]]
         access.setdefault(contact["source"],[]).append(TerminalAccess(
             (leader.target.key,),(leader.contact.key,),contact["side"],start,
-            start.translated(dx*DEFAULT_METRICS.terminal_stub,dy*DEFAULT_METRICS.terminal_stub),
+            start.translated(dx*metrics.terminal_stub,dy*metrics.terminal_stub),
             ((leader.target.key,0),)))
         obstacles.append(OwnedObstacle((leader.target.key,),scope,"text",(leader.target.key,"text"),run.bounds))
     coupling_rows = {row["ref"]:row for row in inventory.structures if row["kind"] == "coupling"}
@@ -389,14 +377,26 @@ def realize_explicit_scope(preparation, scope_layout, *, native_measurements, ch
             dx,dy=VECTORS[contact["side"]]
             access.setdefault(contact["source"],[]).append(TerminalAccess(
                 (coupling.target.key,),(ref.key,),contact["side"],contact["point"],
-                contact["point"].translated(dx*DEFAULT_METRICS.terminal_stub,dy*DEFAULT_METRICS.terminal_stub),
+                contact["point"].translated(dx*metrics.terminal_stub,dy*metrics.terminal_stub),
                 ((coupling.target.key,index+1),)))
     wires,arcs = _emit_routes(scope_layout.routes,scope_layout.jumps,contacts,junctions,
-        obstacles=obstacles,access=access,frame=frame,scope=scope)
+        obstacles=obstacles,access=access,frame=frame,scope=scope,metrics=metrics)
     payload["conductive"].extend(wires)
     payload["jumps"].extend(arcs)
-    payload["regions"].append(_region(frame,header))
-    scene=NeutralScene(**{name:tuple(values) for name,values in payload.items()},bounds=frame)
+    if inventory.parent is not None:
+        # Preserve the exact caller child contour and its header. Annotation
+        # overflow enlarges only the separate undrawn scene envelope below.
+        payload["regions"].append(replace(_region(frame,header,metrics=metrics),kind="composite"))
+    scene=fragment_scene(**{name:tuple(values) for name,values in payload.items()})
+    extent_bounds = [frame, scene.bounds]
+    extent_bounds.extend(region.header.bounds for region in scene.regions if region.header is not None)
+    # GuideMark.bounds describes its strokes, not the separately emitted label.
+    extent_bounds.extend(guide.label.bounds for guide in scene.guides if guide.label is not None)
+    envelope = Bounds.around(tuple(Point(bound.xmin,bound.ymin) for bound in extent_bounds)
+                            + tuple(Point(bound.xmax,bound.ymax) for bound in extent_bounds))
+    scene=replace(scene, bounds=envelope,
+                  regions=tuple(_region(envelope,None,metrics=metrics) if region.kind == "root" else region
+                                for region in scene.regions))
     # Newly authored conductive/guide ink is preserved for parent ownership;
     # no table here supplies expected electrical connectivity to the auditor.
     for index,wire in enumerate(wires):
@@ -410,8 +410,8 @@ def realize_explicit_scope(preparation, scope_layout, *, native_measurements, ch
         # whole child body. Internal ink remains in the complete inventory.
         dx,dy=VECTORS[OPPOSITE[row["side"]]]
         scope_access.append(TerminalAccess((inventory.ref.key,),(ref.key,),OPPOSITE[row["side"]],
-            row["point"],row["point"].translated(dx*DEFAULT_METRICS.terminal_stub,dy*DEFAULT_METRICS.terminal_stub),()))
+            row["point"],row["point"].translated(dx*metrics.terminal_stub,dy*metrics.terminal_stub),()))
         exposed[ref]={**row,"side":OPPOSITE[row["side"]]}
     digest=_scope_layout_sha256(scope_layout)
     return ScopeMeasurement(inventory.ref,preparation.identity["preparation_sha256"],digest,
-        frame,exposed,tuple(obstacles),tuple(scope_access),markers,scene)
+        scene.bounds,exposed,tuple(obstacles),tuple(scope_access),markers,scene)

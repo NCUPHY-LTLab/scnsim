@@ -1,7 +1,8 @@
 """Capture immutable authoring inventory for explicit schematic layouts.
 
 This module binds diagram targets to one resolved Plan point.  It measures
-native fragments only; a caller supplies every pose, boundary, caption anchor,
+native fragments with one shared unit/span factory; a caller supplies every pose,
+boundary, caption anchor,
 junction, and route later through :class:`SchematicLayout`.
 """
 
@@ -24,7 +25,7 @@ from ..schematic import (
     SchematicPreparation,
     _scope_layout_sha256,
 )
-from .metrics import DEFAULT_METRICS, _font_faces, shape_text
+from .metrics import DEFAULT_METRICS, metrics_for_unit, _font_faces, shape_text
 from .native import fragment_text, measure_native
 from .scene import Point
 
@@ -89,7 +90,7 @@ def _scope_rows(root: Mapping[str, object]):
     return tuple(output)
 
 
-def _metric_record() -> Mapping[str, str]:
+def _metric_record(metrics) -> Mapping[str, str]:
     names = (
         "unit_length", "native_span", "label_clearance", "terminal_stub",
         "obstacle_clearance", "routing_lane_pitch", "port_lead",
@@ -100,7 +101,7 @@ def _metric_record() -> Mapping[str, str]:
         "secondary_text_size", "tertiary_text_size", "figure_inches_per_unit",
         "symbol_linewidth", "conductive_linewidth", "annotation_linewidth",
     )
-    return {name: float64_hex(float(getattr(DEFAULT_METRICS, name))) for name in names}
+    return {name: float64_hex(float(getattr(metrics, name))) for name in names}
 
 
 _SOURCE_IDENTITY_PATHS = (
@@ -120,7 +121,6 @@ _SOURCE_IDENTITY_PATHS = (
     "visualization/diagram/witness.py",
     "visualization/diagram/drawing.py",
     "visualization/diagram/pipeline.py",
-    "visualization/diagram/routing.py",
     "visualization/diagram/values.py",
     "authoring/assembly.py",
     "authoring/capture.py",
@@ -139,6 +139,16 @@ def _diagram_source_identity() -> tuple[Mapping[str, str], ...]:
         }
         for relative_path in _SOURCE_IDENTITY_PATHS
     )
+
+
+def schematic_source_sha256(snapshot) -> str:
+    """Compare a captured source without glyph measurement or point resolution."""
+    return sha256_hex({
+        "schema": "scnsim.schematic_source_identity",
+        "schema_version": 1,
+        "source_provenance": snapshot.source_provenance,
+        "diagram_sources": _diagram_source_identity(),
+    })
 
 
 def _font_identity() -> tuple[Mapping[str, str], ...]:
@@ -212,15 +222,11 @@ def capture_schematic(plan: object, spec: object, parameters: object | None) -> 
     if semantic.get("schema") != "scnsim.authoring_snapshot" or semantic.get("schema_version") != 2:
         raise _fail("schematic preparation requires normalized authoring snapshot version 2")
 
-    digests = canonical_diagram_digests(point.snapshot, representation="authoring")
+    digests = canonical_diagram_digests(point.snapshot)
     parameters_sha = canonical_parameters_sha256(point.parameter_record)
-    source_sha = sha256_hex({
-        "schema": "scnsim.schematic_source_identity",
-        "schema_version": 1,
-        "source_provenance": point.snapshot.source_provenance,
-        "diagram_sources": _diagram_source_identity(),
-    })
-    metrics = _metric_record()
+    source_sha = schematic_source_sha256(point.snapshot)
+    drawing_metrics = metrics_for_unit(spec.drawing_unit)
+    metrics = _metric_record(drawing_metrics)
     fonts = _font_identity()
     metrics_sha = sha256_hex({
         "schema": "scnsim.diagram_metrics",
@@ -229,6 +235,7 @@ def capture_schematic(plan: object, spec: object, parameters: object | None) -> 
         "fonts": fonts,
     })
     options = {
+        "drawing_unit": None if spec.drawing_unit is None else {"name": spec.drawing_unit.name, "units_per_u_f64": float64_hex(spec.drawing_unit.units_per_u)},
         "representation": spec.representation,
         "theme": spec.theme.value,
         "show_parameter_values": spec.show_parameter_values,
@@ -498,7 +505,7 @@ def capture_schematic(plan: object, spec: object, parameters: object | None) -> 
             native[target, orientation] = measure_native(
                 point, target, orientation=orientation,
                 show_values=spec.show_parameter_values,
-                metrics=DEFAULT_METRICS,
+                metrics=drawing_metrics,
             )
 
     # A global lookup from final nets to captured contact refs is used only to
@@ -577,7 +584,7 @@ def capture_schematic(plan: object, spec: object, parameters: object | None) -> 
         if not isinstance(title, str) or not title:
             raise _fail("captured scope has no source title", scope=path)
         run = shape_text(
-            title, at=Point(0.0, 0.0), size=1.25 * DEFAULT_METRICS.primary_text_size,
+            title, at=Point(0.0, 0.0), size=1.25 * drawing_metrics.primary_text_size,
             role="region-id",
         )
         ref = _caption_ref(preparation_sha, path, "scope_title", {"scope": list(path), "id": title})
@@ -592,7 +599,7 @@ def capture_schematic(plan: object, spec: object, parameters: object | None) -> 
         ):
             pin_id = exposure["id"]
             run = shape_text(
-                pin_id, at=Point(0.0, 0.0), size=DEFAULT_METRICS.tertiary_text_size,
+                pin_id, at=Point(0.0, 0.0), size=drawing_metrics.tertiary_text_size,
                 role="public-pin",
             )
             ref = _caption_ref(preparation_sha, path, "boundary", {"scope": list(path), "id": pin_id})
@@ -611,7 +618,7 @@ def capture_schematic(plan: object, spec: object, parameters: object | None) -> 
         if not isinstance(net, str):
             raise _fail("captured analysis label has no final net", scope=scope_path)
         run = shape_text(
-            label["text"], at=Point(0.0, 0.0), size=DEFAULT_METRICS.tertiary_text_size,
+            label["text"], at=Point(0.0, 0.0), size=drawing_metrics.tertiary_text_size,
             role="analysis-label",
         )
         ref = _caption_ref(preparation_sha, scope_path, "analysis_label", label)
@@ -680,7 +687,7 @@ def capture_schematic(plan: object, spec: object, parameters: object | None) -> 
                 magnitude = float64_from_hex(value)
                 label += "; k" + ("<0" if magnitude < 0 else ">0" if magnitude > 0 else "=0")
             run = shape_text(
-                label, at=Point(0.0, 0.0), size=DEFAULT_METRICS.tertiary_text_size,
+                label, at=Point(0.0, 0.0), size=drawing_metrics.tertiary_text_size,
                 role="structure-id",
             )
             structures_by_scope[path].append({
@@ -786,6 +793,39 @@ def capture_schematic(plan: object, spec: object, parameters: object | None) -> 
     )
 
 
+def measure_body(preparation: SchematicPreparation, target: DiagramRef, *, rotation: int = 0, span: float | None = None, box=None) -> MeasuredFragment:
+    """One native factory owns caller measurement and emitted body/contact span."""
+    if not isinstance(target, DiagramRef) or (target, rotation) not in preparation.native:
+        raise _fail("body target or rotation is absent from this preparation", target=getattr(target, "key", None))
+    from ..schematic import DiagramBoxSize
+    if box is not None and not isinstance(box, DiagramBoxSize):
+        raise TypeError("body box must be DiagramBoxSize or None")
+    if span is None and box is None:
+        return preparation.native[target, rotation]
+    if span is not None:
+        from math import isfinite
+        span = float(span)
+        if not isfinite(span) or span <= 0:
+            raise ValueError("drawing body span must be positive")
+        if box is not None and box.width is not None:
+            raise ValueError("span and box.width are alternative longitudinal specifications")
+    if target.kind != "occurrence":
+        raise _fail("body span or box sizing requires a physical occurrence", target=target.key)
+    geometry_key = ("body", rotation, None if span is None else float64_hex(span),
+                    None if box is None else tuple(None if value is None else float64_hex(value)
+                                                   for value in (box.width, box.height)))
+    key = (preparation.identity["preparation_sha256"], target.key, geometry_key)
+    with preparation._measurement_lock:
+        cached = preparation._measurements.get(key)
+        if cached is not None:
+            return cached
+        result = measure_native(preparation._point, target, orientation=rotation,
+                                show_values=preparation._spec.show_parameter_values,
+                                metrics=preparation.metrics, span=span, box=box)
+        preparation._measurements[key] = result
+        return result
+
+
 def measure_scope(preparation: SchematicPreparation, scope_ref, scope_layout):
     """Realize one explicitly declared scope bottom-up with exact memoization."""
     from ..schematic import ScopeMeasurement, SchematicScopeLayout
@@ -816,9 +856,11 @@ def measure_scope(preparation: SchematicPreparation, scope_ref, scope_layout):
             for child_ref, child_layout in scope_layout.children.items()
         }
         native_refs = set(scope_inventory.physical_occurrences) | set(scope_inventory.ports) | set(scope_inventory.grounds)
+        placements = {**{ref: pose for ref, pose in scope_layout.poses.items() if ref in native_refs},
+                      **dict(scope_layout.ports), **dict(scope_layout.grounds)}
         native_measurements = {
-            key: value for key, value in preparation.native.items()
-            if key[0] in native_refs
+            (ref, pose.rotation): measure_body(preparation, ref, rotation=pose.rotation, span=pose.span, box=pose.box)
+            for ref, pose in placements.items()
         }
         from .composition_geometry import realize_explicit_scope
         realization = realize_explicit_scope(
@@ -834,4 +876,4 @@ def measure_scope(preparation: SchematicPreparation, scope_ref, scope_layout):
         return result
 
 
-__all__ = ["capture_schematic", "measure_scope"]
+__all__ = ["capture_schematic", "measure_body", "measure_scope"]

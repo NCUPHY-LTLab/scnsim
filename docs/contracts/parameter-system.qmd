@@ -462,7 +462,7 @@ scientific acceptance or a Gate.
 Authoring diagrams first capture this same point with
 `plan.prepare_schematic(parameters=...)`, then receive a complete explicit
 layout bound to that preparation. A changed point requires fresh refs and
-layout declarations. Compiled diagrams retain their existing layout-free path.
+layout declarations. There is no automatic compiled diagram path in the manual successor.
 
 ```text
 CircuitPlan.render_schematic(
@@ -472,7 +472,7 @@ CircuitPlan.render_schematic(
 ```
 
 Rendering defaults to captured baselines and rejects `ParameterSpace`. The
-same explicit point drives native values, compiled expansion, labels, expected
+same explicit point drives native values, labels, expected
 evidence, and independent observed A/B audit. The audit displays baseline
 versus selected values, Plan-specific physical consumers, and
 `parameters_sha256`, which identifies the complete effective point after
@@ -485,7 +485,7 @@ or structural facts. No promise is made that all digests are invariant across
 points. Baseline-versus-selected labels are display provenance, not a
 substitute for effective-point identity.
 
-A diagram certifies only the supported authoring or compiled projection at
+A diagram certifies only the caller-declared authoring projection at
 that point. It does not select or certify a View, solver Result, optimization,
 or every request-local override. `show()` and existing read-only Schemdraw
 Drawing/save and Notebook viewer surfaces serialize the same frozen audited

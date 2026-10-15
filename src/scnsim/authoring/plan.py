@@ -72,6 +72,36 @@ class CircuitPlan(_Scope):
             )
         return _render_schematic(self, checked_spec, parameters=parameters)
 
+    def declare_schematic(self, spec: object, *, parameters: ParameterSet | None = None) -> object:
+        """Publish one completed drawing only after the normal renderer succeeds."""
+        from ..specs import CircuitDiagramSpec
+        if not isinstance(spec, CircuitDiagramSpec):
+            raise TypeError("declare_schematic() requires CircuitDiagramSpec")
+        if spec.layout is None:
+            raise SCNSimValidationError("declaring a CircuitDiagram requires a complete SchematicLayout", stage="schematic_layout")
+        result = self.render_schematic(spec, parameters=parameters)
+        from .identity import canonical_diagram_digests
+        # The result owns a frozen captured point, never this live Plan.
+        binding = canonical_diagram_digests(result.layout.preparation._point.snapshot)
+        self._declared_schematic = (result, binding, result.layout.preparation.identity["source_sha256"])
+        return result
+
+    def show_schematic(self) -> None:
+        """Present the held captured drawing; never measure, render or solve."""
+        from .identity import canonical_diagram_digests
+        association = getattr(self, "_declared_schematic", None)
+        if association is None:
+            raise SCNSimValidationError("this Plan has no declared CircuitDiagram", stage="schematic_layout")
+        result, binding, source_sha = association
+        snapshot = self._capture_authoring_snapshot()
+        current = canonical_diagram_digests(snapshot)
+        from ..visualization.diagram.preparation import schematic_source_sha256
+        if current != binding or schematic_source_sha256(snapshot) != source_sha:
+            raise SCNSimValidationError("declared CircuitDiagram has a stale Plan binding", stage="schematic_layout")
+        # Reuse the Drawing's notebook display authority. Its MIME path
+        # presents the held scene without calling a managerless Figure.show().
+        result.show()._ipython_display_()
+
     def add_port(
         self,
         *,

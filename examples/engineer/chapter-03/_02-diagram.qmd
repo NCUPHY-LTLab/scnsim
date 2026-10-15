@@ -16,14 +16,14 @@ from scnsim.errors import SCNSimValidationError
 
 complete_preparation = plan.prepare_schematic(
     CircuitDiagramSpec(
-        representation="authoring", theme=Theme.AUTO,
+        theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )
 complete_layout = engineer_layout(complete_preparation, "feedline_readout")
 complete_diagram = plan.render_schematic(
     CircuitDiagramSpec(
-        layout=complete_layout, representation="authoring", theme=Theme.AUTO,
+        layout=complete_layout, theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )

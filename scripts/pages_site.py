@@ -20,9 +20,9 @@ SITE = "https://orpenstrike.github.io/scnsim/"
 PREFIX = "/scnsim/"
 REPO = "https://github.com/OrPenStrike/scnsim"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
-RELEASE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?P<alpha>a\d+)?\Z")
+RELEASE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:(?P<alpha>a\d+)|(?P<beta>b\d+))?\Z")
 DEVELOPMENT = re.compile(r"(?P<line>\d+\.\d+\.\d+) dev\Z")
-DEVELOPMENT_SOURCE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:a\d+|\.dev\d+)?\Z")
+DEVELOPMENT_SOURCE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:a\d+|b\d+|\.dev\d+)?\Z")
 # The 25 unmodified files in arfiligol/askr@06cebff4da5e842cac15b73daa27d9f1825a14be.
 ASKR_SHA256 = "0598d94358bb0bf25e43c14c6060b7c068265ef06c4870bc837837c3437690df"
 
@@ -69,7 +69,8 @@ def _catalog(path: Path) -> dict[str, object]:
             line, stage = pinned_dev["line"], "development"
             valid = set(item) == {"label", "root", "commit"} and item["root"] == PREFIX + line + "-dev/"
         elif published:
-            line, stage = published["line"], "alpha" if published["alpha"] else "final"
+            line = published["line"]
+            stage = "alpha" if published["alpha"] else "beta" if published["beta"] else "final"
             valid = set(item) == {"label", "root", "tag", "commit"} and item["root"] == PREFIX + item["label"] + "/" and item["tag"] == "v" + item["label"]
         else:
             raise ValueError("Pages pinned version label is invalid")

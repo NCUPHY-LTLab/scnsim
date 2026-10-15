@@ -1,8 +1,7 @@
-"""Independent expected manifests for certified circuit diagrams.
+"""Independent expected manifests for certified manual circuit diagrams.
 
-This module deliberately consumes only the immutable canonical Plan capture,
-and, for a compiled projection, the compiler's sealed expanded-graph evidence.
-It does not import the authoring semantic IR or any placement data.
+This module consumes only the immutable canonical Plan capture. It does not
+import the authoring semantic IR or any placement data.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from ...canonical import canonical_json_bytes, quantity_envelope, sha256_hex
 from ...errors import SCNSimValidationError
 from ...authoring.snapshot import ResolvedPlanPoint
 
-_Representation = Literal["authoring", "compiled"]
+_Representation = Literal["authoring"]
 _Path = tuple[str, ...]
 
 def _fail(message: str, **evidence: object) -> SCNSimValidationError:
@@ -70,8 +69,6 @@ class _PointExpectedManifest:
     structural: Mapping[str, object]
     expected_values: Mapping[str, object]
     verified: Mapping[str, object]
-    compiled_graph_sha256: str | None = None
-    expanded_graph_sha256: str | None = None
 
 
 def _point_semantic(point: ResolvedPlanPoint) -> Mapping[str, object]:
@@ -716,7 +713,7 @@ def _v2_authoring(point: ResolvedPlanPoint) -> _PointExpectedManifest:
             }
         ),
     )
-    digests = canonical_diagram_digests(point.snapshot, representation="authoring")
+    digests = canonical_diagram_digests(point.snapshot)
     verified = cast(
         Mapping[str, object],
         _freeze(
@@ -751,150 +748,7 @@ def _v2_authoring(point: ResolvedPlanPoint) -> _PointExpectedManifest:
     )
 
 
-def _compiled_row_projection(row: Mapping[str, object]) -> dict[str, object]:
-    """Project one compiler row onto the complete visible matrix grammar."""
+def build_point_expected(point: ResolvedPlanPoint) -> _PointExpectedManifest:
+    """Build V2 expectations from one immutable resolved Plan point."""
 
-    kind = _string(row.get("kind"), "expanded row kind")
-    if kind == "transmission_line_audit":
-        return {
-            "kind": kind,
-            "component_path": _plain(row.get("component_path")),
-            "conductors": _plain(row.get("conductors")),
-            "reference_conductor": row.get("reference_conductor"),
-            "n_sections": row.get("n_sections"),
-            "length": _plain(row.get("length")),
-            "dx": _plain(row.get("dx")),
-            "orientation": row.get("orientation"),
-            "stations": _plain(row.get("stations")),
-            "rlgc_source": _plain(row.get("rlgc_source")),
-        }
-    if kind == "mutual_inductance":
-        return {
-            "kind": kind,
-            "coupling_id": row.get("coupling_id"),
-            "branch_a": _plain(row.get("branch_a")),
-            "branch_b": _plain(row.get("branch_b")),
-            "coupling_coefficient": _plain(row.get("coupling_coefficient")),
-            "derived_mutual_inductance": _plain(row.get("derived_mutual_inductance")),
-            "omitted_as_zero": row.get("omitted_as_zero"),
-        }
-    return {
-        "kind": kind,
-        "component_path": _plain(row.get("component_path")),
-        "section": row.get("section"),
-        "station": row.get("station"),
-        "end": row.get("end"),
-        "row_conductor": row.get("row_conductor"),
-        "column_conductor": row.get("column_conductor"),
-        "branch_id": row.get("branch_id"),
-        "value": _plain(row.get("value")),
-        "omitted_as_zero": row.get("omitted_as_zero"),
-        "terminal_1_to_terminal_2": row.get("terminal_1_to_terminal_2"),
-        "incidence_f64": _plain(row.get("incidence_f64")),
-        "physical_positive_incidence_f64": _plain(
-            row.get("physical_positive_incidence_f64")
-        ),
-        "physical_negative_incidence_f64": _plain(
-            row.get("physical_negative_incidence_f64")
-        ),
-    }
-
-
-
-def _v2_compiled(point: ResolvedPlanPoint, compiled: Mapping[str, object]) -> _PointExpectedManifest:
-    from ...authoring.identity import (
-        canonical_diagram_digests,
-        canonical_expanded_graph_sha256,
-        canonical_parameters_sha256,
-        canonical_plan_snapshot,
-    )
-    from ...canonical import sha256_hex as canonical_sha256_hex
-
-    semantic = _point_semantic(point)
-    plan_sha = canonical_sha256_hex(canonical_plan_snapshot(point.snapshot))
-    if compiled.get("plan_sha256") != plan_sha:
-        raise _fail("compiled evidence belongs to a different Plan point")
-    parameters_sha = canonical_parameters_sha256(point.parameter_record)
-    if compiled.get("parameters_sha256") != parameters_sha:
-        raise _fail("compiled evidence belongs to a different effective point")
-    node_order = tuple(_string(item, "compiled.node_order") for item in _sequence(compiled.get("node_order"), "compiled.node_order"))
-    bindings = tuple(_mapping(item, "compiled.resolved_binding") for item in _sequence(compiled.get("resolved_bindings"), "compiled.resolved_bindings"))
-    source_rows = tuple(_mapping(item, "compiled.expanded_branch_row") for item in _sequence(compiled.get("expanded_branch_rows"), "compiled.expanded_branch_rows"))
-    expanded = canonical_expanded_graph_sha256(
-        plan_sha256=plan_sha,
-        node_order=node_order,
-        resolved_bindings=bindings,
-        expanded_branch_rows=source_rows,
-    )
-    if compiled.get("expanded_graph_sha256") != expanded:
-        raise _fail("compiled expanded-graph identity is invalid")
-    compiler = _string(compiled.get("compiled_graph_sha256"), "compiled.compiled_graph_sha256")
-    rows = tuple(_compiled_row_projection(row) for row in source_rows)
-    connectivity = _mapping(semantic.get("connectivity"), "connectivity")
-    ports = []
-    for raw in _sequence(connectivity.get("ports"), "ports"):
-        port = _mapping(raw, "port")
-        node = _string(port.get("net"), "port.net")
-        if node not in node_order:
-            raise _fail("compiled Port node is absent from compiler node order", port=port.get("id"))
-        ports.append(
-            {
-                "port_id": _string(port.get("id"), "port.id"),
-                "node_id": node,
-                "role": _string(port.get("role"), "port.role"),
-                "orientation": "node_to_reference",
-                "reference_impedance": _plain(port.get("reference_impedance")),
-                "reference_node": "ground",
-                "load_kind": "raw_reference_impedance",
-            }
-        )
-    active = [row for row in rows if row.get("kind") != "transmission_line_audit" and row.get("omitted_as_zero") is not True]
-    audits = [row for row in rows if row.get("kind") == "transmission_line_audit"]
-    omissions = [row for row in rows if row.get("kind") != "transmission_line_audit" and row.get("omitted_as_zero") is True]
-    mutual = [row for row in active if row.get("kind") == "mutual_inductance"]
-    physical = [row for row in active if row.get("kind") != "mutual_inductance"]
-    electrical = cast(Mapping[str, object], _freeze({
-        "schema": "scnsim.diagram_connectivity_manifest", "schema_version": 1,
-        "representation": "compiled", "node_order": list(node_order),
-        "expanded_terms": physical, "transmission_lines": audits,
-        "couplings": mutual, "omissions": omissions,
-        "ports": sorted(ports, key=lambda row: cast(str, row["port_id"])),
-    }))
-    structural = cast(Mapping[str, object], _freeze({
-        "schema": "scnsim.diagram_semantic_manifest", "schema_version": 1,
-        "representation": "compiled",
-        "compiler_hierarchy": [{"component_path": row["component_path"], "kind": "pi_ladder", "n_sections": row["n_sections"], "conductors": row["conductors"]} for row in audits],
-        "expanded_membership": [{"component_path": row.get("component_path"), "compiled_kind": row["kind"], "section": row.get("section"), "station": row.get("station"), "row_conductor": row.get("row_conductor"), "column_conductor": row.get("column_conductor"), "omitted_as_zero": row.get("omitted_as_zero")} for row in rows if row.get("kind") != "transmission_line_audit"],
-        "matrix_evidence": audits, "couplings": mutual, "omissions": omissions,
-    }))
-    digests = canonical_diagram_digests(point.snapshot, representation="compiled")
-    verified = cast(Mapping[str, object], _freeze({
-        "plan_id": semantic["plan_id"], **digests,
-        "parameters_sha256": parameters_sha,
-        "compiled_graph_sha256": compiler,
-        "expanded_graph_sha256": expanded,
-        "resolved_bindings": _plain(bindings),
-        "source_provenance": _plain(point.snapshot.source_provenance),
-        "canonical_values": {},
-        "source_rows": _v2_verified_source_rows(point, semantic),
-    }))
-    return _PointExpectedManifest("compiled", electrical, structural, MappingProxyType({}), verified, compiler, expanded)
-
-
-def build_point_expected(
-    point: ResolvedPlanPoint,
-    *,
-    representation: _Representation = "authoring",
-    compiled_evidence: Mapping[str, object] | None = None,
-) -> _PointExpectedManifest:
-    """Build V2 expectations only from one immutable point/compiler handoff."""
-
-    if representation == "authoring":
-        if compiled_evidence is not None:
-            raise TypeError("authoring witness does not accept compiled evidence")
-        return _v2_authoring(point)
-    if representation != "compiled":
-        raise ValueError("representation must be 'authoring' or 'compiled'")
-    if compiled_evidence is None:
-        raise TypeError("compiled witness requires exact same-point compiler evidence")
-    return _v2_compiled(point, compiled_evidence)
+    return _v2_authoring(point)

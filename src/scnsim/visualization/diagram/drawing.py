@@ -10,7 +10,7 @@ from os import fspath
 import re
 from typing import Any
 
-from .metrics import DEFAULT_METRICS
+from .metrics import DiagramMetrics
 from .scene import Bounds, NeutralScene, Path, TextRun, scene_digest
 
 
@@ -142,13 +142,13 @@ class _SceneFigure:
         color: str,
         background: str,
         certificate: _SvgCertificate | None,
+        metrics: DiagramMetrics,
     ) -> None:
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
         from matplotlib.patches import PathPatch
         from matplotlib.path import Path as MplPath
 
-        metrics = DEFAULT_METRICS
         self._figure = Figure(facecolor=background)
         self._certificate = certificate
         FigureCanvasAgg(self._figure)
@@ -415,13 +415,17 @@ def _frozen_drawing_class() -> type[Any]:
             *,
             theme: Any,
             certificate: _SvgCertificate | None = None,
+            metrics: DiagramMetrics,
         ) -> None:
             from ..presentation import _palette, _require_theme
 
             if not isinstance(scene, NeutralScene):
                 raise TypeError("FrozenDrawing requires a NeutralScene")
+            if not isinstance(metrics, DiagramMetrics):
+                raise TypeError("FrozenDrawing requires the preparation DiagramMetrics")
             self._scnsim_frozen = False
             self._scnsim_scene = scene
+            self._scnsim_metrics = metrics
             if certificate is not None and not isinstance(certificate, _SvgCertificate):
                 raise TypeError("FrozenDrawing requires an SVG certificate context or None")
             if certificate is not None and certificate.presentation_sha256 != scene_digest(scene):
@@ -461,6 +465,7 @@ def _frozen_drawing_class() -> type[Any]:
                     color=self._scnsim_color,
                     background=self._scnsim_background,
                     certificate=self._scnsim_certificate,
+                    metrics=self._scnsim_metrics,
                 ),
             )
             if show:
@@ -552,10 +557,11 @@ def freeze_drawing(
     *,
     theme: Any,
     certificate: _SvgCertificate | None = None,
+    metrics: DiagramMetrics,
 ) -> Any:
     """Return a read-only Schemdraw-compatible facade for one frozen scene."""
 
-    return FrozenDrawing(scene, theme=theme, certificate=certificate)
+    return FrozenDrawing(scene, theme=theme, certificate=certificate, metrics=metrics)
 
 
 FrozenDrawing = _frozen_drawing_class()

@@ -3,20 +3,52 @@ title: "Engineer course setup"
 subtitle: "One locked environment and one clean kernel per Chapter"
 ---
 
-Clone the current development course, install its locked environment, and
-start Jupyter from the repository root:
+## Install the beta wheel
+
+Use CPython 3.12 and download the matching wheel from
+[GitHub Releases](https://github.com/OrPenStrike/scnsim/releases). The provided
+platforms are Linux x86_64 (manylinux 2.28) and macOS arm64 (deployment target
+macOS 12). These platform tags identify the binary target; they do not imply
+that every operating-system version or circuit workload has been exercised.
 
 ```bash
-git clone --branch develop --single-branch https://github.com/OrPenStrike/scnsim.git
-cd scnsim
-uv sync --locked
-uv run --with jupyterlab jupyter lab
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python /path/to/scnsim-wheel.whl
+uv pip install --python .venv/bin/python jupyterlab ipykernel
+.venv/bin/python -m jupyterlab
+```
+
+Use a fresh environment rather than installing over a running notebook kernel.
+Select that environment's Python kernel. A matching SCNSim wheel needs no C++
+compiler. Compatible dependencies install normally; a pure-Python dependency
+build is different from compiling a native extension. If a native dependency
+must be built from source on an unsupported platform, that installation is not
+covered by the compiler-free wheel path.
+
+The manual diagram display uses the notebook's IPython rich-display support.
+It does not require a separate GUI figure manager.
+
+## Work from the course source
+
+For the matching beta course, select the `v1.0.0b1` source when it is published.
+The `develop` branch follows ongoing development and can differ from a release.
+A source installation builds SCNSim's native extension and requires a C++17
+compiler; it is separate from installing a prebuilt wheel.
+
+From the selected source checkout, install the existing locked course tools
+and start Jupyter from the repository root:
+
+```bash
+uv sync --locked --group course-generation
+uv run --locked --with jupyterlab jupyter lab
 ```
 
 The `jupyterlab` package is ephemeral tooling for that command; it is not added
 to SCNSim or its lock. An editor-provided Jupyter frontend may instead open the
-Chapter Notebook after `uv sync --locked`. Select the repository's `.venv`
-Python kernel, restart it, and use **Run All**.
+Chapter Notebook after the locked sync. Select the repository's `.venv` Python
+kernel, restart it, and use **Run All**. The course source also contains the
+manual layout helpers used by its diagram cells; these are ordinary Example
+code, not an automatically installed layout service.
 
 Read the [Simulation conventions](../../docs/concepts/simulation-conventions.qmd)
 before interpreting S/Y/Z, phase, PTC, or loaded roots. The explicit selected
@@ -30,8 +62,9 @@ a second fresh kernel to run only Lesson 2 against the same preserved working
 directory. The shorter web Lessons are reading views over ordered source
 fragments and are not independently runnable.
 
-On a cold machine, the first numerical request may prepare the locked Julia
-runtime and take longer than later requests. A relative path such as
+JAX CPU is the default numerical backend. A cold request can include runtime
+preparation and compilation. An explicitly selected Julia operation may also
+prepare its separately configured Julia runtime. A relative path such as
 `workspaces/engineer-chapter-02` is resolved from the process's current working
 directory. That workspace is Result evidence, not a disposable calculation
 cache: ignoring it in Git neither deletes nor backs it up, and exact later

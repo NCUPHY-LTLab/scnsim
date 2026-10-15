@@ -803,8 +803,9 @@ JIT, global dense C/K/G allocation, numerical solve or Julia discovery.
 The existing ExplanationResult exposes the evidence and its line discretization
 and HTML presentation. Sparse records explicitly identify their format and
 shape; they are not native Julia dense compiler artifacts. Explicit Julia
-explanations retain the existing compiler preflight. Compiled schematic
-construction retains its separate native Julia authority.
+explanations retain the existing compiler preflight. Manual schematic
+preparation/rendering does not initialize Julia or a solver; the automatic
+compiled diagram producer is retired independently of numerical compilation.
 
 ## Selected-Schur reciprocity amendment (CONVERGING)
 

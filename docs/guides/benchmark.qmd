@@ -94,7 +94,7 @@ native = run.solve(run.original, hb_spec, backend="julia", precision="float64")
 
 Install `scnsim[julia]` and manually provide Julia 1.12.6 on PATH or
 `PYTHON_JULIAPKG_EXE`. Missing support gives an actionable feature-specific error;
-there is no automatic acquisition or backend fallback. Explicit Julia compiler preflight and compiled schematics also require Julia.
+there is no automatic acquisition or backend fallback. Explicit Julia compiler preflight also requires Julia. Caller-declared schematic preparation/rendering does not; automatic compiled drawing is retired.
 `run.explain(ref, spec, *, parameters=None, backend=None, precision=None)` inherits
 the Run defaults, with per-call overrides. Its JAX route lowers the captured
 Plan and realizes the selected View and every Optimization objective View using

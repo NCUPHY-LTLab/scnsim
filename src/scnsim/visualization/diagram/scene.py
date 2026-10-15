@@ -459,13 +459,15 @@ def scene_digest(scene: NeutralScene) -> str:
     return sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def append_provenance_band(scene: NeutralScene, lines: tuple[str, ...]) -> NeutralScene:
+def append_provenance_band(scene: NeutralScene, lines: tuple[str, ...], *, metrics) -> NeutralScene:
     """Append measured certificate text without changing physical scene facts."""
 
-    from .metrics import DEFAULT_METRICS, shape_text
+    from .metrics import DiagramMetrics, shape_text
 
     if not isinstance(scene, NeutralScene):
         raise TypeError("append_provenance_band requires a NeutralScene")
+    if not isinstance(metrics, DiagramMetrics):
+        raise TypeError("append_provenance_band requires the preparation DiagramMetrics")
     if scene.provenance_band is not None:
         raise ValueError("a scene can have one provenance band")
     if (
@@ -475,7 +477,6 @@ def append_provenance_band(scene: NeutralScene, lines: tuple[str, ...]) -> Neutr
     ):
         raise TypeError("provenance lines must be a nonempty tuple of literal strings")
     root = next(region for region in scene.regions if region.kind == "root")
-    metrics = DEFAULT_METRICS
     font_size = metrics.secondary_text_size
     measured = tuple(
         shape_text(line, at=Point(0.0, 0.0), size=font_size, role="provenance")

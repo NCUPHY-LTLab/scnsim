@@ -22,7 +22,7 @@ behavior stays in Contract pages; the course teaches how to apply it.
 | 4. Four-Port capstone | Build the original physical Plan, apply PTC, then optionally retain/transform coordinates, evaluate quantities, and inspect Direct and pump-off HB on their own grids | Implemented in Batch 3B |
 | 5. Library | Package, instantiate, and reuse a Composite with deliberate public boundaries | Implemented in Batch 3C |
 | 6. Diagram customization | Review Default layout, set bounded composition hints, and read A/B correspondence | Implemented in Batch 3C |
-| 7. MTL | Author ordered multi-conductor RLGC and distinguish authoring from finite-pi compiled projections | Implemented in Batch 3C |
+| 7. MTL | Author ordered multi-conductor RLGC and declare manual geometry; retain historical finite-pi exports | Implemented in Batch 3C |
 | 8. Report and resolve | Preserve exact request, Result, report, workspace, and resolution lineage | Implemented in Batch 3C |
 
 The order is pedagogical only. It does not change the public API, numerical
@@ -120,8 +120,9 @@ Neither Chapter changes renderer behavior or creates a new success condition.
 - Chapter 7 evaluates the exact ordered N=2 RLGC model at the baseline,
   1.8 mm, and whole-C-matrix ×170/175 points on the declared three-sample grid.
   Every Result records all sixteen labeled four-Port channels; the public plots
-  show only the named readout-head reflection example. Authoring and finite-pi
-  compiled diagrams both remain typed layout failures, with no substitute SVG.
+  show only the named readout-head reflection example. The original authoring
+  and finite-pi compiled exports record typed layout failures without substitute
+  SVGs; they are historical outcomes, not successor executions.
 - Chapter 7 Lesson 5 is a separate source/notebook execution unit. Its moving
   middle attachment keeps two line bodies and their wiring fixed while x and
   8 mm − x produce point-owned electrical-resolution grids. Its three-position

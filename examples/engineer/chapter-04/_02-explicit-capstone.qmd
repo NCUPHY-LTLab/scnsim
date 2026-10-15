@@ -15,7 +15,7 @@ from examples.engineer.diagram_layouts import engineer_layout
 
 capstone_preparation = plan.prepare_schematic(
     CircuitDiagramSpec(
-        representation="authoring", theme=Theme.AUTO,
+        theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )
@@ -33,7 +33,7 @@ layout does not shortcut their distinct parent-local groups.
 #| id: ch4-render-explicit-capstone
 capstone = plan.render_schematic(
     CircuitDiagramSpec(
-        layout=capstone_layout, representation="authoring", theme=Theme.AUTO,
+        layout=capstone_layout, theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )
