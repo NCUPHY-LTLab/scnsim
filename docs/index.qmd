@@ -134,9 +134,9 @@ readout, the coupling capacitor, and two terminated Ports.
 :::: {.card .course-card}
 ::: {.card-body}
 ### [Lesson 2 — Diagram evidence and limitation](../examples/engineer/chapter-03/02-diagram.qmd) {.course-card-title .unlisted}
-Read the complete Plan's typed Default-layout failure honestly, then inspect
-two separately declared subcircuit illustrations without treating them as a
-projection of that failed Plan.
+Declare the complete Plan's manual layout and inspect its correspondence.
+Distinguish the earlier layout outcome and separately declared subcircuit
+illustrations from the complete Plan's current source recipe.
 :::
 ::::
 

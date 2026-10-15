@@ -264,8 +264,7 @@ separate authorities.
 
 ### Declare, then show a diagram
 
-The following is the manual successor interface, under implementation. It is
-not an executed example or a rendering success claim. The caller's
+The following uses the manual diagram interface. The caller's
 `layout_factory` must supply complete geometry from this preparation; it is an
 ordinary caller function, not package automatic completion.
 

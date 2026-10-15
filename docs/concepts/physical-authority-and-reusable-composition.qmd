@@ -49,7 +49,7 @@ stand in for an analysis Result.
 network and the structure the author deliberately assigned to it. The same
 authored Plan is the source for two independent uses:
 
-1. The Automatic Semantic Circuit Diagram Layout System (ASCDLS) captures an
+1. Manual circuit diagram preparation captures an
    immutable snapshot without sealing or mutating the authoring object, then
    realizes caller-declared geometry and checks actual-scene correspondence.
 2. `CircuitRun` separately seals the Plan for analysis and supplies

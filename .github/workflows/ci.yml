@@ -316,7 +316,7 @@ jobs:
                   Path("examples/engineer/chapter-07/chapter.qmd"),
                   ("_01-rlgc.qmd", "_02-ports.qmd", "_03-diagrams.qmd", "_04-parameter-points.qmd"),
                   ("01-rlgc.qmd", "02-ports.qmd", "03-diagrams.qmd", "04-parameter-points.qmd"),
-                  11,
+                  10,
               ),
               (
                   Path("examples/engineer/chapter-08/chapter.qmd"),

@@ -1004,7 +1004,7 @@ incompatible collection of individually plausible pairwise coefficients.
 
 The Plan owns authoring and compiler-expanded inspection projections, but
 neither projection is another circuit definition. The target structure,
-automatic and handle-based layout, independent visible electrical/ownership
+caller-declared complete geometry, independent visible electrical/ownership
 reconstruction, separately verified source rows, snapshot provenance, and
 code-free review packet belong to
 [Structured Circuit Authoring and Certified Diagrams](contracts/automatic-semantic-circuit-diagram-layout.qmd).

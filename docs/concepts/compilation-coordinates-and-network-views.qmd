@@ -103,8 +103,9 @@ substituting independent root selection.
 
 ## The diagram remains a Plan projection
 
-Automatic Semantic Circuit Diagram Layout System (ASCDLS) diagrams explain the
-authored Plan or its deterministic compiler expansion. A parameterized diagram
+Caller-declared circuit diagrams explain the authored Plan. Deterministic
+compiler expansion belongs to numerical inspection, not a current automatic
+diagram producer. A parameterized diagram
 may project one explicit `ParameterSet`, but it does not render a selected
 `NetworkViewRef`, PTC-effective topology, solver state, sweep, or Result.
 Rendering cannot create or mutate a View.

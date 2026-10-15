@@ -108,7 +108,7 @@ website:
   title: "SCNSim"
   description: "Superconducting Circuit Network Simulation"
   page-navigation: true
-  reader-mode: true
+  reader-mode: false
   search: true
   repo-url: "https://github.com/OrPenStrike/scnsim"
   repo-actions: [source, issue]

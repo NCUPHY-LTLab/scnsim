@@ -26,6 +26,8 @@ four_arm_fixed.show()
 
 ![The completed Cross recipe rendered again against its exact Plan.](../figures/06-four-arm-fixed.svg){#fig-ch6-four-arm-fixed .lightbox fig-alt="Four-arm circuit rendered from a detached fixed composition with the requested Cross retained."}
 
+{{< askr-image-view target="fig-ch6-four-arm-fixed" label="Inspect circuit" >}}
+
 [Open the SVG](../figures/06-four-arm-fixed.svg)
 
 :::

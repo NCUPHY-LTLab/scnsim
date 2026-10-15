@@ -48,7 +48,7 @@ slash-joined strings, so child IDs cannot create ambiguous parsing or accidental
 collisions.
 
 The outer component path also names each child pin, private node endpoint,
-physical branch, mapping consumer, and compiled-diagram row. A child factory
+physical branch and mapping consumer. A child factory
 may itself return a built composite, producing a longer path; built-ins and
 custom components therefore participate in the same traversal.
 
@@ -169,26 +169,23 @@ missing child, a dropped mutual, or a reason to collapse the remaining graph.
 
 ## Project the same snapshot two ways
 
-The snapshot provides the complete native physical hierarchy consumed by both
-authoring and compiled projections. This page owns that frozen hierarchy and
-its deterministic compiler expansion; it does not own how those facts are
-placed, routed, labeled, certified, or reviewed as a diagram.
+The snapshot provides the complete native physical hierarchy for manual
+authoring diagrams and deterministic numerical compiler expansion. This page
+owns that frozen hierarchy and expansion; it does not own how callers place,
+route, label, certify, or review a diagram.
 
-Those projection rules now have one `CONVERGING` target authority:
-[Automatic Semantic Circuit Diagram Layout](../contracts/automatic-semantic-circuit-diagram-layout.qmd).
-It requires each representation-specific projection to preserve snapshot
-paths, private topology, canonical-ground membership, parameter fan-out, and
-omitted-zero evidence while keeping hidden children unavailable as public
-authoring handles. Authoring and compiled projections share a certification
-architecture but use different lowerings and semantic manifests. PTC, transforms,
-reduction, selected Views, and numerical results remain request/result evidence
-rather than Plan-diagram content. The central evidence status bounds current
-diagram validation; integration does not confer semantic acceptance.
+The [manual diagram contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd)
+owns the current projection. Caller-declared geometry preserves snapshot paths,
+private topology, canonical-ground membership and parameter fan-out while
+keeping hidden children unavailable as public authoring handles. PTC,
+transforms, reduction, selected Views, omitted-zero compiler evidence and
+numerical results remain compilation/request/result evidence rather than
+Plan-diagram content. Historical compiled diagrams retain their original
+projection identities; their automatic producer is retired.
 
-The A/B witnesses certify correspondence of emitted geometry to this exact
-snapshot or to the exact compiler-emitted expansion. They do not independently
-prove that numerical compiler lowering or stamping is correct; Calculation
-validates that boundary separately.
+Current A/B witnesses check emitted manual geometry against the exact captured
+authored snapshot. They do not independently prove numerical compiler lowering
+or stamping; Calculation validates that boundary separately.
 
 ## Fail before a backend sees ambiguous topology
 

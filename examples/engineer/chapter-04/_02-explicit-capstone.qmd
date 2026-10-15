@@ -44,6 +44,8 @@ capstone.show()
 
 ![Certified authoring diagram of the exact four-Port physical Plan.](../figures/04-explicit-capstone.svg){#fig-ch4-explicit-capstone .lightbox fig-alt="Four-Port capstone with a two-section feedline, grounded readout, floating pair, three coupling capacitors, and separate right-side probe outputs."}
 
+{{< askr-image-view target="fig-ch4-explicit-capstone" mode="inline" >}}
+
 [Open the SVG](../figures/04-explicit-capstone.svg).
 
 :::

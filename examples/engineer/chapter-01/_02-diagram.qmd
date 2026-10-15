@@ -34,6 +34,8 @@ diagram.show()
 
 ![The baseline coupled grounded LC Plan.](../figures/01-authoring.svg){#fig-engineer-ch1-authoring .lightbox fig-alt="A terminated Port and six femtofarad series coupling capacitor connected directly to the public terminal of a grounded parallel 110 femtofarad and 5.8 nanohenry resonator."}
 
+{{< askr-image-view target="fig-engineer-ch1-authoring" label="Inspect circuit" >}}
+
 [Open the authoring SVG](../figures/01-authoring.svg).
 
 :::

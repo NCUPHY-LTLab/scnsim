@@ -51,12 +51,10 @@ def _forbid_execution(name):
 _receipt_preparation.prepare_runtime = _forbid_execution("preparation.prepare_runtime")
 _receipt_process.run_terminal = _forbid_execution("process.run_terminal")
 _receipt_process.run_preflight = _forbid_execution("process.run_preflight")
-_receipt_process.run_compiler_audit = _forbid_execution("process.run_compiler_audit")
 _receipt_coordinator.prepare_runtime = _forbid_execution("coordinator.prepare_runtime")
 _receipt_coordinator.run_terminal = _forbid_execution("coordinator.run_terminal")
 _receipt_compilation.prepare_runtime = _forbid_execution("compilation.prepare_runtime")
 _receipt_compilation.run_preflight = _forbid_execution("compilation.run_preflight")
-_receipt_compilation.run_compiler_audit = _forbid_execution("compilation.run_compiler_audit")
 '''
 
 
