@@ -68,6 +68,24 @@ def _host(value):
     raise TypeError(f'unassigned CI evidence type: {type(value).__module__}.{type(value).__name__}')
 
 
+def _identity_facts(identity):
+    """Publish receipt hashes, not ResultIdentity's private verification token."""
+    return {'plan_sha256': identity.plan_sha256,
+            'request_sha256': identity.request_sha256,
+            'attempt_sha256': identity.attempt_sha256,
+            'result_sha256': identity.result_sha256}
+
+
+def _failure_facts(failure):
+    """Project the public SCNSim root error without encoding exception ownership."""
+    if failure is None:
+        return None
+    return {'type': type(failure).__name__, 'module': type(failure).__module__,
+            'category': failure.category, 'kind': failure.kind,
+            'stage': failure.stage, 'message': str(failure),
+            'evidence': failure.evidence}
+
+
 def _platform():
     if sys.platform != 'win32' or platform.machine().lower() not in ('amd64', 'x86_64'):
         raise RuntimeError('Windows wheel observation requires actual Windows x86_64')
@@ -371,7 +389,8 @@ def smoke(args):
                     raise RuntimeError('Workspace root resolve changed exact Result identity')
                 report['completed'].append({'operation': 'Workspace Direct/root/resolve',
                     'workspace_path': str(workspace), 'rooted_drive': workspace.drive,
-                    'direct_identity': saved_direct.identity, 'root_identity': saved_root.identity,
+                    'direct_identity': _identity_facts(saved_direct.identity),
+                    'root_identity': _identity_facts(saved_root.identity),
                     's': resolved_direct.s.view.matrix, 'frequency': resolved_root.frequency,
                     'benchmark': saved_run.benchmark().document()})
                 save()
@@ -402,10 +421,10 @@ def smoke(args):
         root = DiagonalRootSpec(coordinate=namespace['resonator_coordinate'], root_hint=6.0*u.GHz)
         value = run.evaluate(view, root, precision='float64')
         report['completed'].append({'operation': 'root', 'status': value.status,
-            'frequency': value.frequency, 'failure': value.failure, 'evaluation': value.evaluation})
+            'frequency': value.frequency, 'failure': _failure_facts(value.failure), 'evaluation': value.evaluation})
         save()
         if value.failure is not None:
-            raise RuntimeError('existing LC root returned numerical failure; original evidence retained')
+            raise value.failure
         retained.append(value)
         projections = []
         for derivative in (JVP(direction={capacitance: 1.0*u.fF}),
