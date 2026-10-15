@@ -1127,6 +1127,90 @@ def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id
         "program_sha256", "derivative_kind", "wrt", "output_layout", "certificates",
         "derivative_available", "derivative_reasons", "observables",
     }
+    def requests_static_output(value):
+        if isinstance(value, Mapping):
+            return (value.get("type") in {"static_capacitance_projection", "static_capacitance_element_projection"}
+                    or any(requests_static_output(item) for item in value.values()))
+        if isinstance(value, (tuple, list)):
+            return any(requests_static_output(item) for item in value)
+        return False
+
+    if requests_static_output(request["spec"]["quantities"]):
+        evidence_fields.add("static_capacitance")
+    if isinstance(equation_evidence, Mapping) and "static_capacitance" in equation_evidence:
+        static_facts = equation_evidence["static_capacitance"]
+        if not isinstance(static_facts, (tuple, list)) or not static_facts:
+            raise _error("Static Sensitivity equation evidence must contain its observable facts.")
+        static_fields = {
+            "observable_index", "row_coordinates", "column_coordinates", "zero_charge",
+            "coordinate_order", "original_coordinate_order", "finite_mesh", "coordinate_transform",
+        }
+        seen_static = set()
+        from ..numeric_encoding import array_from_record
+        for row in static_facts:
+            if not isinstance(row, Mapping) or set(row) != static_fields:
+                raise _error("Static Sensitivity observable evidence has an unsupported field set.")
+            index = row["observable_index"]
+            if type(index) is not int or index < 0 or index in seen_static:
+                raise _error("Static Sensitivity observable ordinal is malformed or duplicated.")
+            seen_static.add(index)
+            for key in ("row_coordinates", "column_coordinates", "zero_charge",
+                        "coordinate_order", "original_coordinate_order"):
+                coordinates = row[key]
+                if (not isinstance(coordinates, (tuple, list))
+                        or any(not isinstance(value, str) or not value for value in coordinates)
+                        or len(set(coordinates)) != len(coordinates)):
+                    raise _error("Static Sensitivity coordinate axes are malformed.", field=key)
+            mesh = row["finite_mesh"]
+            # _compile_mesh retains explicit FixedMeshSpec sections as their
+            # declaration; plan_mesh emits its ordered per-line derivation list.
+            # These are current producer forms, not migration/fallback records.
+            if isinstance(mesh, Mapping):
+                if (set(mesh) != {"type", "resolution", "sections"}
+                        or mesh["type"] != "fixed_mesh" or mesh["resolution"] is not None
+                        or not isinstance(mesh["sections"], (tuple, list))):
+                    raise _error("Static Sensitivity fixed-section provenance is malformed.")
+                section_rows = mesh["sections"]
+                section_fields = {"path", "count"}
+            elif isinstance(mesh, (tuple, list)):
+                section_rows = mesh
+                section_fields = {"path", "baseline_sections", "planned_sections",
+                                  "maximum_length_m", "modal_delay_bound_s_per_m", "physical_policy"}
+            else:
+                raise _error("Static Sensitivity finite-mesh provenance is malformed.")
+            seen_paths = set()
+            for section in section_rows:
+                if not isinstance(section, Mapping) or set(section) != section_fields:
+                    raise _error("Static Sensitivity mesh section has an unsupported field set.")
+                path = section["path"]
+                if (not isinstance(path, (tuple, list)) or not path
+                        or any(not isinstance(part, str) or not part for part in path)
+                        or tuple(path) in seen_paths):
+                    raise _error("Static Sensitivity mesh occurrence path is malformed or duplicated.")
+                seen_paths.add(tuple(path))
+                count_fields = ("count",) if isinstance(mesh, Mapping) else ("baseline_sections", "planned_sections")
+                if any(type(section[key]) is not int or section[key] < 1 for key in count_fields):
+                    raise _error("Static Sensitivity mesh section count is malformed.")
+                if not isinstance(mesh, Mapping):
+                    if not isinstance(section["physical_policy"], Mapping):
+                        raise _error("Static Sensitivity mesh physical-policy provenance is malformed.")
+                    for key in ("maximum_length_m", "modal_delay_bound_s_per_m"):
+                        value = section[key]
+                        if value is not None and type(value) is not float and value not in ("nan", "+inf", "-inf"):
+                            raise _error("Static Sensitivity mesh derivation scalar is malformed.", field=key)
+            transforms = row["coordinate_transform"]
+            if not isinstance(transforms, (tuple, list)):
+                raise _error("Static Sensitivity transform facts are malformed.")
+            for pair in transforms:
+                if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+                    raise _error("Static Sensitivity transform must retain its alpha/beta pair.")
+                for value in pair:
+                    if (not isinstance(value, Mapping) or set(value) != {"dtype", "shape", "data_hex"}
+                            or value["dtype"] not in {"float32", "float64"}
+                            or value["shape"] != [] or not isinstance(value["data_hex"], str)):
+                        raise _error("Static Sensitivity transform scalar encoding is malformed.")
+                    # Existing exact-dtype codec owns scalar bit/shape decoding.
+                    array_from_record(value)
     if not isinstance(equation_evidence, Mapping) or set(equation_evidence) != evidence_fields:
         raise _error("Sensitivity equation evidence has an unsupported field set.")
     derivative_layout = manifest["derivative_layout"]

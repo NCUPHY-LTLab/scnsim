@@ -23,12 +23,13 @@ from ..diagnostics.memory_operation import InMemoryBenchmarkResult
 from ..errors import SCNSimStateError
 from ..numerics.evidence import numerical_error
 from ..numerics.models import EvaluationResult
+from ..numeric_encoding import record_document, decode_record
 from ..value_storage import immutable_array
 from ..visualization.presentation import Theme
 from .base import LineDiscretization, MatrixFamilyResult, MatrixView, Result, _fresh_quantity_attribute, _sha256
 from .derived import TraceResult
 from .factory import _MEMORY_RESULT_TOKEN, _verified_result
-from .matrix import OperatorPointResult, ScatteringMatrixResult
+from .matrix import OperatorPointResult, ScatteringMatrixResult, _unsupported_static_presentation
 from .memory_optimization import _parameter_set
 
 if TYPE_CHECKING:
@@ -529,6 +530,34 @@ class InMemoryParameterSweepResult(Result):
         return self._collect(quantity, tuple(self.points)).add_to(fig, row=row, col=col, x=x, y=y)
 
 
+@dataclass(frozen=True, slots=True)
+class InMemoryStaticCapacitanceResult(InMemoryAnalysisResult):
+    """Detached static matrix; no Workspace identity or live numerical frame."""
+
+    matrix: Quantity | None = None
+    row_coordinates: tuple[str, ...] = ()
+    column_coordinates: tuple[str, ...] = ()
+    zero_charge: tuple[str, ...] = ()
+    _quantity_fields = InMemoryAnalysisResult._quantity_fields | frozenset({"matrix"})
+    plot = show = add_to = _unsupported_static_presentation
+
+    def __init__(self) -> None:
+        unavailable("InMemoryStaticCapacitanceResult construction")
+
+
+@dataclass(frozen=True, slots=True)
+class InMemoryStaticCapacitanceElementResult(InMemoryAnalysisResult):
+    """Detached scalar static coefficient with its actual coordinate pair."""
+
+    plot = show = add_to = _unsupported_static_presentation
+    row: str = ""
+    column: str = ""
+    zero_charge: tuple[str, ...] = ()
+
+    def __init__(self) -> None:
+        unavailable("InMemoryStaticCapacitanceElementResult construction")
+
+
 def _allowed_projections(kind: str) -> tuple[str, ...]:
     return {
         "diagonal_root": ("frequency", "linewidth"),
@@ -616,7 +645,20 @@ def _evaluation_result(
         "_benchmark": None,
     }
     if raw.failure is None:
-        if kind == "response_element":
+        if kind in {"static_capacitance", "static_capacitance_element"}:
+            evidence = decode_record(record_document(raw.evidence_bytes))
+            fields.update(evidence=evidence, zero_charge=tuple(evidence["zero_charge"]))
+            value = units.registry.Quantity(raw.capacitance_values, "farad")
+            if kind == "static_capacitance":
+                if np.asarray(value.magnitude).shape != (len(evidence["row_coordinates"]), len(evidence["column_coordinates"])):
+                    raise ValueError("Static capacitance shape differs from its compiled coordinate axes")
+                fields.update(matrix=value, row_coordinates=tuple(evidence["row_coordinates"]),
+                              column_coordinates=tuple(evidence["column_coordinates"]))
+            else:
+                if np.asarray(value.magnitude).shape != ():
+                    raise ValueError("Static capacitance element is not scalar")
+                fields.update(value=value, row=spec["row"], column=spec["column"])
+        elif kind == "response_element":
             family = spec["family"]
             unit = {"S": "dimensionless", "Y": "siemens", "Z": "ohm"}[family]
             value = raw.response_value
@@ -727,7 +769,15 @@ def _evaluation_result(
             fields.update(frequencies=frequency_axis, s=families["S"], y=families["Y"], z=families["Z"], traces=traces)
         else:
             raise ValueError(f"unsupported in-memory analysis Spec type: {kind}")
-    result = _verified_result(InMemoryAnalysisResult, **fields)
+    result_type = {"static_capacitance": InMemoryStaticCapacitanceResult,
+                   "static_capacitance_element": InMemoryStaticCapacitanceElementResult}.get(kind, InMemoryAnalysisResult)
+    if raw.failure is not None and kind in {"static_capacitance", "static_capacitance_element"}:
+        # Failure facts remain readable; no failed numerical placeholder is usable.
+        fields.update(evidence=decode_record(record_document(raw.failure.evidence_bytes)),
+                      zero_charge=tuple(spec["zero_charge"]))
+        if kind == "static_capacitance_element":
+            fields.update(row=spec["row"], column=spec["column"])
+    result = _verified_result(result_type, **fields)
     object.__setattr__(result, "_failure_error", None if raw.failure is None else numerical_error(raw.failure))
     object.__setattr__(result, "_memory_report_token", _MEMORY_RESULT_TOKEN)
     return result
@@ -853,7 +903,10 @@ def _point_outcome(payload, point, request, plan_sha256, request_sha256, executi
 
 
 def attach_memory_analysis_benchmark(result, benchmark: InMemoryBenchmarkResult):
-    if type(result) not in {InMemoryAnalysisResult, InMemoryParameterSweepResult}:
+    if type(result) not in {
+        InMemoryAnalysisResult, InMemoryParameterSweepResult,
+        InMemoryStaticCapacitanceResult, InMemoryStaticCapacitanceElementResult,
+    }:
         raise TypeError("benchmark can be attached only to an in-memory analysis Result")
     if not isinstance(benchmark, InMemoryBenchmarkResult):
         raise TypeError("in-memory analysis requires its operation benchmark")

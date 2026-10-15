@@ -82,6 +82,7 @@ class EvaluationResult:
     response_value: complex | None = None
     root_omega_rad_s: complex | None = None
     root_slope: complex | None = None
+    capacitance_values: NDArray | None = None
     operator_values: NDArray | None = None
     null_vector: NDArray | None = None
     numerator_slope: complex | None = None
@@ -94,7 +95,7 @@ class EvaluationResult:
     evidence_bytes: bytes = b"{}"
 
     def __post_init__(self) -> None:
-        for name in ("S", "Y", "Z", "operator_values", "null_vector", "branch_roots_rad_s"):
+        for name in ("S", "Y", "Z", "operator_values", "capacitance_values", "null_vector", "branch_roots_rad_s"):
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, immutable_numerical_array(value))

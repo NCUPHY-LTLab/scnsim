@@ -103,7 +103,7 @@ def _verify_request_document(
         }.get(operation)
         if operation == "evaluate_direct":
             expected_spec = spec.get("type") if isinstance(spec, dict) else None
-            if expected_spec not in julia_algorithms["evaluate_direct"]:
+            if expected_spec not in {*julia_algorithms["evaluate_direct"], "static_capacitance", "static_capacitance_element"}:
                 expected_spec = None
     else:
         expected_algorithm = julia_algorithms.get(operation, {}).get(spec.get("type") if isinstance(spec, dict) else None)
@@ -166,7 +166,11 @@ def _verify_request_document(
     if operation == "sensitivity":
         _verify_v1_sensitivity_request(request["view"], spec, request["parameter_source"], plan, plan_sha256)
         return
-    terminal, port_realizable = _verify_view_declaration(request["view"], plan)
+    static_capacitance = spec.get("type") in {"static_capacitance", "static_capacitance_element"}
+    if static_capacitance and (not is_jax or request["parameter_source"]["kind"] != "point"):
+        raise _integrity("Static capacitance requires a JAX single-point request.")
+    terminal, port_realizable = _verify_view_declaration(request["view"], plan,
+                                                        static_capacitance=static_capacitance)
     if operation == "solve_direct":
         _verify_v1_direct_spec(spec, terminal, port_realizable)
     elif operation == "solve_hb":
@@ -295,7 +299,7 @@ def _verify_v1_sensitivity_request(
     output_roles: dict[str, tuple[str, str, tuple[int, ...], bool]] = {}
     encountered_views: list[dict[str, object]] = []
 
-    def checked_leaf_view(value: object) -> tuple[list[str], bool]:
+    def checked_leaf_view(value: object, *, static_capacitance=False) -> tuple[list[str], bool]:
         if not isinstance(value, Mapping) or set(value) != {
             "type", "plan_sha256", "ptc", "transforms", "retain",
         } or value.get("type") != "network_view" or value.get("plan_sha256") != plan_sha256:
@@ -304,7 +308,7 @@ def _verify_v1_sensitivity_request(
         full_declaration = dict(value)
         if not any(_canonical_bytes(item) == _canonical_bytes(full_declaration) for item in encountered_views):
             encountered_views.append(full_declaration)
-        return _verify_view_declaration(declaration, plan)
+        return _verify_view_declaration(declaration, plan, static_capacitance=static_capacitance)
 
     def frequency_grid(value: object) -> list[object]:
         if not isinstance(value, Mapping) or set(value) != {"type", "shape", "values"} or value.get("type") != "quantity_array":
@@ -342,8 +346,19 @@ def _verify_v1_sensitivity_request(
 
         if set(value) != {"type", "spec", "projection", "view"} or not isinstance(value.get("spec"), Mapping):
             raise _integrity("Sensitivity quantity selector is malformed.")
-        terminal, port_realizable = checked_leaf_view(value.get("view"))
         selected_spec = value["spec"]
+        is_static = kind in {"static_capacitance_projection", "static_capacitance_element_projection"}
+        terminal, port_realizable = checked_leaf_view(value.get("view"), static_capacitance=is_static)
+        if is_static:
+            matrix = kind == "static_capacitance_projection"
+            if (value.get("projection") != ("matrix" if matrix else "value")
+                    or selected_spec.get("type") != ("static_capacitance" if matrix else "static_capacitance_element")):
+                raise _integrity("Sensitivity static capacitance projection is malformed.")
+            _verify_v1_evaluation_spec(selected_spec, terminal, False)
+            # Anonymous finite-mesh node axes are compiled OutputLayout facts,
+            # not Port/public-coordinate counts. Check rank here; the compiler
+            # and detached result projection own the actual extents.
+            return "farad", "capacitance", (None, None) if matrix else (), False
         if kind == "matrix_projection":
             if value.get("projection") not in {"S", "Y", "Z"} or selected_spec.get("type") != "direct_solve":
                 raise _integrity("Sensitivity matrix projection is malformed.")
@@ -451,7 +466,7 @@ def _verify_v1_sensitivity_request(
             raise _integrity("Sensitivity output coordinate index is malformed.")
         unit, dimension, shape, complex_output = output_roles[label]
         if (len(index) != len(shape)
-                or any(coordinate >= extent for coordinate, extent in zip(index, shape))
+                or any(extent is not None and coordinate >= extent for coordinate, extent in zip(index, shape))
                 or (component == "imag" and not complex_output)):
             raise _integrity("Sensitivity output coordinate is outside its declared quantity axes.")
         return unit, dimension, shape, complex_output
@@ -604,9 +619,12 @@ def _verify_parameter_source(source: object, plan: Mapping[str, object]) -> None
 def _verify_view_declaration(
     view: object,
     plan: Mapping[str, object],
+    *, static_capacitance: bool = False,
 ) -> tuple[list[str], bool]:
     if not isinstance(view, dict) or set(view) != {"type", "ptc", "transforms", "retain"} or view.get("type") != "network_view":
         raise _integrity("Declarative View is malformed.")
+    if static_capacitance and (view.get("ptc") is not None or view.get("retain") is not None):
+        raise _integrity("Static capacitance View must be original or coordinate-transform-only.")
     _, public = _plan_coordinates(plan)
     available = list(sorted(public))
     connectivity = plan.get("connectivity")
@@ -668,7 +686,7 @@ def _verify_view_declaration(
             port_coordinates.update(expected_outputs)
     retain = view.get("retain")
     if retain is None:
-        return list(port_ids), bool(port_ids)
+        return (available, False) if static_capacitance else (list(port_ids), bool(port_ids))
     if not isinstance(retain, dict) or set(retain) != {"retained_coordinates"}:
         raise _integrity("View retain declaration is malformed.")
     retained = retain["retained_coordinates"]
@@ -1113,6 +1131,20 @@ def _verify_v1_evaluation_spec(
         if spec.get("family") == "S" and not port_realizable:
             raise _integrity("S-family response evaluation is not Port-realizable.")
         _verify_quantity_role(spec.get("frequency"), complex_value=False, unit="hertz", dimensionality="inverse_time")
+    elif kind in {"static_capacitance", "static_capacitance_element"}:
+        fields = {"type", "zero_charge"}
+        if kind == "static_capacitance_element":
+            fields |= {"row", "column"}
+        if set(spec) != fields:
+            raise _integrity("Static capacitance Spec is open or malformed.")
+        eliminated = _identifiers(spec.get("zero_charge"), field="Static zero-charge coordinates", nonempty=False)
+        # Full finite-mesh axis membership is compiler/output-layout owned;
+        # the public-coordinate inventory is not the static node basis.
+        if kind == "static_capacitance_element":
+            for name in ("row", "column"):
+                _identifiers([spec[name]], field=f"Static capacitance {name}")
+                if spec[name] in eliminated:
+                    raise _integrity("Static capacitance element belongs to the zero-charge partition.")
     elif kind == "operator":
         if set(spec) != {"type", "frequencies"}:
             raise _integrity("Operator Spec is malformed.")

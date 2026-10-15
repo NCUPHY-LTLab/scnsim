@@ -142,7 +142,7 @@ class QuantityProgram:
                       'shape': expression.shape,
                       'dtype': complex_dtype if expression.complex_output else real,
                       'si_unit': expression.si_unit}
-                     for expression in self.program.expressions)
+                     for expression in self.program.output_expressions)
 
     def quantity_metadata(self):
         return tuple({'key': leaf.key, 'observable_index': leaf.observable_index,
@@ -175,7 +175,12 @@ class QuantityProgram:
         reference = np.asarray(model.port_resistance, dtype=rd)
         # Probe compensation changes the physical load mask, not the declared
         # logical Port reference resistance used for normalization.
-        views = tuple(dict(view_index=index, lineage=view.lineage(fields),
+        static_only = tuple(not any(item.view_index == index and not item.kind.startswith('static_capacitance')
+                                    for item in self.program.observables)
+                            for index in range(len(self.program.views)))
+        views = tuple(dict(view_index=index, lineage=(dict(declaration=json.loads(view.declaration_bytes),
+                           transforms='runtime_coordinate_transform', port_realizable=False)
+                           if static_only[index] else view.lineage(fields)),
                            terminal_ids=list(view.terminal_ids), node_ids=list(view.node_ids),
                            probe_loads={port: 'compensated' if mask == 0 else 'raw'
                                         for port, mask in zip(model.port_ids, view.port_mask, strict=True)},
@@ -321,7 +326,22 @@ def compile_quantity_program(plan_document, quantity_declarations, parameter_set
         kind, spec = node['type'], node['spec']
         indices, branches, projection = (), (), node.get('projection')
         dependencies, frequency_mode = (), None
-        if kind == 'matrix_projection':
+        zero_charge_indices, retained_indices = (), ()
+        coordinates = view.terminal_ids
+        if kind in ('static_capacitance_projection', 'static_capacitance_element_projection'):
+            if declaration.get('retain') or declaration.get('ptc'):
+                raise TypeError('static capacitance requires an original or transform-only View')
+            descriptor_kind = spec['type']
+            zero_charge_indices = tuple(view.node_ids.index(name) for name in spec['zero_charge'])
+            retained_indices = tuple(i for i in range(len(view.node_ids)) if i not in zero_charge_indices)
+            coordinates = tuple(view.node_ids[i] for i in retained_indices)
+            grid, unit, complex_output = (), 'farad', False
+            if kind == 'static_capacitance_projection':
+                shape = (len(coordinates), len(coordinates))
+            else:
+                indices = (coordinates.index(spec['row']), coordinates.index(spec['column']))
+                shape = ()
+        elif kind == 'matrix_projection':
             family = projection
             grid = _frequency_grid(spec['frequencies'])
             unit = {'S': 'dimensionless', 'Y': 'siemens', 'Z': 'ohm'}[family]
@@ -379,10 +399,13 @@ def compile_quantity_program(plan_document, quantity_declarations, parameter_set
         index = len(descriptors)
         axes = (('frequency', tuple(float(quantity(value)).hex() for value in grid)),
                 ('output_coordinate', view.terminal_ids), ('input_coordinate', view.terminal_ids)) if shape else ()
+        if descriptor_kind.startswith('static_capacitance'):
+            axes = (('row_coordinate', coordinates), ('column_coordinate', coordinates)) if shape else ()
         descriptors.append(ObservableDescriptor(descriptor_kind, view_index, (start, len(frequencies)),
                                                 indices=indices, branch_indices=branches, projection=projection,
                                                 quantity_key=key, si_unit=unit, axes=axes,
-                                                dependency_indices=dependencies, frequency_mode=frequency_mode))
+                                                dependency_indices=dependencies, frequency_mode=frequency_mode,
+                                                zero_charge_indices=zero_charge_indices, retained_indices=retained_indices))
         raw_unit = 'radian / second' if branches or descriptor_kind == 'residue_coupling' else unit
         locator = ({'kind': 'branch_results', 'start_index': branches[0]} if branches else
                    {'kind': 'quantity_results', 'observable_index': index} if descriptor_kind == 'residue_coupling' else
@@ -392,8 +415,15 @@ def compile_quantity_program(plan_document, quantity_declarations, parameter_set
             'selector': node['type'], 'projection': node.get('projection'),
             'spec': spec, 'view': declaration, 'declaration': node,
             'si_unit': unit, 'raw_si_unit': raw_unit, 'hidden': hidden,
-            'start_index': branches[0] if branches else None, 'primal_locator': locator}))
-        return index, unit, shape, complex_output, view.terminal_ids, axes
+            'start_index': branches[0] if branches else None, 'primal_locator': locator,
+            **({'row_coordinates': list(coordinates), 'column_coordinates': list(coordinates),
+                'zero_charge': list(spec['zero_charge']),
+                'coordinate_order': list(view.node_ids),
+                'original_coordinate_order': list(model.node_ids),
+                'coordinate_transform_locator': {'kind': 'static_facts', 'observable_index': index},
+                'finite_mesh': json.loads(mesh_plan.derivation_bytes)}
+               if descriptor_kind.startswith('static_capacitance') else {})}))
+        return index, unit, shape, complex_output, coordinates, axes
 
     for key, encoded in declarations:
         node = json.loads(encoded)

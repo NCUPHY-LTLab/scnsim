@@ -178,7 +178,7 @@ def _sensitivity_equation_evidence(quantity_program, request, derivative_outcome
 
     aux = derivative_outcome.aux
     metadata = quantity_program.quantity_metadata()
-    return {
+    facts = {
         "program_sha256": quantity_program.program_sha256,
         "derivative_kind": request["spec"]["derivative"]["type"],
         "wrt": request["spec"]["wrt"],
@@ -197,6 +197,19 @@ def _sensitivity_equation_evidence(quantity_program, request, derivative_outcome
             ),
         } for row in metadata),
     }
+
+    static = tuple(row for row in quantity_program.observable_metadata()
+                   if row['kind'].startswith('static_capacitance'))
+    if static:
+        from ..numerics.evidence import evidence_bytes
+        from .physical_analysis import _auxiliary_by_ordinal
+        weights = _auxiliary_by_ordinal(derivative_outcome.primal.aux.static_facts)
+        facts['static_capacitance'] = record_document(evidence_bytes(tuple({
+            **{key: row[key] for key in ('observable_index', 'row_coordinates', 'column_coordinates',
+                                        'zero_charge', 'coordinate_order', 'original_coordinate_order', 'finite_mesh')},
+            'coordinate_transform': weights[row['coordinate_transform_locator']['observable_index']],
+        } for row in static)))
+    return facts
 
 
 def _sensitivity_blocks(quantity_program, prepared_analysis, request, derivative_outcome):

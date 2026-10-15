@@ -279,6 +279,8 @@ def _selector_unit(value: object) -> str | None:
         return "hertz"
     if value.type == "residue_coupling_projection":
         return "radian / second"
+    if value.type == "static_capacitance_element_projection":
+        return "farad"
     if value.type == "response_element_projection":
         family = getattr(value.spec, "family", None)
         return {"S": "dimensionless", "Y": "siemens", "Z": "ohm"}.get(family)
@@ -765,6 +767,61 @@ class OperatorSpec:
 
     def _canonical_record(self) -> Mapping[str, object]:
         return {"type": "operator", "frequencies": self.frequencies}
+
+
+@dataclass(frozen=True, slots=True)
+class StaticCapacitanceSpec:
+    """Static C in the transformed physical basis; zero_charge is explicit.
+
+    No frequency or dynamic Schur/Port compensation is implied. The numerical
+    producer owns C(theta), the actual transform and the zero-charge solve.
+    """
+
+    zero_charge: tuple[Coordinate, ...]
+
+    def __init__(self, *, zero_charge: Sequence[Coordinate] = ()) -> None:
+        coordinates = tuple(zero_charge)
+        for value in coordinates:
+            _coordinate_id(value)
+        # Scoped handles can share a local ID; uniqueness belongs to the
+        # Run's canonical coordinate binding, not these unbound display IDs.
+        object.__setattr__(self, "zero_charge", coordinates)
+
+    @property
+    def matrix(self) -> QuantitySelector:
+        return QuantitySelector(self, "matrix", "static_capacitance_projection")
+
+    def element(self, *, row: Coordinate, column: Coordinate) -> StaticCapacitanceElementSpec:
+        return StaticCapacitanceElementSpec(row=row, column=column, zero_charge=self.zero_charge)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "static_capacitance", "zero_charge": [_coordinate_id(value) for value in self.zero_charge]}
+
+
+@dataclass(frozen=True, slots=True)
+class StaticCapacitanceElementSpec:
+    """One ordered coordinate entry of the same static capacitance matrix."""
+
+    row: Coordinate
+    column: Coordinate
+    zero_charge: tuple[Coordinate, ...]
+
+    def __init__(self, *, row: Coordinate, column: Coordinate,
+                 zero_charge: Sequence[Coordinate] = ()) -> None:
+        _coordinate_id(row)
+        _coordinate_id(column)
+        object.__setattr__(self, "row", row)
+        object.__setattr__(self, "column", column)
+        object.__setattr__(self, "zero_charge", StaticCapacitanceSpec(zero_charge=zero_charge).zero_charge)
+
+    @property
+    def value(self) -> QuantitySelector:
+        return QuantitySelector(self, "value", "static_capacitance_element_projection")
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "static_capacitance_element", "row": _coordinate_id(self.row),
+                "column": _coordinate_id(self.column),
+                "zero_charge": [_coordinate_id(value) for value in self.zero_charge]}
 
 
 class OptimizationDomain(str, Enum):

@@ -8,7 +8,7 @@ never constructs a second physical model or runs an optimizer.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import fields, replace
 from contextlib import ExitStack, nullcontext
 from types import SimpleNamespace
 
@@ -404,26 +404,37 @@ def _point_at(template, values):
 
 def program_evidence(outcome, context):
     """Detach the actual same-frame primal certificates, never derivative claims."""
-    return evidence_bytes({
-        'certificates': tuple({key: np.asarray(value) for key, value in zip(row._fields, row)}
+    facts = {
+        'certificates': tuple({field.name: getattr(row, field.name) for field in fields(row)}
                               for row in outcome.aux.certificates),
         'realized_capabilities': outcome.aux.realized_capabilities,
         'terminal_ids':context['terminal_ids'],
         'axes':{key:context[key] for key in ('probe_loads','reference_coordinate_ids',
                                            'reference_impedances_ohm','load_mask')},
-    })
+    }
+    if 'row_coordinates' in context:
+        facts.update({key: context[key] for key in ('row_coordinates', 'column_coordinates',
+                      'zero_charge', 'coordinate_order', 'original_coordinate_order', 'finite_mesh')})
+        locator = context['coordinate_transform_locator']
+        weights = _auxiliary_by_ordinal(outcome.aux.static_facts)[locator['observable_index']]
+        facts['coordinate_transform'] = tuple(tuple(np.asarray(value) for value in pair) for pair in weights)
+    return evidence_bytes(facts)
 
 
 def point_contexts(program, inputs):
     """Detach actual binary64 View lineage and realized sections per observable."""
     metadata = program.point_metadata(inputs)
     views = {row['view_index']: row for row in metadata['views']}
+    observables = {row['observable_index']: row for row in program.observable_metadata()}
     return {row['observable_index']: {
         'lineage': views[row['view_index']]['lineage'],
         **{key:views[row['view_index']][key] for key in ('terminal_ids','probe_loads',
               'reference_coordinate_ids','reference_impedances_ohm','load_mask')},
         'discretization': metadata['discretization'],
         'root_search_requests': metadata['root_search_requests'],
+        **({key: observables[row['observable_index']][key] for key in ('row_coordinates', 'column_coordinates', 'zero_charge',
+             'coordinate_order', 'original_coordinate_order', 'coordinate_transform_locator', 'finite_mesh')}
+           if observables[row['observable_index']]['kind'].startswith('static_capacitance') else {}),
     } for row in metadata['observables']}
 
 
@@ -448,7 +459,8 @@ def project_primal_bodies(program, outcome, inputs, *, ephemeral=False):
         else:
             raw = np.asarray(outcome.aux.observable_raw_values[locator['observable_index']])
             field = (row['kind'] if row['kind'] in ('S', 'Y', 'Z') else
-                     'operator_values' if row['kind'] == 'operator' else 'response_value')
+                     'operator_values' if row['kind'] == 'operator' else
+                     'capacitance_values' if row['kind'].startswith('static_capacitance') else 'response_value')
             result = EvaluationResult(identity, **{field: raw if raw.shape else raw[()]},
                                       evidence_bytes=program_evidence(outcome, contexts[index]))
         bodies[index] = result
@@ -1849,7 +1861,7 @@ class PhysicalAnalysis:
             seen.add(key)
             if first_failure is None:
                 first_failure = result.failure
-        if first_failure is not None and self.analysis['parameter_source']['kind'] == 'point':
+        if first_failure is not None and self.analysis['parameter_source']['kind'] == 'point' and not self.ephemeral:
             raise numerical_error(first_failure)
         terminal = {'type': self.spec['type'], 'point_count': point_count,
                     'backend': self.backend.native_program_identity('evaluate')}

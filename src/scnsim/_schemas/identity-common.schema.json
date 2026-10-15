@@ -1229,6 +1229,8 @@
       "required": ["type", "frequencies"],
       "properties": { "type": { "const": "operator" }, "frequencies": { "$ref": "#/$defs/frequencyGrid" } }
     },
+    "staticCapacitanceSpec": {"type": "object", "additionalProperties": false, "required": ["type", "zero_charge"], "properties": {"type": {"const": "static_capacitance"}, "zero_charge": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}}}},
+    "staticCapacitanceElementSpec": {"type": "object", "additionalProperties": false, "required": ["type", "zero_charge", "row", "column"], "properties": {"type": {"const": "static_capacitance_element"}, "zero_charge": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}}, "row": {"$ref": "#/$defs/identifier"}, "column": {"$ref": "#/$defs/identifier"}}},
     "directEvaluationSpec": {
       "oneOf": [
         { "$ref": "#/$defs/diagonalRootSpec" },
@@ -1237,7 +1239,9 @@
         { "$ref": "#/$defs/transferZeroSpec" },
         { "$ref": "#/$defs/residueNormalizedCouplingSpec" },
         { "$ref": "#/$defs/responseElementSpec" },
-        { "$ref": "#/$defs/operatorSpec" }
+        { "$ref": "#/$defs/operatorSpec" },
+        { "$ref": "#/$defs/staticCapacitanceSpec" },
+        { "$ref": "#/$defs/staticCapacitanceElementSpec" }
       ]
     },
     "quantitySum": {
@@ -1395,6 +1399,8 @@
     },
     "quantitySelector": {
       "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["type", "spec", "projection", "view"], "properties": {"type": {"const": "static_capacitance_projection"}, "spec": {"$ref": "#/$defs/staticCapacitanceSpec"}, "projection": {"const": "matrix"}, "view": {"$ref": "#/$defs/networkViewDeclaration"}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "spec", "projection", "view"], "properties": {"type": {"const": "static_capacitance_element_projection"}, "spec": {"$ref": "#/$defs/staticCapacitanceElementSpec"}, "projection": {"const": "value"}, "view": {"$ref": "#/$defs/networkViewDeclaration"}}},
         {
           "type": "object", "additionalProperties": false,
           "required": ["type", "spec", "projection", "view"],

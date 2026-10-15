@@ -1,0 +1,136 @@
+---
+title: "Evaluate Static Capacitance"
+subtitle: "Inspect the finite capacitance matrix and explicit zero-charge reductions"
+toc-depth: 2
+---
+
+The [Static Capacitance Contract](../contracts/static-capacitance.qmd) defines
+the candidate API and its failure boundary. This guide shows how to request the
+matrix or a coordinate entry at one physical point, then differentiate the
+same declaration.
+
+## Evaluate the compiled matrix
+
+Reuse a sealed Plan, its original View or an existing coordinate-transform-only
+View, and one effective parameter point. The static matrix is bound to the
+same compiled finite model as that request; it includes the finite-pi
+capacitance of any discretized transmission line.
+
+```python
+from scnsim import StaticCapacitanceSpec
+
+capacitance_spec = StaticCapacitanceSpec()
+matrix_result = run.evaluate(
+    view,
+    capacitance_spec,
+    parameters=point,
+)
+capacitance = matrix_result.matrix.to("farad")
+```
+
+`matrix_result.row_coordinates` and `matrix_result.column_coordinates` give the
+ordered compiled node-coordinate IDs for the two matrix axes. The matrix covers
+that complete coordinate basis, including internal non-Port coordinates.
+`matrix_result.evidence` binds its Plan, effective parameter point, selected
+View, dtype, and finite discretization. This is a capacitance matrix, not a
+frequency-indexed response.
+The returned row and column IDs, including internal finite-pi axes, can be
+reused for a static element or `zero_charge` request only with the same Plan,
+View, parameter point, and realized mesh. These IDs address static result axes;
+they do not create public coordinate refs or enable internal-node RF selection
+or `retain()`.
+
+For an existing paired-coordinate View, the runtime resolves its actual
+parameter-dependent real transform $T(\theta)$ and evaluates
+$C_y=T(\theta)^T C_x(\theta)T(\theta)$. The transformation changes the
+coordinate representation; it does not rewire the Plan. No PTC or retained
+View is substituted into this request.
+
+## Request a zero-charge reduction
+
+Name every coordinate whose charge is constrained to zero. The remaining
+coordinates retain their order from the selected View:
+
+```python
+reduced_spec = StaticCapacitanceSpec(
+    zero_charge=(eliminated_coordinate,),
+)
+reduced_result = run.evaluate(view, reduced_spec, parameters=point)
+effective_capacitance = reduced_result.matrix.to("farad")
+```
+
+With $r$ denoting the retained coordinates and $e$ the explicit eliminated
+coordinates, the operation uses
+
+$$
+C_{\mathrm{eff}}=C_{rr}-C_{re}\,\operatorname{solve}(C_{ee},C_{er}),
+\qquad q_e=0.
+$$
+
+Inspect `reduced_result.zero_charge` and its row/column coordinate IDs alongside
+the matrix. This is a zero-charge boundary, not a voltage clamp, physical
+ground, or guessed node. A singular full matrix may still be exported. If the
+selected $C_{ee}$ block cannot be solved, the request reports that native
+failure; it does not substitute a pseudoinverse or regularize the block.
+
+## Select one coordinate entry
+
+The `column` keyword is deliberate and names the second matrix axis:
+
+```python
+entry_spec = capacitance_spec.element(
+    row=row_coordinate,
+    column=column_coordinate,
+)
+entry_result = run.evaluate(view, entry_spec, parameters=point)
+entry = entry_result.value.to("farad")
+```
+
+The element result preserves `row`, `column`, `zero_charge`, and the same
+Plan/point/View/discretization provenance as a matrix result. For an element of
+a reduced matrix, construct the element from the spec that carries the desired
+`zero_charge` partition.
+
+## Differentiate the same matrix or element
+
+For sensitivities, use the selector on the same View and the same effective
+point. For example, a Jacobian differentiates each matrix entry with respect to
+the ordered physical parameter list:
+
+```python
+from scnsim import Jacobian, SensitivitySpec
+
+sensitivity_spec = SensitivitySpec(
+    quantities={"C": capacitance_spec.matrix.on(view)},
+    wrt=(capacitance_parameter,),
+    derivative=Jacobian(),
+    discretization=fixed_mesh,
+)
+jacobian_result = run.sensitivity(
+    sensitivity_spec,
+    parameters=point,
+)
+```
+
+For an element, bind `entry_spec.value.on(view)` as the quantity instead. The
+existing JVP and VJP declarations work on either selected quantity. Their
+directions and weights follow the ordinary physical-unit rules in the
+[Sensitivity guide](sensitivity.qmd); the static-C outputs have units of
+farads. A raw matrix Jacobian therefore has units F per SI unit of the input;
+when the input is itself measured in F, the cell is dimensionless by unit
+cancellation, not by automatic sensitivity normalization. Derivatives pass
+through the parameter-dependent $C(\theta)$, resolved $T(\theta)$, and the
+actual elimination solve. The transform weights are not replaced by baseline
+constants.
+
+Use one fixed realized finite mesh for the sensitivity request. The derivative
+does not differentiate an integer line-section choice. The initial
+static-capacitance backend is JAX; selecting Julia for this quantity reports an
+unsupported capability rather than rerunning the calculation through another
+backend.
+
+Memory and Workspace results expose the same static matrix and element value
+interfaces. Memory results are detached; Workspace results use fixed selected
+readers and may be inspected after `run.close()`. Existing Julia operations
+and the current dynamic response, root, and residue-normalized-coupling
+contracts are unchanged.

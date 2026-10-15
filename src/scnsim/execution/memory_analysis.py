@@ -201,6 +201,12 @@ class InMemoryAnalysisSink:
     in_memory_analysis = True
 
     def __init__(self, request):
+        # Static C has no frequency work or RF Sweep sink. It uses the same
+        # checked whole-point producer and this existing detached record owner.
+        if request['spec']['type'] in ('static_capacitance', 'static_capacitance_element'):
+            if request['parameter_source']['kind'] != 'point':
+                raise TypeError('Static capacitance memory analysis requires one point')
+            self.domain = 'point'
         self.request = request
         self.metadata = None
         self.baseline = None

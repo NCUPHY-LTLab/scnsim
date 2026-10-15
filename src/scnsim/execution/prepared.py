@@ -32,6 +32,8 @@ from ..specs import (
     HBSolveSpec,
     HybridizedPoleSpec,
     OperatorSpec,
+    StaticCapacitanceSpec,
+    StaticCapacitanceElementSpec,
     OptimizationSpec,
     CMAESSpec,
     LBFGSBSpec,
@@ -302,6 +304,10 @@ def _quantity_coordinates(
         )
     if isinstance(spec, ResponseElementSpec):
         return spec.input_coordinate, spec.output_coordinate
+    if isinstance(spec, StaticCapacitanceElementSpec):
+        return (*spec.zero_charge, spec.row, spec.column)
+    if isinstance(spec, StaticCapacitanceSpec):
+        return spec.zero_charge
     if isinstance(spec, OperatorSpec):
         return ()
     raise TypeError("unsupported Direct quantity Spec")
@@ -448,7 +454,9 @@ def _encode_direct_quantity(
     | TransferZeroSpec
     | ResidueNormalizedCouplingSpec
     | ResponseElementSpec
-    | OperatorSpec,
+    | OperatorSpec
+    | StaticCapacitanceSpec
+    | StaticCapacitanceElementSpec,
     *,
     coordinate_bindings: Mapping[tuple[str, str], str],
 ) -> dict[str, object]:
@@ -510,6 +518,14 @@ def _encode_direct_quantity(
                 spec.frequency, si_unit="hertz", registry=units.registry
             ),
         }
+    if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
+        record = {"type": "static_capacitance", "zero_charge": [
+            _bound_coordinate_id(value, coordinate_bindings) for value in spec.zero_charge]}
+        if isinstance(spec, StaticCapacitanceElementSpec):
+            record.update(type="static_capacitance_element",
+                          row=_bound_coordinate_id(spec.row, coordinate_bindings),
+                          column=_bound_coordinate_id(spec.column, coordinate_bindings))
+        return record
     if isinstance(spec, OperatorSpec):
         return {"type": "operator", "frequencies": _frequency_grid(spec.frequencies)}
     raise TypeError("unsupported Direct quantity Spec")
@@ -683,6 +699,8 @@ def _encode_spec(
     | ResidueNormalizedCouplingSpec
     | ResponseElementSpec
     | OperatorSpec
+    | StaticCapacitanceSpec
+    | StaticCapacitanceElementSpec
     | OptimizationSpec,
     parameters: ParameterSet,
     *,
@@ -769,6 +787,8 @@ def _encode_spec(
             ResidueNormalizedCouplingSpec,
             ResponseElementSpec,
             OperatorSpec,
+            StaticCapacitanceSpec,
+            StaticCapacitanceElementSpec,
         ),
     ):
         return _encode_direct_quantity(spec, coordinate_bindings=coordinate_bindings)

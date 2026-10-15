@@ -39,6 +39,8 @@ _JAX_ALGORITHMS = {
     "transfer_zero": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
     "residue_normalized_coupling": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
     "operator": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "static_capacitance": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "static_capacitance_element": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
     "optimize_direct": "scnsim.jax.native_physical.optimize.stage_bundle.v1",
     "sensitivity": "scnsim.jax.native_physical.sensitivity.stage_bundle.v1",
 }

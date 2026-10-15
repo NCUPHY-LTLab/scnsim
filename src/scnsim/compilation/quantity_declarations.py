@@ -14,7 +14,11 @@ def quantity_declarations(spec, view):
     if kind == 'direct_solve':
         return {family: {'type': 'matrix_projection', 'projection': family,
                          'spec': spec, 'view': view} for family in ('S', 'Y', 'Z')}
-    if kind == 'operator':
+    if kind == 'static_capacitance':
+        selector, projection = 'static_capacitance_projection', 'matrix'
+    elif kind == 'static_capacitance_element':
+        selector, projection = 'static_capacitance_element_projection', 'value'
+    elif kind == 'operator':
         selector, projection = 'operator_projection', 'matrix'
     elif kind == 'response_element':
         selector, projection = 'response_element_projection', None

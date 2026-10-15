@@ -81,6 +81,8 @@ from .results import (
     HBBatchResult,
     InventoryResult,
     OperatorResult,
+    StaticCapacitanceResult,
+    StaticCapacitanceElementResult,
     OptimizationResult,
     ParameterSweepResult,
     SensitivityResult,
@@ -95,6 +97,8 @@ from .specs import (
     HBSolveSpec,
     HybridizedPoleSpec,
     OperatorSpec,
+    StaticCapacitanceSpec,
+    StaticCapacitanceElementSpec,
     OptimizationSpec,
     CMAESSpec,
     SensitivitySpec,
@@ -457,6 +461,8 @@ class CircuitRun:
             declarations = (selector.spec for objective in spec.objectives
                             for selector in _quantity_selectors(objective.quantity)) if isinstance(spec, OptimizationSpec) else (spec,)
             for declaration in declarations:
+                if isinstance(declaration, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
+                    raise RuntimePreparationError("Static capacitance requires the JAX backend", stage="runtime_prepare")
                 roots = (declaration.branch_a, declaration.branch_b) if isinstance(declaration, ResidueNormalizedCouplingSpec) else (declaration,)
                 if any(getattr(root, "search", None) is not None for root in roots):
                     raise RuntimePreparationError("RootSearchSpec requires the JAX backend", stage="runtime_prepare")
@@ -471,7 +477,7 @@ class CircuitRun:
         supported = (
             DirectSolveSpec, DiagonalRootSpec, OperatorElementRootSpec,
             HybridizedPoleSpec, TransferZeroSpec, ResidueNormalizedCouplingSpec,
-            ResponseElementSpec, OperatorSpec,
+            ResponseElementSpec, OperatorSpec, StaticCapacitanceSpec, StaticCapacitanceElementSpec,
         )
         quantities = (selector.spec for objective in spec.objectives
                       for selector in _quantity_selectors(objective.quantity)) if isinstance(spec, OptimizationSpec) else (spec,)
@@ -626,6 +632,16 @@ class CircuitRun:
         timing: str | None = None,
     ) -> ParameterSweepResult: ...
 
+    @overload
+    def evaluate(self, ref: NetworkViewRef, spec: StaticCapacitanceSpec, *,
+                 parameters: ParameterSet | None = None, backend: str | None = None,
+                 precision: str | None = None, timing: str | None = None) -> StaticCapacitanceResult: ...
+
+    @overload
+    def evaluate(self, ref: NetworkViewRef, spec: StaticCapacitanceElementSpec, *,
+                 parameters: ParameterSet | None = None, backend: str | None = None,
+                 precision: str | None = None, timing: str | None = None) -> StaticCapacitanceElementResult: ...
+
     @run_activity
     def evaluate(
         self,
@@ -636,7 +652,9 @@ class CircuitRun:
         | TransferZeroSpec
         | ResidueNormalizedCouplingSpec
         | ResponseElementSpec
-        | OperatorSpec,
+        | OperatorSpec
+        | StaticCapacitanceSpec
+        | StaticCapacitanceElementSpec,
         *,
         parameters: ParameterSet | ParameterSpace | None = None,
         backend: str | None = None,
@@ -647,11 +665,15 @@ class CircuitRun:
         | OperatorElementRootResult
         | DirectQuantityResult
         | OperatorResult
+        | StaticCapacitanceResult
+        | StaticCapacitanceElementResult
         | ParameterSweepResult
         | InMemoryAnalysisResult
         | InMemoryParameterSweepResult
     ):
         """Evaluate one typed Direct quantity without an unrelated sweep."""
+        if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)) and isinstance(parameters, ParameterSpace):
+            raise RuntimePreparationError("Static capacitance currently supports a single ParameterSet", stage="preflight")
         started_ns = perf_counter_ns()
         if self._storage == "memory":
             return self._analyze_memory("evaluate_direct", ref, spec, parameters=parameters,
@@ -688,8 +710,11 @@ class CircuitRun:
                 self._validate_direct_quantity_spec("sensitivity", selected, selected_spec)
             spec_record = _encode_spec(
                 selected_spec, self._baseline_point.effective_parameters,
-                coordinate_bindings={_coordinate_binding_key(coordinate): self._view_coordinate_id(selected, coordinate)
-                                     for coordinate in _quantity_coordinates(selected_spec)}
+                coordinate_bindings={_coordinate_binding_key(coordinate): (
+                    self._static_coordinate_id(selected, coordinate)
+                    if isinstance(selected_spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec))
+                    else self._view_coordinate_id(selected, coordinate))
+                    for coordinate in _quantity_coordinates(selected_spec)}
                 if not isinstance(selected_spec, DirectSolveSpec) else {},
                 trace_channels={channel: self._trace_request_channel(selected, channel)
                                 for trace in getattr(selected_spec, "traces", ())
@@ -1102,6 +1127,8 @@ class CircuitRun:
         | ResidueNormalizedCouplingSpec
         | ResponseElementSpec
         | OperatorSpec
+        | StaticCapacitanceSpec
+        | StaticCapacitanceElementSpec
         | OptimizationSpec
         | None = None,
         *,
@@ -1116,6 +1143,8 @@ class CircuitRun:
         | OperatorElementRootResult
         | DirectQuantityResult
         | OperatorResult
+        | StaticCapacitanceResult
+        | StaticCapacitanceElementResult
         | OptimizationResult
         | ParameterSweepResult
         | SensitivityResult
@@ -1164,6 +1193,8 @@ class CircuitRun:
                 ResidueNormalizedCouplingSpec,
                 ResponseElementSpec,
                 OperatorSpec,
+                StaticCapacitanceSpec,
+                StaticCapacitanceElementSpec,
             ),
         ):
             operation = "evaluate_direct"
@@ -1212,6 +1243,8 @@ class CircuitRun:
         | ResidueNormalizedCouplingSpec
         | ResponseElementSpec
         | OperatorSpec
+        | StaticCapacitanceSpec
+        | StaticCapacitanceElementSpec
         | OptimizationSpec,
         *,
         parameters: ParameterSet | None = None,
@@ -1235,6 +1268,8 @@ class CircuitRun:
                 ResidueNormalizedCouplingSpec,
                 ResponseElementSpec,
                 OperatorSpec,
+                StaticCapacitanceSpec,
+                StaticCapacitanceElementSpec,
                 OptimizationSpec,
             ),
         ):
@@ -1255,6 +1290,8 @@ class CircuitRun:
                     ResidueNormalizedCouplingSpec,
                     ResponseElementSpec,
                     OperatorSpec,
+                    StaticCapacitanceSpec,
+                    StaticCapacitanceElementSpec,
                 ),
             )
             else "optimize_direct"
@@ -1555,11 +1592,21 @@ class CircuitRun:
             return value
         return self._coordinate_id(value)
 
+    def _static_coordinate_id(self, ref: NetworkViewRef, value: CoordinateRef | ElectricNodeRef | str) -> str:
+        """Bind public handles/aliases or retain a canonical static output-axis ID.
+
+        Full finite-mesh node membership belongs to the same-point compiler.
+        This does not expose internal nodes to RF View/retain declarations.
+        """
+        if isinstance(value, str) and value not in ref._available_coordinates and value not in self._coordinate_lookup:
+            return value
+        return self._view_coordinate_id(ref, value)
+
     def _validate_direct_request(
         self,
         operation: str,
         ref: NetworkViewRef,
-        spec: DirectSolveSpec | DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | OptimizationSpec,
+        spec: DirectSolveSpec | DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | StaticCapacitanceSpec | StaticCapacitanceElementSpec | OptimizationSpec,
         *,
         selector_views: Mapping[int, NetworkViewRef] | None = None,
     ) -> None:
@@ -1586,7 +1633,7 @@ class CircuitRun:
                 if trace.input_mode or trace.output_mode:
                     raise ValueError("Direct traces require empty mode tuples")
             return
-        if isinstance(spec, (DiagonalRootSpec, OperatorElementRootSpec, HybridizedPoleSpec, TransferZeroSpec, ResidueNormalizedCouplingSpec, ResponseElementSpec, OperatorSpec)):
+        if isinstance(spec, (DiagonalRootSpec, OperatorElementRootSpec, HybridizedPoleSpec, TransferZeroSpec, ResidueNormalizedCouplingSpec, ResponseElementSpec, OperatorSpec, StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
             self._validate_direct_quantity_spec(operation, ref, spec)
             return
         active = {
@@ -1622,12 +1669,27 @@ class CircuitRun:
         self,
         operation: str,
         ref: NetworkViewRef,
-        spec: DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec,
+        spec: DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | StaticCapacitanceSpec | StaticCapacitanceElementSpec,
         *,
         residue_branch: bool = False,
     ) -> None:
         """Apply the selected-View contract shared by evaluate and CMA selectors."""
 
+        if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
+            lineage = ref._lineage
+            if lineage.get("ptc") is not None or lineage.get("retain") is not None:
+                raise RuntimePreparationError(
+                    "Static capacitance requires the original or coordinate-transform-only View",
+                    stage="preflight")
+            # Public handles retain ownership checks. Returned canonical static
+            # axis strings bind against the compiler's full same-point basis.
+            zero_charge = tuple(self._static_coordinate_id(ref, value) for value in spec.zero_charge)
+            if len(set(zero_charge)) != len(zero_charge):
+                raise SCNSimValidationError("zero_charge coordinates must be unique", stage="preflight")
+            if isinstance(spec, StaticCapacitanceElementSpec):
+                for value in (spec.row, spec.column):
+                    self._static_coordinate_id(ref, value)
+            return
         if isinstance(spec, DiagonalRootSpec):
             coordinate = self._view_coordinate_id(ref, spec.coordinate)
             channels = tuple(ref._lineage["terminal_coordinates"])
@@ -1890,6 +1952,8 @@ class CircuitRun:
                         "optimization objective contains a non-selector leaf",
                         stage="spec_validation",
                     )
+                if isinstance(selector.spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
+                    raise RuntimePreparationError("Static capacitance optimization is not supported", stage="preflight")
                 selected = selector_views.get(id(selector))
                 if selected is None:
                     raise InvalidOptimizationSpec(
@@ -1944,6 +2008,8 @@ class CircuitRun:
         | ResidueNormalizedCouplingSpec
         | ResponseElementSpec
         | OperatorSpec
+        | StaticCapacitanceSpec
+        | StaticCapacitanceElementSpec
         | OptimizationSpec,
         parameters: ParameterSet | ParameterSpace | None,
         *,
@@ -1953,6 +2019,8 @@ class CircuitRun:
     ) -> PreparedAnalysis:
         """Normalize one non-executable analysis declaration exactly once."""
 
+        if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)) and isinstance(parameters, ParameterSpace):
+            raise RuntimePreparationError("Static capacitance currently supports a single ParameterSet", stage="preflight")
         if isinstance(spec, OptimizationSpec) and selector_views is None:
             ref, selector_views = self._optimization_views(spec, default_ref=ref)
         if isinstance(spec, HBSolveSpec):
@@ -2014,9 +2082,10 @@ class CircuitRun:
                     spec,
                     effective,
                     coordinate_bindings={
-                        _coordinate_binding_key(coordinate): self._view_coordinate_id(
-                            ref, coordinate
-                        )
+                        _coordinate_binding_key(coordinate): (
+                            self._static_coordinate_id(ref, coordinate)
+                            if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec))
+                            else self._view_coordinate_id(ref, coordinate))
                         for coordinate in _quantity_coordinates(spec)
                     }
                     if not isinstance(spec, (DirectSolveSpec, HBSolveSpec))

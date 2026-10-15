@@ -23,7 +23,7 @@ from ..numerics.models import (
 from ..numeric_encoding import array_record, record_bytes, record_document
 
 
-_ARRAY_FIELDS = ("S", "Y", "Z", "operator_values", "null_vector", "branch_roots_rad_s")
+_ARRAY_FIELDS = ("S", "Y", "Z", "operator_values", "capacitance_values", "null_vector", "branch_roots_rad_s")
 _SCALAR_FIELDS = (
     "response_value", "root_omega_rad_s", "root_slope", "numerator_slope", "denominator",
     "residue_a", "residue_b", "coupling_rad_s", "evaluation_omega_rad_s",

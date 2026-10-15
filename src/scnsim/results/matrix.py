@@ -265,3 +265,46 @@ class OperatorResult(AnalysisResult):
         return operator_add_to(
             self, fig, row=row, col=col, frequency=frequency, kind=kind, component=component
         )
+
+
+def _unsupported_static_presentation(self, *args, **kwargs):
+    """Static V1 exposes detached numeric values, not an RF/scalar plot route."""
+    raise TypeError("Static capacitance presentation is unsupported; read matrix/value and coordinate axes")
+
+
+@dataclass(frozen=True, slots=True)
+class StaticCapacitanceResult(AnalysisResult):
+    """Finite static C in the compiled transformed node basis, in farads."""
+
+    matrix: Quantity
+    row_coordinates: tuple[str, ...]
+    column_coordinates: tuple[str, ...]
+    zero_charge: tuple[str, ...]
+    evidence: Mapping[str, object]
+    _quantity_fields = frozenset({"matrix"})
+    plot = show = add_to = _unsupported_static_presentation
+
+    def __init__(self) -> None:
+        unavailable("StaticCapacitanceResult construction")
+
+    def __getattribute__(self, name: str) -> object:
+        return _fresh_quantity_attribute(self, name)
+
+
+@dataclass(frozen=True, slots=True)
+class StaticCapacitanceElementResult(AnalysisResult):
+    """Selected retained coordinate-pair coefficient of the same static C."""
+
+    value: Quantity
+    row: str
+    column: str
+    zero_charge: tuple[str, ...]
+    evidence: Mapping[str, object]
+    _quantity_fields = frozenset({"value"})
+    plot = show = add_to = _unsupported_static_presentation
+
+    def __init__(self) -> None:
+        unavailable("StaticCapacitanceElementResult construction")
+
+    def __getattribute__(self, name: str) -> object:
+        return _fresh_quantity_attribute(self, name)

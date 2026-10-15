@@ -1,0 +1,164 @@
+---
+title: "Static Capacitance Contract"
+subtitle: "Evaluate a finite compiled capacitance matrix or one coordinate entry"
+toc-depth: 2
+---
+
+::: {.callout-warning}
+## CONVERGING V1 candidate
+
+This page defines the dev35 candidate for static capacitance evaluation and
+its JAX sensitivities. It does not change the existing dynamic S/Y/Z or
+residue-normalized-coupling contracts. The implementation and this public
+contract remain `CONVERGING` until the Human accepts this scope.
+:::
+
+## Scope
+
+This candidate covers single-effective-point matrix and element `evaluate()`
+requests, plus the required existing Jacobian, JVP, and VJP Sensitivity
+requests for those outputs. It makes no additional claim for
+`ParameterSpace` sweeps, optimization, warmup, or detached `prepare()`
+functions. Quantization, nonlinear elements, second-order derivatives, and
+EC/frequency calculations remain outside this scope.
+
+## Public declarations
+
+```text
+StaticCapacitanceSpec(zero_charge=())
+StaticCapacitanceSpec.matrix
+StaticCapacitanceSpec.element(*, row, column)
+StaticCapacitanceElementSpec.value
+```
+
+`StaticCapacitanceSpec` asks for the complete compiled static capacitance
+matrix on one Plan, one effective parameter point, and one supported View.
+Its default `zero_charge=()` requests the full matrix. The same declaration can
+name an explicit zero-charge coordinate partition:
+
+```python
+matrix_spec = StaticCapacitanceSpec()
+entry_spec = matrix_spec.element(row=row_coordinate, column=column_coordinate)
+reduced_spec = StaticCapacitanceSpec(zero_charge=(eliminated_coordinate,))
+```
+
+`matrix_spec.matrix` selects the matrix as a sensitivity leaf. An element spec's
+`.value` selects its scalar entry. Both selectors support the ordinary
+`.on(view)` binding used by `SensitivitySpec`. For direct evaluation, pass the
+matrix or element spec to `run.evaluate(view, spec)`:
+
+```python
+matrix_result = run.evaluate(view, matrix_spec, parameters=point)
+entry_result = run.evaluate(view, entry_spec, parameters=point)
+```
+
+The matrix result exposes `matrix` as a Pint Quantity in farads, ordered
+`row_coordinates` and `column_coordinates`, its `zero_charge` partition, and
+evidence bound to the Plan, effective point, View, dtype, and realized finite
+discretization. The element result exposes its scalar `value` in farads, row and
+column identities, the same partition, and the same provenance. Coordinate
+axes use the complete compiled node-coordinate basis of the selected View; they
+are not restricted to RF Ports.
+
+These returned row and column IDs, including internal finite-pi axes, can
+address a later static element or `zero_charge` request for the same Plan,
+View, effective parameter point, and realized mesh. This is static-output-axis
+addressing only: it does not create public `CoordinateRef` values or grant
+internal coordinates access through RF selectors or `retain()`.
+
+Each request evaluates one effective `ParameterSet` on the same sealed Plan.
+Omitted physical parameters use the Plan's captured baselines. The result is a
+detached in-memory value or is written and read through the ordinary Workspace
+path. A returned Result keeps its fixed read ownership and remains readable
+after `run.close()`.
+
+## Coordinate and charge convention
+
+The physical finite capacitance matrix is $C_x$ in the current View's ordered
+coordinate basis. An existing supported real, dimensionless coordinate
+transform maps coordinates as $x=T(\theta)y$, where the current parameter point
+determines any existing transform weights. The transformed matrix is the
+congruence
+
+$$
+C_y(\theta)=T(\theta)^T C_x(\theta)T(\theta).
+$$
+
+This is a static charge relation, $q=Cv$; it is not a frequency response or a
+sampled low-frequency approximation to S, Y, or Z. The compiled finite model is
+the one actually used by the request, including the capacitors of a finite-pi
+transmission-line realization.
+
+For an explicit `zero_charge` set, let $e$ be those coordinates and let $r$ be
+the remaining coordinates in the selected View's original order. Partition the
+transformed matrix as
+
+$$
+C_y=\begin{bmatrix}C_{rr}&C_{re}\\C_{er}&C_{ee}\end{bmatrix}.
+$$
+
+The returned retained-coordinate matrix follows the zero-charge condition
+$q_e=0$:
+
+$$
+C_{\mathrm{eff}}=C_{rr}-C_{re}\,\operatorname{solve}(C_{ee},C_{er}).
+$$
+
+The eliminated coordinates are not newly grounded or assigned a hidden clamp;
+the condition is zero charge. The empty partition returns the complete matrix
+without an elimination solve. The result records the selected partition and
+ordered retained axes.
+
+## Sensitivity and discrete realization
+
+The existing `SensitivitySpec` supports `Jacobian`, `JVP`, and `VJP` for both
+the matrix and an element. Bind each selected leaf to the intended View:
+
+```python
+quantities = {"C": matrix_spec.matrix.on(view)}
+sensitivity_spec = SensitivitySpec(
+    quantities=quantities,
+    wrt=(capacitance_parameter,),
+    derivative=Jacobian(),
+    discretization=fixed_mesh,
+)
+sensitivity = run.sensitivity(sensitivity_spec, parameters=point)
+```
+
+The derivative follows the actual parameter-dependent physical matrix, the
+existing transform weights $T(\theta)$, and the specified square solve. The
+operation does not freeze transform weights at a baseline or stop gradients at
+the elimination boundary. Jacobian output axes identify the matrix row and
+column coordinates; scalar elements retain their row and column identities.
+The existing sensitivity layout carries parameter and output units: a raw
+matrix Jacobian cell has units of farads per SI unit of the requested input.
+An F/F derivative is dimensionless because of those units; it is not
+automatically normalized or scaled. JVP and VJP use the same selected physical
+output and ordinary direction/cotangent unit rules described in the
+[Sensitivity guide](../guides/sensitivity.qmd).
+
+Integer mesh choices remain discrete. A sensitivity request binds one fixed
+realized mesh; derivatives do not differentiate a section-count decision or
+remesh along a perturbation. The saved result records the mesh used for its
+finite capacitance model.
+
+## Failure and backend boundary
+
+The complete matrix can be returned even when it is singular. If the requested
+zero-charge elimination requires a singular or otherwise unsolved $C_{ee}$,
+the native linear solve failure is reported. The operation does not use a
+pseudoinverse, diagonal clamp, guessed reference node, or regularization to
+manufacture a reduced value.
+
+The supported View is the original View or an existing coordinate-transform-
+only View. PTC and retained/dynamically Schur-reduced Views are outside this
+static-capacitance scope; a request on one fails explicitly rather than
+changing the requested matrix meaning. The initial backend support is JAX.
+Explicit Julia static-capacitance requests fail as unsupported; this does not
+change the capabilities of existing Julia operations.
+
+The same physical couplings and existing residue-normalized-coupling
+definition, including its RF branch inputs and meaning, continue to govern
+their current operations.
+
+For usage, see the [static capacitance guide](../guides/static-capacitance.qmd).

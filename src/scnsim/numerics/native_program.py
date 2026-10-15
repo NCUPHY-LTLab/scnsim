@@ -74,7 +74,7 @@ class NativeCandidateState(NamedTuple):
     partition_status: Any
 
 
-def _candidate(model, views, assemblies, capabilities, precision, theta):
+def _candidate(model, views, assemblies, capabilities, dynamic_views, static_views, precision, theta):
     import jax
     import jax.numpy as jnp
     # Physical validation/rank is intentionally original binary64, not the
@@ -83,15 +83,17 @@ def _candidate(model, views, assemblies, capabilities, precision, theta):
         original = jnp.asarray(theta, dtype=jnp.float64)
         checks = model.physical_checks(original)
         physical = model(original)
-        actual = tuple(view.capability_array(physical, original) for view in views)
+        actual = tuple(view.capability_array(physical, original) if dynamic else jnp.bool_(False)
+                       for view, dynamic in zip(views, dynamic_views, strict=True))
         mismatch = jnp.any(jnp.stack(tuple(value != expected for value, expected in
                                           zip(actual, capabilities, strict=True)))) if views else jnp.bool_(False)
         rd = jnp.float64 if precision == 'float64' else jnp.float32
         selected = original.astype(rd)
         numerical = physical if precision == 'float64' else model(selected)
-        routed = tuple(view.apply_model(numerical, selected, port_realizable=capability)
-                       for view, capability in zip(views, capabilities, strict=True))
-        operands = tuple(assembly.operands(view) for assembly, view in zip(assemblies, routed, strict=True))
+        routed = tuple(view.apply_model(numerical, selected, port_realizable=capability, static_coordinates=static)
+                       for view, capability, static in zip(views, capabilities, static_views, strict=True))
+        operands = tuple(assembly.operands(view) if assembly is not None else ()
+                         for assembly, view in zip(assemblies, routed, strict=True))
         return NativeCandidateState(numerical, routed, operands, checks, actual,
                                     jnp.where(mismatch, jnp.int32(1), jnp.int32(0)))
 
@@ -118,6 +120,7 @@ class NativeProgramAux(NamedTuple):
     observable_values: tuple = ()
     observable_raw_values: tuple = ()
     output_values: tuple = ()
+    static_facts: tuple = ()
 
 
 class NativePublicProjection(NamedTuple):
@@ -166,7 +169,7 @@ def _compile_chunk(function, bucket):
 
 
 class NativeBranchOutcome(NamedTuple):
-    values: tuple                 # parallel branch_observable_indices, raw scalar leaves
+    values: tuple                 # parallel branch_observable_indices, root/coupling/static leaves
     derivative_available: tuple
     branch_packets: tuple         # ordered (start_index, actual RootPacket)
     quantity_packets: tuple       # ordered (observable_index, actual coupling packet)
@@ -499,6 +502,10 @@ class NativePhysicalCore:
 def acquire_native_core(quantity_program, capabilities, *, owner=None, admit=False, existing=None):
     program = quantity_program.program
     model = program.model_program
+    dynamic_views = tuple(any(item.view_index == index and not item.kind.startswith('static_capacitance')
+                              for item in program.observables) for index in range(len(program.views)))
+    static_views = tuple(any(item.view_index == index and item.kind.startswith('static_capacitance')
+                             for item in program.observables) for index in range(len(program.views)))
     record = {'plan_sha256': quantity_program.identity['plan_sha256'],
         'sections': [[list(path), count] for path, count in model.mesh.sections],
         'operand_schema': [asdict(axis) for axis in model.fields.layout.axes],
@@ -513,6 +520,9 @@ def acquire_native_core(quantity_program, capabilities, *, owner=None, admit=Fal
         'views': [json.loads(view.declaration_bytes) for view in program.views],
         'precision': program.precision, 'capabilities': capabilities,
         'implementation': 'scnsim.jax.native_physical_core.stage_bundle.v1'}
+    if any(static_views):
+        record['static_views'] = static_views
+        record['dynamic_views'] = dynamic_views
     identity = hashlib.sha256(canonical_json_bytes(record)).hexdigest()
     key = ('native_physical_core', identity)
     if owner is not None:
@@ -522,9 +532,10 @@ def acquire_native_core(quantity_program, capabilities, *, owner=None, admit=Fal
     if existing is not None and existing.structural_identity == identity:
         result = existing
     else:
-        programs = tuple(NativeFrequencyProgram.create(view) for view in program.views)
-        candidate = partial(_candidate, model, program.views, tuple(item.assembly for item in programs),
-                            capabilities, program.precision)
+        programs = tuple(NativeFrequencyProgram.create(view) if dynamic else None
+                         for view, dynamic in zip(program.views, dynamic_views, strict=True))
+        candidate = partial(_candidate, model, program.views, tuple(item.assembly if item is not None else None for item in programs),
+                            capabilities, dynamic_views, static_views, program.precision)
         result = NativePhysicalCore(candidate, programs, capabilities, program.precision, identity, key)
     if owner is not None and admit:
         owner.admit(key, result, kind='program', known_bytes=None)
@@ -649,7 +660,8 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
     program = quantity_program.program
     capabilities = program._capabilities(inputs) if capabilities is None else tuple(capabilities)
     root_kinds = frozenset(('diagonal_root', 'operator_element_root', 'hybridized_pole', 'transfer_zero'))
-    supported = {'S', 'Y', 'Z', 'operator', 'response_element', 'residue_coupling'} | root_kinds
+    static_kinds = frozenset(('static_capacitance', 'static_capacitance_element'))
+    supported = {'S', 'Y', 'Z', 'operator', 'response_element', 'residue_coupling'} | root_kinds | static_kinds
     if any(descriptor.kind not in supported for descriptor in program.observables):
         raise TypeError('unsupported native observable kind: ' + repr(tuple(
             descriptor.kind for descriptor in program.observables if descriptor.kind not in supported)))
@@ -664,6 +676,9 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
     coupling_entries = []
     from .program_models import RootDeclaration
     for ordinal, descriptor in enumerate(program.observables):
+        if descriptor.kind in static_kinds:
+            gathers.append(())
+            continue
         if descriptor.kind == 'residue_coupling':
             midpoint = descriptor.frequency_mode == 'complex_root_midpoint'
             evaluation_index = None
@@ -755,6 +770,9 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
     selection_runs = tuple(selection_runs)
     descriptors, expressions = program.observables, program.output_expressions
     precision = program.precision
+    from .native_static import compile_static_capacitance
+    static_functions = {index: compile_static_capacitance(program.views[item.view_index], item)
+                        for index, item in enumerate(descriptors) if item.kind in static_kinds}
     def root_dependency(item):
         return ('root_occurrence', root_by_start[item.start_index][0][0], item.start_index,
             (item.kind, item.coordinate_index, item.row_index, item.column_index,
@@ -763,7 +781,10 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
     for ordinal, descriptor in enumerate(descriptors):
         roots = tuple(root_dependency(root_declarations[start])
                       for start in descriptor.branch_indices if start in root_declarations)
-        if descriptor.kind == 'residue_coupling':
+        if descriptor.kind in static_kinds:
+            leaf_dependencies.append((('static_capacitance', descriptor.view_index,
+                                       descriptor.zero_charge_indices, descriptor.retained_indices),))
+        elif descriptor.kind == 'residue_coupling':
             roots = tuple(root_dependency(root_declarations[
                 descriptors[index].branch_indices[0]]) for index in descriptor.dependency_indices)
             leaf_dependencies.append((*roots, ('coupling_occurrence', descriptor.view_index, ordinal,
@@ -804,7 +825,9 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
                     unavailable = unavailable | ((value.imag == 0) & (value.real < 0))
             eligible = jnp.bool_(True) if availability is None else availability[ordinal]
             available.append(eligible & ~jnp.any(unavailable))
-            if descriptor.kind in root_kinds:
+            if descriptor.kind in static_kinds:
+                projected = value
+            elif descriptor.kind in root_kinds:
                 projected = (value.real / (2 * jnp.pi) if descriptor.projection == 'frequency'
                              else -value.imag / jnp.pi if descriptor.projection == 'linewidth'
                              else value if descriptor.projection is None
@@ -823,7 +846,7 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
         return NativePublicProjection(observable_values, tuple(raw_values), tuple(values), tuple(available))
 
     def project_public_values(matrices, *, availability=None):
-        selected = tuple(matrix if descriptor.kind in root_kinds or descriptor.kind == 'residue_coupling'
+        selected = tuple(matrix if descriptor.kind in root_kinds or descriptor.kind in static_kinds or descriptor.kind == 'residue_coupling'
                          else response_leaf_function(index, matrix)
                          for index, (descriptor, matrix) in enumerate(zip(descriptors, matrices, strict=True)))
         return project_selected_values(selected, availability=availability)
@@ -854,7 +877,7 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
         return project_matrices(tuple(matrices))
 
     branch_observable_indices = tuple(index for index, descriptor in enumerate(descriptors)
-        if descriptor.kind in root_kinds or descriptor.kind == 'residue_coupling')
+        if descriptor.kind in root_kinds or descriptor.kind in static_kinds or descriptor.kind == 'residue_coupling')
     response_observable_indices = tuple(index for index in range(len(descriptors))
         if index not in branch_observable_indices)
 
@@ -921,7 +944,15 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
                 certificate_status = first(certificate_status, packet.certificate_status != 0, packet.certificate_status)
                 quantity_packets.append((row['observable_index'], packet))
                 packet_by_observable[row['observable_index']] = packet
-            values = tuple(packet_by_observable[index].coupling_rad_s
+            static_values = {}
+            for index, function in static_functions.items():
+                view_status = point.views[descriptors[index].view_index].status
+                check_status = first(check_status, view_status != 0, view_status)
+                value, local_status = function(point, first(check_status, certificate_status != 0, certificate_status))
+                static_values[index] = value
+                certificate_status = first(certificate_status, local_status != 0, local_status)
+            values = tuple(static_values[index] if descriptors[index].kind in static_kinds else
+                packet_by_observable[index].coupling_rad_s
                 if descriptors[index].kind == 'residue_coupling' else
                 packet_by_start[descriptors[index].branch_indices[0]].omega
                 for index in branch_observable_indices)
@@ -984,6 +1015,9 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
             packet_by_start, packet_by_observable = dict(branch_packets), dict(quantity_packets)
             matrices = []
             for ordinal, (descriptor, runs) in enumerate(zip(descriptors, selection_runs, strict=True)):
+                if descriptor.kind in static_kinds:
+                    matrices.append(branch.values[branch_observable_indices.index(ordinal)])
+                    continue
                 if descriptor.kind == 'residue_coupling':
                     matrices.append(packet_by_observable[ordinal].coupling_rad_s)
                     continue
@@ -1002,7 +1036,9 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
             flat, available = _flatten(projection.output_values), projection.derivative_available
             return flat, NativeProgramAux(point.physical_checks, point.partition_status,
                 point.realized_capabilities, check_status, certificate_status, tuple(outcomes), available, tuple(branch_packets), tuple(quantity_packets),
-                projection.observable_values, projection.observable_raw_values, projection.output_values)
+                projection.observable_values, projection.observable_raw_values, projection.output_values,
+                tuple((index, point.views[descriptor.view_index].coordinate_transform)
+                      for index, descriptor in enumerate(descriptors) if descriptor.kind in static_kinds))
     def numeric_function(theta, omega, seeds):
         import jax
         with jax.enable_x64(True):

@@ -25,6 +25,7 @@ class ViewPayload(NamedTuple):
     Go: Any
     status: Any
     failed_site: Any
+    coordinate_transform: Any = ()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -143,7 +144,7 @@ class ViewProgram:
     def __call__(self, theta, *, port_realizable=None) -> ViewPayload:
         return self.apply_model(self.model_program(theta), theta, port_realizable=port_realizable)
 
-    def apply_model(self, payload: ModelPayload, theta, *, port_realizable=None) -> ViewPayload:
+    def apply_model(self, payload: ModelPayload, theta, *, port_realizable=None, static_coordinates=False) -> ViewPayload:
         """Route the SAME candidate fields without rebuilding its physical model.
 
         The caller owns the array payload. This program retains only immutable
@@ -153,6 +154,7 @@ class ViewProgram:
         matrices = (payload.C, payload.K, payload.G, payload.B)
         series = payload.series
         maps = jnp.asarray(self.source_map, dtype=theta.dtype)
+        transform = ()
         status, site = payload.status, payload.failed_site
         for index, route in enumerate(self.routes):
             cl = sum(matrices[0][slot] for slot in route.cut_slots[0])
@@ -162,6 +164,10 @@ class ViewProgram:
             status = jnp.where(first, jnp.int32(3), status)
             site = jnp.where(first, jnp.int32(index), site)
             alpha, beta = cl / (cl + cr), cr / (cl + cr)
+            if static_coordinates:
+                # Compact same-call weights and ordered declarations define T;
+                # no dense evidence-only transform or frozen baseline is used.
+                transform = (*transform, (alpha, beta))
             matrices = tuple(expansion.apply(value, alpha, beta)
                              for expansion, value in zip(route.expansions, matrices, strict=True))
             series = tuple(PackedSeries(group.R, group.L, group.material_indices,
@@ -200,7 +206,7 @@ class ViewProgram:
         else:
             import jax
             Rk, Dk, Go, status = jax.lax.cond(capability, normalized, unnormalized, status)
-        return ViewPayload(model, selected_map, Rk, Dk, Go, status, site)
+        return ViewPayload(model, selected_map, Rk, Dk, Go, status, site, transform)
 
 
 def _expansion(pattern, mapping, size, *, congruence):
