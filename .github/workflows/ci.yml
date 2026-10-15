@@ -623,14 +623,15 @@ jobs:
         with:
           name: windows-cp312-win_amd64
           path: native-wheelhouse
-      - name: Install only actual binary wheels in a fresh environment
+      - name: Sync an isolated consumer from the actual SCNSim wheel
         shell: pwsh
         run: |
-          uv venv --clear --python 3.12 .venv-windows-wheel
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $wheel = @(Get-ChildItem native-wheelhouse/*.whl)
-          if ($wheel.Count -ne 1) { throw "Expected exactly one Windows wheel" }
-          uv pip install --python .venv-windows-wheel/Scripts/python.exe --only-binary :all: ($wheel[0].FullName)
+          $repository = $PWD.Path
+          $consumer = Join-Path $env:RUNNER_TEMP 'SCNSim consumer 空間'
+          $environment = Join-Path $repository '.venv-windows-wheel'
+          $wheelhouse = Join-Path $repository 'native-wheelhouse'
+          $output = Join-Path $repository 'windows-observations/consumer-install'
+          uv run --no-project --python 3.12 python scripts/ci_windows_wheel.py sync-consumer --consumer $consumer --environment $environment --wheelhouse $wheelhouse --output $output
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Observe installed native kernel and public Workspace and memory JAX usage
         shell: pwsh

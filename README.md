@@ -351,23 +351,26 @@ single-flight coordinates compilation without a global JAX cache purge.
 Prebuilt native CPU wheels target Python 3.12 on Linux x86_64 (glibc 2.28 or
 newer), macOS Apple ARM (macOS 12 or newer), and Windows x86_64
 (`cp312-win_amd64`). The Windows target covers both memory and Workspace
-operations; it does not include Windows ARM, GPU, or Julia execution. When a
-matching Windows wheel is available, install that downloaded local wheel into
-a Python 3.12 environment with:
+operations; it does not include Windows ARM, GPU, or Julia execution.
+
+For a Windows consuming repository, its maintainer must configure the matching
+prebuilt SCNSim wheel as the package source and update that repository's
+lockfile. Once configured, users with CPython 3.12 on x86_64 install from the
+repository by running:
 
 ```powershell
-uv venv --python 3.12
-uv pip install --python .venv\Scripts\python.exe --only-binary :all: ".\scnsim-1.0.0.dev34-cp312-cp312-win_amd64.whl"
+uv sync
 ```
 
-Use the exact filename of the wheel you downloaded. `--only-binary :all:` keeps
-this installation on binary distributions; it does not build SCNSim from source.
-Installing SCNSim from Git, a source archive, or an editable checkout builds the
-native extension locally and requires a C++17 compiler; those source installs do
-not automatically select a separately built Windows wheel. Depending on the
-wheel's MSVC runtime requirements, Windows may also need the matching Microsoft
-Visual C++ Redistributable, which is separate from the compiler tools. See
+This repository workflow needs no manual wheel download, `pip` command, or C++
+compiler to install SCNSim. A Git, source-archive, or editable SCNSim
+installation builds the native extension locally and requires C++17; it does
+not automatically select a separately built Windows wheel. The `asciitree`
+transitive dependency is pure Python, with no native extension or custom build.
+Its source distribution can be allowed without requiring a C++ compiler; other
+native dependencies remain binary-only. Depending on the wheel's MSVC runtime
+requirements, Windows may also need the matching Microsoft Visual C++
+Redistributable, which is separate from the compiler tools. See
 [Microsoft's supported Redistributable guidance](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170).
 The default Windows numerical backend is CPU JAX; see the [JAX CPU installation
-notes](https://docs.jax.dev/en/latest/installation.html#cpu). Platform execution
-and performance remain separately observed CONVERGING scope.
+notes](https://docs.jax.dev/en/latest/installation.html#cpu).

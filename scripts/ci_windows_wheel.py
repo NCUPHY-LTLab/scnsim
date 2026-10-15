@@ -2,7 +2,9 @@
 
 This CI-only consumer never changes numerical rules or supplies a fallback.
 Build audit and installed public use have separate records; exceptions remain
-fatal after preserving completed observations. No compiler is used by smoke.
+fatal after preserving completed observations. The isolated consumer runs plain
+uv sync against the downloaded wheel; only existing pure-Python asciitree may
+build from source. No native compiler is used by consumer installation or smoke.
 """
 from __future__ import annotations
 
@@ -469,6 +471,88 @@ def smoke(args):
                 primary.add_note(f'Windows Run cleanup: {error!r}')
 
 
+def sync_consumer(args):
+    """Own one isolated virtual consumer and retain install facts, not smoke success."""
+    consumer = args.consumer.resolve()
+    environment = args.environment.resolve()
+    output = args.output.resolve()
+    wheels = tuple(args.wheelhouse.resolve().glob('*.whl'))
+    wheel, = wheels
+    with zipfile.ZipFile(wheel) as archive:
+        metadata, = [name for name in archive.namelist()
+                     if name.endswith('.dist-info/METADATA')]
+        package = Parser().parsestr(archive.read(metadata).decode('utf-8'))
+    if package['Name'].lower() != 'scnsim':
+        raise ValueError('consumer source must be the actual SCNSim wheel')
+    # JSON basic strings are also valid TOML strings; POSIX spelling preserves
+    # Windows drives, spaces and non-ASCII without TOML backslash ambiguity.
+    quote = lambda value: json.dumps(value, ensure_ascii=False)
+    document = (
+        '[project]\nname = "scnsim-windows-wheel-consumer"\n'
+        'version = "0.0.0"\nrequires-python = ">=3.12,<3.13"\n'
+        f'dependencies = [{quote("scnsim==" + package["Version"])}]\n\n'
+        '[tool.uv]\npackage = false\nno-build = true\n'
+        'no-binary-package = ["asciitree"]\n\n'
+        '[tool.uv.sources]\n'
+        f'scnsim = {{ path = {quote(wheel.as_posix())} }}\n'
+    )
+    consumer.mkdir(parents=True, exist_ok=False)
+    (consumer / 'pyproject.toml').write_text(document, encoding='utf-8')
+    (consumer / '.python-version').write_text('3.12\n', encoding='utf-8')
+    output.mkdir(parents=True, exist_ok=True)
+    environment_variables = dict(os.environ, UV_PROJECT_ENVIRONMENT=str(environment))
+    report = {'kind': 'consumer_install_facts', 'state': 'prepared',
+              'consumer': str(consumer), 'environment': str(environment),
+              'wheel': str(wheel), 'wheel_sha256': _sha(wheel.read_bytes()),
+              'candidate_version': package['Version'], 'command': ['uv', 'sync'],
+              'cwd': str(consumer),
+              'uv_version': subprocess.check_output(['uv', '--version'], text=True).strip(),
+              'source_build_exception': ['asciitree'],
+              'all_other_dependencies': 'wheel-only', 'sync_exit_code': None}
+
+    def retain():
+        files = {}
+        for name in ('pyproject.toml', '.python-version', 'uv.lock'):
+            source = consumer / name
+            if source.is_file():
+                data = source.read_bytes()
+                (output / name).write_bytes(data)
+                files[name] = {'sha256': _sha(data), 'bytes': len(data)}
+            else:
+                files[name] = {'available': False}
+        report['consumer_files'] = files
+        _write(output / 'CONSUMER-INSTALL.json', report)
+
+    retain()
+    primary = None
+    try:
+        completed = subprocess.run(['uv', 'sync'], cwd=consumer,
+                                   env=environment_variables, check=False)
+        report['sync_exit_code'] = completed.returncode
+        report['state'] = 'sync_returned' if completed.returncode == 0 else 'sync_failed'
+        return completed.returncode
+    except BaseException as error:
+        primary = error
+        report['state'] = 'sync_raised'
+        report['exception'] = {'type': type(error).__name__, 'message': str(error)}
+        raise
+    finally:
+        try:
+            retain()
+        except BaseException as error:
+            if primary is not None:
+                primary.add_note(f'Consumer install evidence retention: {error!r}')
+            elif report['sync_exit_code'] not in (None, 0):
+                # Preserve the actual failed sync exit even if copying evidence
+                # also fails. Reporting that secondary cause is best-effort.
+                try:
+                    print(f'Consumer install evidence retention failed: {error!r}', file=sys.stderr)
+                except Exception:
+                    pass  # A failed diagnostic stream must not replace sync's exit.
+            else:
+                raise
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -482,6 +566,11 @@ def main():
     use.add_argument('--chapter', type=Path, required=True)
     use.add_argument('--wheelhouse', type=Path, required=True)
     use.add_argument('--output', type=Path, required=True)
+    consumer = sub.add_parser('sync-consumer')
+    consumer.add_argument('--consumer', type=Path, required=True)
+    consumer.add_argument('--environment', type=Path, required=True)
+    consumer.add_argument('--wheelhouse', type=Path, required=True)
+    consumer.add_argument('--output', type=Path, required=True)
     child = sub.add_parser('lock-child')
     child.add_argument('--path', type=Path, required=True)
     idle = sub.add_parser('idle-child')
@@ -492,6 +581,8 @@ def main():
         audit(args)
     elif args.command == 'smoke':
         smoke(args)
+    elif args.command == 'sync-consumer':
+        return sync_consumer(args)
     elif args.command == 'lock-child':
         lock_child(args)
     else:
@@ -499,4 +590,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
