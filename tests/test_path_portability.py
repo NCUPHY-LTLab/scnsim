@@ -95,7 +95,7 @@ class SourceProvenancePathTests(unittest.TestCase):
 
     def test_unreadable_missing_root_preserves_native_strict_resolution_cause(self):
         with TemporaryDirectory(prefix="scnsim missing root ") as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve(strict=True)
             missing = root / "missing 元件 literal%20"
             package = _distribution(root / "metadata", missing)
             with self.assertRaises(SCNSimValidationError) as captured:
