@@ -121,9 +121,9 @@
     "source_receipt_sha256": "ca4bd9f7ca712912fb641fef063636830b9d0e98ba2b31b6f97acf55875326d0"
   },
   "publication_binding": {
-    "binding_sha256": "c535311be1ea8958b71669b85e9d6e45d209b095313734ad399a4b2451c161e4",
+    "binding_sha256": "6964e6ef879694ba4be0ae6869671cd649e624fbe4e3b8ed1ee809bd0dee31fe",
     "generator_sha256": "0be52d3ea3cb2fc8ec99f8eb2afa50b0e04e6ac2ada7e13553a07b000c1d11ce",
-    "source_tree_sha256": "d30c7fb7198bf56af6aeea7b8cc65d466e457819ec055c330dc377151067bb34"
+    "source_tree_sha256": "abd6fa4f789b1516bb55a4d8cd73e6f91c51c4994c5188b43d1630691d3b50a4"
   },
   "publication_rebind": {
     "deltas": {
@@ -151,13 +151,29 @@
         "before_sha256": "0be52d3ea3cb2fc8ec99f8eb2afa50b0e04e6ac2ada7e13553a07b000c1d11ce"
       },
       "source_files": {
-        "src/scnsim/numeric_encoding.py": {
-          "after_sha256": "bca0d68323b0cd74a00fe9017e085120dd531020f8de96e76c69d02a0737e2a3",
-          "before_sha256": "1aa263ed62b6347f58242727d870c539ba43222ca80f99453282ebff8a905cc7"
+        "src/scnsim/workspace/_os_io.py": {
+          "after_sha256": "dbf9e6a03a154abd1d92a6c7aa3a4a8e9f36bd97cc3ea8ee57e2e1a3581b72de",
+          "before_sha256": "absent"
         },
-        "src/scnsim/numerics/evidence.py": {
-          "after_sha256": "9a13d18f5f31c2b649bd8c2bb7dc6afcf5c2f698f42c1db4908e8456e86c09fc",
-          "before_sha256": "04af9bae70f966c511968f81249002ead0c37ea62ca74e221a3856f09680e29d"
+        "src/scnsim/workspace/operation_lease.py": {
+          "after_sha256": "184ae264d87f29201550ba67ba7e633309b7c9626f4002b6ee929a63343cab7d",
+          "before_sha256": "5f8c2f2c5b34039470831490ffff326ee36be507e8d51a66730a46c1f0298e6d"
+        },
+        "src/scnsim/workspace/operation_store.py": {
+          "after_sha256": "afa6c74a072ea108058901ceeae6edaa54992b0facfcfb6d7bd92431c4702185",
+          "before_sha256": "6b6a15d346b5087981e730f891029e69fc6e7b6474b3f094e26ef5bf21e7c598"
+        },
+        "src/scnsim/workspace/primitives.py": {
+          "after_sha256": "2e0e0a3f6b6539a048542fa74f5ce703ecf6cf33cadc0a2b91e90b1ecba7c003",
+          "before_sha256": "b1cafd7eb3cbafa7b28976dab3c33dd4b252c5ccc46932821ee0e36aaf899790"
+        },
+        "src/scnsim/workspace/storage.py": {
+          "after_sha256": "fec901bf2b0bd21af7c0fac21bc9e22894bff6d2e3b6254dbfae3f15fa125375",
+          "before_sha256": "0f1e00c209a8bdfc0b1ff8dfbe45983a24cdf7b9d9019b8a90b0d38fab4ed874"
+        },
+        "src/scnsim/workspace/store.py": {
+          "after_sha256": "3d626eb36779aecfd8de67361162df8e02867637f650f73dc258d8bd72b4b6e1",
+          "before_sha256": "c4073dad12863ff5b804ca1313458e2b3e5542bc6291596c265bed9b89a7ac65"
         }
       },
       "teaching_sources": {}
@@ -173,20 +189,20 @@
       "prior_publication_artifacts": {
         "05-reusable-composite.svg": "fe6a5f108d8bf8a06f8bc92383d57f96fca7358fe948bc32fdfda385d2ef1828"
       },
-      "prior_publication_binding_sha256": "2142365357724958e276466eae77ebb4db6d1f3f05127dae09217a3919914c49",
+      "prior_publication_binding_sha256": "c535311be1ea8958b71669b85e9d6e45d209b095313734ad399a4b2451c161e4",
       "prior_redrawn_artifacts": {},
       "source_tree_sha256": "f9dfbf48f5c917d8af9f4983c45169e5ed68bf039c9954ad756dbf786d6f0816"
     },
     "kind": "reviewed_source_only_transition",
     "numerical_evidence_reused": true,
-    "prior_manifest_sha256": "ec385f080414386c3438c057e15f80029f8dfc804adfa24dc654bd0d5a321854",
-    "prior_publication_binding_sha256": "2142365357724958e276466eae77ebb4db6d1f3f05127dae09217a3919914c49",
-    "prior_publication_rebind_sha256": "1c27aeec874e4cf0c8494cb1f1cc44138b50719c4be98d0b144c1145a75f8238",
+    "prior_manifest_sha256": "456edb9993ff81db8babfcc9eebd7b0fe80027a8e7e45e5ad5b5f0d8d7bf2d5b",
+    "prior_publication_binding_sha256": "c535311be1ea8958b71669b85e9d6e45d209b095313734ad399a4b2451c161e4",
+    "prior_publication_rebind_sha256": "ee192d55cf3b3bf0f17f188a5d52110e47e89b99035ea6be25dc33188bf7a792",
     "prior_published_artifacts_retained": true,
     "publication_artifacts": {
       "05-reusable-composite.svg": "fe6a5f108d8bf8a06f8bc92383d57f96fca7358fe948bc32fdfda385d2ef1828"
     },
-    "publication_binding_sha256": "c535311be1ea8958b71669b85e9d6e45d209b095313734ad399a4b2451c161e4",
+    "publication_binding_sha256": "6964e6ef879694ba4be0ae6869671cd649e624fbe4e3b8ed1ee809bd0dee31fe",
     "redrawn_artifacts": {},
     "schema": "scnsim.engineer_publication_rebind.v3",
     "transition_id": "scnsim.jax_root_optimization_convergence.20261012"

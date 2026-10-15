@@ -912,8 +912,16 @@ prepares the prospective workspace binding. It does not recapture the Plan or
 rerun `complete()` after commit. Under the existing exclusive workspace lock,
 an unchanged pointer is verified in place; a changed active pointer is
 atomically published with any exact old-leaf cleanup intent. That logical
-commit is durably confirmed with directory `fsync`, then the supplied Plan is
-sealed from the already-validated state and the Run is returned.
+commit is confirmed through the platform's native publication barriers, then
+the supplied Plan is sealed from the already-validated state and the Run is
+returned. Linux/macOS retain file flush, atomic replace and directory `fsync`.
+The Windows JAX candidate flushes written regular files with `FlushFileBuffers`,
+uses same-volume `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)` without a
+copy/delete fallback, and issues `FlushFileBuffers` on an actual directory
+handle opened with `FILE_FLAG_BACKUP_SEMANTICS` and write access. Access or
+unsupported-handle failures remain native failures; no directory barrier is
+silently skipped. These are OS-native guarantees, not an assertion about
+arbitrary hardware power loss.
 
 Ordinary failure before pointer publication returns no Run, leaves an initially
 editable Plan editable, and preserves the previously active workspace leaf.
@@ -923,6 +931,21 @@ confirmation fails, SCNSim cannot safely infer rollback: it seals the prepared
 Plan, returns no Run, and raises `WorkspaceCommitIndeterminateError` at
 `workspace_commit` with Plan/workspace identity evidence and an explicit
 `plan_sealed=True`, `workspace_may_have_changed=True` state.
+On Windows an issued write-through move combines rename and flush in one native
+result. If that call returns a native failure, logical-pointer publication is
+conservatively indeterminate with the actual error as its cause. Pre-move
+path/write/file-flush errors are not classified this way, and potentially
+published state is retained for its existing recovery owner.
+
+Windows JAX Workspace support uses the same root, request, operation and store
+ownership order, backed by native shared/exclusive byte-range locks on the
+stable lock files. Nonblocking idle contention is distinct from other native
+failures. Regular file paths are `Path` values; readonly SQLite URIs are derived
+with `Path.as_uri()`, while artifact identities retain their normalized logical
+POSIX-relative names. Memory mode does not acquire these storage locks or
+create a Workspace. Windows Julia process supervision remains outside this
+capability. Native filesystem publication and its uncertain tail retain their
+own contract; successful locking does not replace a durability barrier.
 
 Old-leaf deletion is postcommit maintenance and cannot turn a successfully
 committed Run into constructor failure. The active root retains one bounded,

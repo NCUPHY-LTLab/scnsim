@@ -566,6 +566,91 @@ jobs:
           name: ${{ matrix.artifact }}
           path: native-wheelhouse/
 
+  windows-native-wheel:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: windows-2022
+    steps:
+      - name: Preserve Git source bytes in the Windows checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.6"
+          python-version: "3.12"
+      - name: Build actual CP312 Windows AMD64 wheel with strict MSVC arithmetic
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force native-wheelhouse | Out-Null
+          uv build --no-sources --wheel --python 3.12 --verbose --out-dir native-wheelhouse *> native-wheelhouse/BUILD.log
+          if ($LASTEXITCODE -ne 0) { Get-Content native-wheelhouse/BUILD.log; exit $LASTEXITCODE }
+          Get-Content native-wheelhouse/BUILD.log
+          uv run --no-project --python 3.12 python scripts/ci_windows_wheel.py audit --wheelhouse native-wheelhouse --source-cpp src/scnsim/_native/compensated_cpu.cpp --build-log native-wheelhouse/BUILD.log --output native-wheelhouse/NATIVE-RESOURCE-MANIFEST.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-cp312-win_amd64
+          path: |
+            native-wheelhouse/*.whl
+            native-wheelhouse/*.json
+            native-wheelhouse/*.txt
+            native-wheelhouse/*.log
+          if-no-files-found: error
+
+  windows-jax-wheel-smoke:
+    needs: windows-native-wheel
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: windows-2022
+    steps:
+      - name: Preserve Git source bytes in the Windows checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.6"
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-cp312-win_amd64
+          path: native-wheelhouse
+      - name: Install only actual binary wheels in a fresh environment
+        shell: pwsh
+        run: |
+          uv venv --clear --python 3.12 .venv-windows-wheel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $wheel = @(Get-ChildItem native-wheelhouse/*.whl)
+          if ($wheel.Count -ne 1) { throw "Expected exactly one Windows wheel" }
+          uv pip install --python .venv-windows-wheel/Scripts/python.exe --only-binary :all: ($wheel[0].FullName)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Observe installed native kernel and public Workspace and memory JAX usage
+        shell: pwsh
+        run: |
+          $repository = $PWD.Path
+          $python = Join-Path $repository '.venv-windows-wheel/Scripts/python.exe'
+          $script = Join-Path $repository 'scripts/ci_windows_wheel.py'
+          $chapter = Join-Path $repository 'examples/engineer/chapter-02/_01-build.qmd'
+          $wheelhouse = Join-Path $repository 'native-wheelhouse'
+          $output = Join-Path $repository 'windows-observations/PUBLIC-JAX.json'
+          Set-Location $env:RUNNER_TEMP
+          & $python $script smoke --repository $repository --chapter $chapter --wheelhouse $wheelhouse --output $output
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-cp312-jax-observations
+          path: windows-observations/
+          if-no-files-found: error
+
   runtime-preparation-smoke:
     needs: native-platform-wheels
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false

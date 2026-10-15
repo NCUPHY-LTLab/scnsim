@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import sys
 import uuid
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -14,14 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
-if sys.platform in {"linux", "darwin"}:
-    import fcntl
-
 from ..canonical import canonical_json_bytes as _canonical_bytes, sha256_hex as _sha256
 from ..errors import (
     EvidenceIntegrityError,
     ResultUnavailableError,
-    UnsupportedRuntimePlatformError,
     WorkspaceCommitIndeterminateError,
     WorkspacePlanReplacedError,
     WorkspaceVersioningDowngradeForbidden,
@@ -31,6 +26,7 @@ from .documents import (
     replaceable_workspace_document,
     versioned_workspace_document,
 )
+from ._os_io import lock_fd, unlock_fd, replace_path, require_workspace_platform
 from .primitives import _inside, _relative_path
 from .records import (
     AttemptAllocation,
@@ -89,14 +85,6 @@ _OPERATION_STAGING = ".scnsim-workspace-staging"
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
-
-def _require_platform() -> None:
-    if sys.platform not in {"linux", "darwin"}:
-        raise UnsupportedRuntimePlatformError(
-            "SCNSim workspace mutation is supported only on Linux and macOS.",
-            stage="workspace",
-            evidence={"platform": sys.platform},
-        )
 
 def _new_uuid(*, excluding: str | None = None) -> str:
     value = str(uuid.uuid4())
@@ -659,7 +647,7 @@ class WorkspaceBinding:
             final = root / f"{ordinal:06d}"
             if _path_entry_exists(final):
                 raise _integrity("Point checkpoint publication target already exists.")
-            os.replace(stage, final)
+            replace_path(stage, final)
             _fsync_directory(stage.parent)
             _fsync_directory(root)
             entries = [{"ordinal": index, "seal_sha256": item.seal_sha256}
@@ -760,7 +748,7 @@ class WorkspaceBinding:
                 raise _integrity(
                     "Baseline checkpoint publication target appeared during publication."
                 )
-            os.replace(staging, final)
+            replace_path(staging, final)
             _fsync_directory(staging.parent)
             _fsync_directory(request_directory)
             published = _verify_baseline_checkpoint_directory(
@@ -968,7 +956,7 @@ class WorkspaceBinding:
         _fsync_tree(allocation.staging_directory)
         if allocation.final_directory.exists():
             raise _integrity("Attempt promotion would overwrite final evidence.")
-        os.replace(allocation.staging_directory, allocation.final_directory)
+        replace_path(allocation.staging_directory, allocation.final_directory)
         _fsync_directory(allocation.staging_directory.parent)
         _fsync_directory(allocation.final_directory.parent)
         self._verify_attempt(
@@ -1633,7 +1621,7 @@ class WorkspaceBinding:
 
 @contextmanager
 def _workspace_lock(root: Path, *, exclusive: bool) -> Iterator[None]:
-    _require_platform()
+    require_workspace_platform(stage="workspace")
     if root.is_symlink() or not root.is_dir():
         raise _integrity("Workspace root is missing or symlinked.", path=str(root))
     lock_path = root / ".scnsim.lock"
@@ -1644,12 +1632,36 @@ def _workspace_lock(root: Path, *, exclusive: bool) -> Iterator[None]:
         os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
         0o600,
     )
-    with os.fdopen(descriptor, "a+b") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)  # type: ignore[name-defined]
+    acquired = False
+    primary: BaseException | None = None
+    try:
+        lock_fd(descriptor, exclusive=exclusive)
+        acquired = True
+        yield
+    except BaseException as error:
+        primary = error
+        raise
+    finally:
+        cleanup_error: BaseException | None = None
+        if acquired:
+            try:
+                unlock_fd(descriptor)
+            except BaseException as error:
+                if primary is not None:
+                    primary.add_note(f"Workspace lock unlock also failed: {error!r}")
+                else:
+                    cleanup_error = error
         try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)  # type: ignore[name-defined]
+            os.close(descriptor)
+        except BaseException as error:
+            if primary is not None:
+                primary.add_note(f"Workspace lock close also failed: {error!r}")
+            elif cleanup_error is not None:
+                cleanup_error.add_note(f"Workspace lock close also failed: {error!r}")
+            else:
+                cleanup_error = error
+        if primary is None and cleanup_error is not None:
+            raise cleanup_error
 
 def bind_workspace(
     workspace: str | os.PathLike[str],
@@ -1663,7 +1675,7 @@ def bind_workspace(
 ) -> WorkspaceBinding:
     """Bind prepared Plan evidence, then invoke its non-failing seal commit."""
 
-    _require_platform()
+    require_workspace_platform(stage="workspace")
     _valid_sha(plan_sha256)
     if _sha256(plan_bytes) != plan_sha256:
         raise _integrity("Sealed Plan bytes do not match their identity.")
@@ -1910,7 +1922,7 @@ def _create_leaf(
     _atomic_write(staging / "workspace.json", _canonical_bytes(leaf_state))
     _atomic_write(staging / "plan.json", plan_bytes)
     _fsync_tree(staging)
-    os.replace(staging, target)
+    replace_path(staging, target)
     _fsync_directory(parent)
     return WorkspaceBinding(target.parents[1] if target.parent.name == "leaves" else target.parent, target, plan_sha256, leaf_id)
 

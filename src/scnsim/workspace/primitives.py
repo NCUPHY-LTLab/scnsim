@@ -19,7 +19,10 @@ def _relative_path(value: object) -> Path:
     parts = value.split("/")
     if any(part in {"", ".", ".."} for part in parts):
         raise _integrity("Evidence path escapes its attempt root.", path=value)
-    return Path(*parts)
+    path = Path(*parts)
+    if path.drive or path.root:
+        raise _integrity("Evidence path escapes its attempt root.", path=value)
+    return path
 
 def _inside(root: Path, relative: str) -> Path:
     path = root / _relative_path(relative)
