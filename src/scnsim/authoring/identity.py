@@ -12,7 +12,6 @@ from ..canonical import (
     _validation,
     canonical_json_bytes,
     canonical_value,
-    quantity_envelope,
     sha256_hex,
 )
 
@@ -152,64 +151,9 @@ def canonical_parameters_sha256(parameter_record: Mapping[str, object]) -> str:
     })
 
 
-def canonical_resolved_plan_point(
-    point: object, *, plan_sha256: str
-) -> dict[str, object]:
-    """Encode the immutable point handed to the standalone compiler audit."""
+def canonical_diagram_digests(plan: object) -> dict[str, str]:
+    """Return the single authoring diagram authority's canonical facts."""
 
-    snapshot = getattr(point, "snapshot", None)
-    parameter_record = getattr(point, "parameter_record", None)
-    resolved_fields = getattr(point, "resolved_fields", None)
-    if snapshot is None or not isinstance(parameter_record, Mapping) or not isinstance(resolved_fields, Mapping):
-        raise TypeError("point must be a ResolvedPlanPoint")
-    plan = canonical_plan_snapshot(snapshot)
-    expected_plan_sha = sha256_hex(plan)
-    if _sha256(plan_sha256, field="plan_sha256") != expected_plan_sha:
-        raise _validation("resolved point is paired with a different Plan")
-    units_by_field: dict[tuple[tuple[str, ...], str], str] = {}
-    for leaf in _iter_mappings(plan["physical_leaves"], "physical_leaves"):
-        path = _component_path(leaf.get("path"))
-        for field in _iter_mappings(leaf.get("fields"), "physical leaf fields"):
-            identifier = _identifier(field.get("id"), field="field")
-            unit = _as_str(field.get("unit"), "field.unit")
-            units_by_field[(path, identifier)] = unit
-    if set(resolved_fields) != set(units_by_field):
-        raise _validation("resolved physical fields do not exactly cover the Plan")
-
-    from ..units import registry
-
-    rows: list[dict[str, object]] = []
-    for key in sorted(units_by_field):
-        value = resolved_fields[key]
-        unit = units_by_field[key]
-        record = getattr(value, "_record", None)
-        if unit == "rlgc":
-            if not callable(record):
-                raise _validation("resolved RLGC field has no structured record")
-            encoded = record()
-            if not isinstance(encoded, Mapping) or encoded.get("type") != "rlgc":
-                raise _validation("resolved RLGC field is malformed")
-        else:
-            encoded = quantity_envelope(value, si_unit=unit, registry=registry)
-        rows.append({"path": list(key[0]), "field": key[1], "value": encoded})
-    parameters = canonical_parameter_set(parameter_record)
-    return canonical_value({
-        "schema": "scnsim.resolved_plan_point",
-        "schema_version": 2,
-        "plan_sha256": expected_plan_sha,
-        "parameters": parameters,
-        "parameters_sha256": canonical_parameters_sha256(parameters),
-        "resolved_fields": rows,
-    })  # type: ignore[return-value]
-
-
-def canonical_diagram_digests(
-    plan: object, *, representation: str
-) -> dict[str, str]:
-    """Return the representation-tagged diagram facts owned by canonicalization."""
-
-    if representation not in {"authoring", "compiled"}:
-        raise ValueError("representation must be 'authoring' or 'compiled'")
     if isinstance(plan, Mapping):
         raw = dict(plan)
         if raw.get("schema") == "scnsim.plan":
@@ -220,7 +164,7 @@ def canonical_diagram_digests(
     plan_sha256 = sha256_hex(document)
     common = {
         "schema_version": 2,
-        "representation": representation,
+        "representation": "authoring",
         "plan_sha256": plan_sha256,
     }
     connectivity = sha256_hex({
@@ -241,25 +185,6 @@ def canonical_diagram_digests(
         "connectivity_sha256": connectivity,
         "semantic_sha256": semantic,
     }
-
-
-def canonical_expanded_graph_sha256(
-    *,
-    plan_sha256: str,
-    node_order: Sequence[str],
-    resolved_bindings: Sequence[Mapping[str, object]],
-    expanded_branch_rows: Sequence[Mapping[str, object]],
-) -> str:
-    """Bind the exact compiler expansion fields promised to diagram evidence."""
-
-    return sha256_hex({
-        "schema": "scnsim.expanded_graph_identity",
-        "schema_version": 2,
-        "plan_sha256": _sha256(plan_sha256, field="plan_sha256"),
-        "node_order": list(node_order),
-        "resolved_bindings": list(resolved_bindings),
-        "expanded_branch_rows": list(expanded_branch_rows),
-    })
 
 
 def _component_path(value: object) -> tuple[str, ...]:

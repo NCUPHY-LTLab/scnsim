@@ -1,0 +1,70 @@
+---
+title: "Concept Overview"
+subtitle: "Connect the physical circuit to the calculation you want"
+toc-depth: 2
+---
+
+A useful circuit calculation starts with three choices: what circuit exists,
+which network boundary you observe, and which quantity you want from it.
+SCNSim keeps those choices separate so one physical model can answer several
+questions without rebuilding the circuit for each solver or plot.
+
+## From the circuit to its quantities
+
+A **Plan** describes components, connections, ground, Ports and owned subsystems.
+It is the physical circuit. A **View** describes how to observe that circuit:
+which loads to compensate, how to transform coordinates, and which coordinates
+to retain. A **request** selects a response, characteristic quantity,
+sensitivity, sweep or optimization. A **Result** carries the calculated values,
+units and the selected context for plotting, comparison or reporting.
+
+| Your next question | Read next |
+|---|---|
+| Which components exist, and how can I reuse a resonator or network? | [Circuit models, subsystems and reuse](physical-authority-and-reusable-composition.qmd) |
+| What is a coordinate, Port or selected network View? | [Compilation, coordinates and Views](compilation-coordinates-and-network-views.qmd) |
+| What do the phasor sign, current direction and wave reference mean? | [Simulation conventions](simulation-conventions.qmd) |
+| Which calculation and operating point do I need? | [Direct and HB realizations](direct-and-hb-realizations.qmd) |
+| How do units, parameters and scalar objectives fit together? | [Units, parameters and optimization](units-parameters-and-optimization.qmd) |
+| How is a distributed line represented by sections? | [Electrical resolution](electrical-resolution.qmd) |
+| What does Run own, and what can I read after a calculation? | [Requests, execution and Results](requests-execution-and-result-ownership.qmd) |
+
+## Choose the calculation, not a second circuit
+
+For a **response**, request S, Y or Z at the frequencies you supplied. A named
+trace is a projection from that response. For a **characteristic quantity**,
+choose the operator entry, pole, transfer zero or coupling whose physical
+meaning matches the question. A dip in a real-frequency magnitude plot is not
+necessarily a complex transfer zero; the
+[root guide](../guides/roots-and-branch-selection.qmd) explains Hint, explicit
+search and branch tracking.
+
+For **sensitivity**, name the parameters and requested derivative. The units
+follow the physical quantity and parameter; the derivative describes the
+selected local branch and discrete model. For **parameter exploration**, reuse
+the model with an ordered sweep or optimize declared scalar objectives.
+A returned best point is an outcome of that search, not a replacement for the
+Plan's baseline or a different circuit definition.
+
+## Keep the model and observation boundary explicit
+
+A measurement Port adds its declared loading and wave reference. Retaining an
+unported coordinate does not make it a Port. Compensation and coordinate
+transforms belong to the View; they must not silently change component values
+or physical connections. The same selected boundary matters when comparing
+responses, roots, derivatives or objective values.
+
+Distributed-line resolution is also part of the model used for a calculation.
+A declared root-search region can inform the author's resolution choice, but
+it does not automatically remesh a sealed Plan. Compare quantities with their
+actual View, loads, units, operating point and realized resolution in mind.
+
+## Move from concepts to a working example
+
+The [Engineer course](../index.qmd) applies these ideas to complete authored
+circuits. Use the concept pages above when a model choice is unclear, then the
+focused [root](../guides/roots-and-branch-selection.qmd),
+[Sensitivity](../guides/sensitivity.qmd) or
+[Benchmark](../guides/benchmark.qmd) guide for the calculation at hand.
+Detailed public interfaces and numerical definitions remain in the
+[Runtime Contract](../v1-runtime-contract.qmd); the overview is a reading map,
+not a separate set of equations or solver rules.

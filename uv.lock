@@ -1482,7 +1482,7 @@ wheels = [
 
 [[package]]
 name = "scnsim"
-version = "1.0.0.dev34"
+version = "1.0.0b1"
 source = { editable = "." }
 dependencies = [
     { name = "cmaes" },

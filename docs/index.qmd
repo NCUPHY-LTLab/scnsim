@@ -10,17 +10,17 @@ ordinary clean-kernel units; Chapter 8 deliberately uses two independent
 kernels and one shared preserved workspace. The sixteen former Chapter URLs
 now lead to short migration guides, not a second current course.
 
-::: {.callout-warning title="Course candidate · CONVERGING" appearance="simple"}
-The public authoring grammar, Parameter System, and certified diagram scopes
-remain `CONVERGING`; accepted numerical Results keep their existing meanings.
-Generated figures are source-bound evidence for exact checkpoints, not proof
-of course acceptance, release, or every historical cell. The website executes
-no kernels or solvers.
-:::
+The course's existing figures are the recorded outputs of their original
+Chapter calculations. The current concept and API guides explain how to use
+the package; reading or rendering this course does not recalculate those figures.
+Start with the [Concept overview](concepts/index.qmd) if you want a map of the
+model, View and quantity choices before beginning a Chapter.
 
 Before interpreting a complex response, read [Simulation conventions](concepts/simulation-conventions.qmd)
 for phasor signs, current directions, wave references, selected loads, and
 linewidth units.
+For a root or notch request, use the current [roots and branch-selection guide](guides/roots-and-branch-selection.qmd)
+to distinguish Hint, explicit discovery, tracked branches and local derivatives.
 
 ## Chapter 1 — Coupled grounded LC
 
@@ -134,9 +134,9 @@ readout, the coupling capacitor, and two terminated Ports.
 :::: {.card .course-card}
 ::: {.card-body}
 ### [Lesson 2 — Diagram evidence and limitation](../examples/engineer/chapter-03/02-diagram.qmd) {.course-card-title .unlisted}
-Read the complete Plan's typed Default-layout failure honestly, then inspect
-two separately declared subcircuit illustrations without treating them as a
-projection of that failed Plan.
+Declare the complete Plan's manual layout and inspect its correspondence.
+Distinguish the earlier layout outcome and separately declared subcircuit
+illustrations from the complete Plan's current source recipe.
 :::
 ::::
 
@@ -231,7 +231,7 @@ and whole-C-matrix ×170/175 points on one three-frequency Direct request.
 
 - [Lesson 1 — Ordered RLGC](../examples/engineer/chapter-07/01-rlgc.qmd)
 - [Lesson 2 — Four signal Ports](../examples/engineer/chapter-07/02-ports.qmd)
-- [Lesson 3 — Authoring and compiled diagrams](../examples/engineer/chapter-07/03-diagrams.qmd)
+- [Lesson 3 — Declare the authoring diagram](../examples/engineer/chapter-07/03-diagrams.qmd)
 - [Lesson 4 — Parameter points](../examples/engineer/chapter-07/04-parameter-points.qmd)
 - [Complete Chapter source](../examples/engineer/chapter-07/chapter.qmd) and
   [zero-output Notebook](../examples/engineer/chapter-07/chapter.ipynb)
@@ -240,9 +240,9 @@ and whole-C-matrix ×170/175 points on one three-frequency Direct request.
   [zero-output Notebook](../examples/engineer/chapter-07/05-position-electrical-resolution.ipynb).
   It does not change the original four-lesson aggregate.
 
-The current deterministic renderer reports a typed fixed-connector collision
-for the exact four-Port authoring layout. That presentation limitation does not
-replace the model or its complete sixteen-channel Direct Result.
+The retained original four-Port authoring export records a typed
+fixed-connector layout failure. It does not replace the model or its complete
+sixteen-channel Direct Result, and is not an execution of the manual successor.
 
 ## Chapter 8 — Report and resolve
 
@@ -261,11 +261,11 @@ the same preserved workspace, and call only `resolve()` for the root.
 |---|---|---|
 | 1. Coupled grounded LC | Build, diagram, S11, loaded root, selected C | Current five-Lesson Chapter |
 | 2. Sweep and Optimization | Inputs, bindings, points, spaces, and established Optimization workflow | Current four-Lesson Chapter |
-| 3. CPW feedline/readout S21 | Ordered two-section CPW, coupled readout, two-Port response | Current three-Lesson Chapter; complete Default diagram reports a typed fixed-layout collision |
+| 3. CPW feedline/readout S21 | Ordered two-section CPW, coupled readout, two-Port response | Current three-Lesson Chapter; retained original diagram outcome is a typed fixed-layout failure |
 | 4. Four-Port capstone | Original physical Plan and PTC core, then optional transform, quantities, and pump-off HB | Current six-Lesson Chapter |
 | 5. Library | Create, publish, instantiate, and reuse a Composite | Current three-Lesson Chapter |
-| 6. Diagram customization | Default completion, bounded hints, composition, and A/B review | Current four-Lesson Chapter |
-| 7. MTL | Ordered multi-conductor RLGC and finite-pi compiled evidence | Current four-Lesson Chapter; exact four-Port authoring layout reports a typed fixed-layout collision |
+| 6. Diagram customization | Explicit layout declarations and actual-scene A/B review | Current four-Lesson Chapter |
+| 7. MTL | Ordered multi-conductor RLGC, explicit authoring layout and historical finite-pi evidence | Current four-Lesson Chapter; original diagram outcomes retain their execution identity |
 | 8. Report and resolve | Exact requests, Results, workspaces, reports, and restart-safe resolution | Current two-Lesson, two-kernel Chapter |
 
 The [durable migration map](implementation/engineer-course-migration-map.qmd)

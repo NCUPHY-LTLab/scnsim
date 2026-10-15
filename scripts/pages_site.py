@@ -20,11 +20,11 @@ SITE = "https://orpenstrike.github.io/scnsim/"
 PREFIX = "/scnsim/"
 REPO = "https://github.com/OrPenStrike/scnsim"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
-RELEASE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?P<alpha>a\d+)?\Z")
+RELEASE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:(?P<alpha>a\d+)|(?P<beta>b\d+))?\Z")
 DEVELOPMENT = re.compile(r"(?P<line>\d+\.\d+\.\d+) dev\Z")
-DEVELOPMENT_SOURCE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:a\d+|\.dev\d+)?\Z")
-# The 25 unmodified files in arfiligol/askr@06cebff4da5e842cac15b73daa27d9f1825a14be.
-ASKR_SHA256 = "0598d94358bb0bf25e43c14c6060b7c068265ef06c4870bc837837c3437690df"
+DEVELOPMENT_SOURCE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:a\d+|b\d+|\.dev\d+)?\Z")
+# The 35 unmodified files in arfiligol/askr@d5434b3c24a9fd146aca85a0c40b1ca93064d7da (v0.8.0).
+ASKR_SHA256 = "df2a65fc18cebdd9271d7a8ff7026a49a724688c8d69156676d4ff012bbb27ca"
 
 
 class References(HTMLParser):
@@ -69,7 +69,8 @@ def _catalog(path: Path) -> dict[str, object]:
             line, stage = pinned_dev["line"], "development"
             valid = set(item) == {"label", "root", "commit"} and item["root"] == PREFIX + line + "-dev/"
         elif published:
-            line, stage = published["line"], "alpha" if published["alpha"] else "final"
+            line = published["line"]
+            stage = "alpha" if published["alpha"] else "beta" if published["beta"] else "final"
             valid = set(item) == {"label", "root", "tag", "commit"} and item["root"] == PREFIX + item["label"] + "/" and item["tag"] == "v" + item["label"]
         else:
             raise ValueError("Pages pinned version label is invalid")
@@ -96,10 +97,13 @@ def _slug(entry: dict[str, str]) -> str:
     return entry["root"].removeprefix(PREFIX).rstrip("/")
 
 
-def _manifest(catalog: dict[str, object]) -> bytes:
+def _manifest(catalog: dict[str, object], current_slug: str) -> bytes:
     versions = []
     for entry in _entries(catalog):
-        row: dict[str, object] = {"label": entry["label"], "root": entry["root"]}
+        # Askr resolves roots from this version directory, not the origin.
+        slug = _slug(entry)
+        root = "./" if slug == current_slug else f"../{slug}/"
+        row: dict[str, object] = {"label": entry["label"], "root": root}
         versions.append(row)
     return (json.dumps({"mode": "inline", "versions": versions}, indent=2) + "\n").encode()
 
@@ -118,7 +122,7 @@ def _vendor_digest(root: Path) -> str:
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in root.rglob("*") if path.is_file()
     }
-    if len(rows) != 25:
+    if len(rows) != 35:
         raise ValueError("Pages Askr vendor does not have the reviewed file set")
     return hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -143,13 +147,13 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
     if profile.exists():
         raise ValueError("Pages render profile already exists in exported source")
     if _vendor_digest(vendor) != ASKR_SHA256:
-        raise ValueError("Pages presentation vendor differs from Askr 0.4.0")
+        raise ValueError("Pages presentation vendor differs from Askr 0.8.0")
     destination = source / "_extensions/arfiligol/askr"
     if destination.exists():
         _regular_tree(destination)
     shutil.copytree(vendor, destination, dirs_exist_ok=True)
     if _vendor_digest(destination) != ASKR_SHA256:
-        raise ValueError("Pages presentation overlay is not exact Askr 0.4.0")
+        raise ValueError("Pages presentation overlay is not exact Askr 0.8.0")
     site_url = SITE + _slug(entry) + "/"
     profile.write_text(
         "website:\n"
@@ -276,7 +280,6 @@ def _assemble(catalog: dict[str, object], template: Path, sources: Path, develop
     for entry in entries:
         source_sha = develop_sha if entry["kind"] == "development" else entry["commit"]
         sites[_slug(entry)] = _inspect(sources / _slug(entry), entry, source_sha, presentation_sha)
-    manifest = _manifest(catalog)
     root_html = template.read_text(encoding="utf-8")
     root_html = root_html.replace("{{DEV_SLUG}}", escape(_slug(entries[0]))).replace("{{DEV_LABEL}}", escape(entries[0]["label"]))
     if "{{" in root_html:
@@ -286,7 +289,7 @@ def _assemble(catalog: dict[str, object], template: Path, sources: Path, develop
     try:
         for slug, site in sites.items():
             shutil.copytree(site, temporary / slug)
-            (temporary / slug / "askr-versions.json").write_bytes(manifest)
+            (temporary / slug / "askr-versions.json").write_bytes(_manifest(catalog, slug))
         (temporary / "index.html").write_text(root_html, encoding="utf-8")
         not_found = _missing_page(catalog)
         (temporary / "404.html").write_text(not_found, encoding="utf-8")

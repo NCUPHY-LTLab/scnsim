@@ -93,6 +93,8 @@ four_arm_cross.show()
 
 ![One explicit Cross serving the four distinct central attachments.](../figures/06-four-arm-cross.svg){#fig-ch6-four-arm-cross .lightbox fig-alt="Four capacitor arms attached to all four arms of one explicitly requested Cross."}
 
+{{< askr-image-view target="fig-ch6-four-arm-cross" label="Inspect circuit" >}}
+
 [Open the SVG](../figures/06-four-arm-cross.svg)
 
 :::

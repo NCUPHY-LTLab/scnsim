@@ -650,7 +650,7 @@ optimization evidence, checkpoint/resume, and ReportPanel composition remain
 acceptance of those reopened ownership scopes.
 
 The public authoring grammar, recursive structured ownership, its Plan-identity
-integration, and certified authoring/compiled diagrams are reopened as one
+integration, and certified caller-declared diagrams are reopened as one
 `CONVERGING` target. This is not presentation-only: it changes how the
 Plan explicitly declares structure while preserving the accepted physical and
 numerical meanings above. Its implementation baseline is integrated; the
@@ -724,7 +724,7 @@ stated above:
 | Review question | Detailed section |
 |---|---|
 | Which physical factories, parameters, RLGC, Josephson, SQUID, and coupling models are retained? | [Component Authoring Contract](component-authoring.qmd) |
-| How does the target declare structure and certify authoring/compiled diagrams? | [Structured Circuit Authoring and Certified Diagrams](contracts/automatic-semantic-circuit-diagram-layout.qmd) (`CONVERGING`; integrated implementation baseline) |
+| How does the target declare structure and certify manual diagrams? | [Structured Circuit Authoring and Certified Diagrams](contracts/automatic-semantic-circuit-diagram-layout.qmd) (`CONVERGING`; integrated implementation baseline) |
 | How does the target define inputs, bind them to physical fields, request spaces, and inspect sweep Results? | [Parameter System, Sweeps, and Bound Results](contracts/parameter-system.qmd) (`CONVERGING`; integrated implementation baseline) |
 | Who owns the Plan, lazy Ref graph, execution, and Results? | [Runtime ownership model](#runtime-ownership-model) |
 | Which calls execute, reuse, or only resolve evidence? | [Run operations and durable results](#run-operations-and-durable-results) |
@@ -2415,8 +2415,10 @@ variant key binds shape/dtype and the owned Error PyTree metadata, excluding
 physical point and loss coefficient values. Compile-only warmup lists this
 consumer as lazy until the actual producer tree is known; it does not solve a
 root or claim that a normal raw variant warmed the completed consumer.
-Region extent informs authored mesh planning;
-explicit fixed meshes retain their limitations without a new adequacy Gate.
+The caller can use region extent when authoring mesh resolution. Recording
+search extent and mesh strategy does not automatically remesh a sealed Plan
+or override its declared resolution. Explicit fixed meshes retain their
+limitations without a new adequacy Gate.
 
 `PreparedFunction` raw callables remain array-only local branch controls. Their
 metadata records the declared search scope, but raw external AD does not run
@@ -3607,23 +3609,23 @@ An invalid suffix raises `ValueError`, a missing parent raises
 filesystem failures remain their ordinary `OSError` subtype. Report export is
 derived presentation and never creates an analysis attempt or receipt.
 
-## Authoring and compiled schematics
+## Caller-declared schematics {#authoring-and-compiled-schematics}
 
-Authoring and compiled schematics are read-only Plan projections rather than
-reduced Refs, solver results, or alternate topology authorities. Their
-target product contract is
-[Structured Circuit Authoring and Certified Diagrams](contracts/automatic-semantic-circuit-diagram-layout.qmd).
-It defines the target structured declarations, `CircuitDiagramSpec`, directly
-constructible `SchematicLayout`, recursive native expansion,
-`CircuitDiagramAudit`, Plan/compiler/expanded/presentation identities,
-independent visible electrical/ownership reconstruction, separately verified
-source rows, provenance, and code-free review packet.
+Manual schematics are read-only Plan projections rather than reduced Refs,
+solver Results or alternate topology authorities. The sole
+[diagram contract](contracts/automatic-semantic-circuit-diagram-layout.qmd)
+owns preparation, drawing units/body spans, complete caller geometry,
+declaration/show ownership and actual-scene correspondence. Automatic compiled
+drawing and the public representation selector are retired; mathematical
+compilation and historical compiled exports are unaffected.
 
-The layout target includes a pure-presentation `tap_order` mapping for complete
-permutations of explicitly named taps on an authored bus. It does not publish
-private electrical state, order implicit direct-bus contacts, or alter a Plan,
-View, request, or Result. Exact validation and failure behavior remain solely
-in the linked structured-authoring contract.
+Preparation captures one immutable Plan/point inventory and measured contacts.
+`render_schematic` requires complete layout and returns a detached certified
+result. `declare_schematic` delegates that same render/certify/freeze and
+atomically associates one completed drawing at its captured point with the
+Plan. `show_schematic()` presents that already declared result; missing or
+stale binding fails clearly without measurement, rerendering or solver work.
+Layout units and spans are presentation-only, never physical TL parameters.
 
 The authoring target's direct-connection surface is one N-endpoint
 `link(endpoints=(...))` over eligible buses, taps, and pins. External grounding
@@ -3632,10 +3634,11 @@ has the separate `ground_pins(pins=(...))` operation; intrinsic branches retain
 Those forms share one final canonical reference without erasing owner-local
 public boundaries or local diagram evidence.
 
-That scope is `CONVERGING` with an integrated implementation baseline. The
+The manual successor remains `CONVERGING` and under implementation. The
 [central evidence status](contracts/index.qmd#implementation-evidence-status)
-limits current validation claims. Superseded flat authoring and catalog-hint
-surfaces have no compatibility path.
+separates historical rendering evidence from this candidate. Superseded flat
+authoring, catalog-hint and compiled automatic diagram producers have no
+compatibility path.
 
 The shared boundary remains narrow: schematic rendering does not seal or mutate
 a Plan, execute an analysis, write a workspace, or change physical, request, or
@@ -3651,21 +3654,23 @@ ASCDLS does not create, select, or mutate a `NetworkViewRef`, while
 `CircuitRun` does not infer physical ownership or assembly intent from a View
 or numerical Result.
 
-All structured grammar, automatic and handle-based local layout, native
+All structured grammar, caller-declared manual geometry, native
 Subsystem/Composite expansion, Port and ground projection, certified digests,
 independent visible A/B reconstruction, separately verified source rows,
 provenance, and diagram failure behavior belong only to the linked contract. A
 successful current diagram certifies only its declared projection and exact
 point, not a numerical calculation or whole-course acceptance.
 
-The target failure boundary has two explicit preflight stages. Invalid hints,
-unplaceable required marks, collisions, illegal obstacle crossings, broken
-conductive paths, and ambiguous crossing grammar raise
+The target failure boundary has two explicit stages. Missing/stale geometry,
+wrong actual pin contact, missing required bodies/wires, broken conductive paths
+and ambiguous electrical crossing incidence raise
 `SCNSimValidationError(stage="schematic_layout")`. A mismatch between the
 independently expected and reconstructed electrical or semantic manifest raises
 `SCNSimValidationError(stage="schematic_audit")`. Either failure returns no
 `CircuitDiagramResult` and allocates no runtime attempt, receipt, artifact, or
-workspace entry.
+workspace entry. Text/body overlap and aesthetic spacing are caller-owned and
+do not independently block a faithful drawing. No automatic avoidance or repair
+substitutes for the complete caller layout.
 
 ## Failure and evidence contract
 
@@ -3735,7 +3740,7 @@ SCNSim fails closed for:
 - an unsupported component expansion or missing Direct/HB realization;
 - an incomplete/invalid Plan requested for schematic rendering, an invalid
   diagram representation/theme, a `schematic_layout` preflight failure, a
-  `schematic_audit` manifest mismatch, or an unauditable compiled expansion;
+  `schematic_audit` actual-scene correspondence mismatch;
 - a bare physical number, unknown unit, foreign registry, or dimensionality
   mismatch;
 - a current-runtime `ParameterSet` containing unknown refs, non-finite values,

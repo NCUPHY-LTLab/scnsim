@@ -245,7 +245,7 @@ a named contact on that net, a `PinRef` is a native terminal or an exposed
 parent-facing boundary, and a `CoordinateRef` selects an electrical coordinate
 for analysis. A public pin named `tap` is still a `PinRef`. Tap IDs and creation
 order never imply graphical direction; the structured diagram contract owns
-the optional `SchematicLayout.tap_order` presentation hint.
+the caller-declared layout and actual contact geometry.
 
 Only the root `CircuitPlan` adds logical Ports. `add_port()` accepts a root
 `BusRef` or `TapRef`, retains the existing node-to-ground voltage/current
@@ -1004,7 +1004,7 @@ incompatible collection of individually plausible pairwise coefficients.
 
 The Plan owns authoring and compiler-expanded inspection projections, but
 neither projection is another circuit definition. The target structure,
-automatic and handle-based layout, independent visible electrical/ownership
+caller-declared complete geometry, independent visible electrical/ownership
 reconstruction, separately verified source rows, snapshot provenance, and
 code-free review packet belong to
 [Structured Circuit Authoring and Certified Diagrams](contracts/automatic-semantic-circuit-diagram-layout.qmd).
@@ -1087,8 +1087,8 @@ Plan seal or deterministic preflight fails before backend execution for:
   Quantity or has `abs(k) >= 1`, or a complete bound inductance matrix that is
   not reciprocal positive definite.
 
-After the physical Plan input is valid, diagram-specific representation,
-Theme, hint, placement, routing, and certification failures belong exclusively
+After the physical Plan input is valid, diagram-specific unit/span,
+Theme, placement, routing, and certification failures belong exclusively
 to the linked layout contract. They fail as
 `SCNSimValidationError(stage="schematic_layout")` or
 `SCNSimValidationError(stage="schematic_audit")` and do not create runtime
@@ -1121,6 +1121,7 @@ declared branch permits it; negative or non-finite values are not.
   upstream validation limitation described above.
 - `LinearizedFloatingQubit` and `ReflectiveJPA` are not V1 built-ins; consumers
   build those circuits from the declared generic components.
-- Authoring and compiled schematic rendering remain projections of the Plan,
-  never topology or backend authority. Implementation evidence does not confer
+- Caller-declared schematic rendering remains a projection of the Plan,
+  never topology or backend authority. Automatic compiled drawing is retired;
+  the mathematical compiler and historical exports remain unchanged. Implementation evidence does not confer
   Human acceptance on certified structured projection.

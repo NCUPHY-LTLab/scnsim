@@ -29,10 +29,14 @@ WRAPPERS = tuple(CHAPTER / name for name in ("01-rlgc.qmd", "02-ports.qmd", "03-
 EXPECTED_CELL_IDS = (
     "ch7-define-parameters-and-rlgc", "ch7-add-native-line", "ch7-bind-signal-pins",
     "ch7-add-four-signal-ports", "ch7-render-authoring", "ch7-show-authoring-audit",
-    "ch7-render-compiled", "ch7-define-three-points", "ch7-prepare-complete-s-request",
+    "ch7-define-three-points", "ch7-prepare-complete-s-request",
     "ch7-solve-three-points", "ch7-show-named-reflection-examples",
 )
-BASE_ARTIFACT_NAMES = ("07-n2-authoring.md", "07-n2-compiled.md", "07-response-points.csv", "07-response-points.md")
+BASE_ARTIFACT_NAMES = ("07-n2-authoring.md", "07-response-points.csv", "07-response-points.md")
+# Read-only historical manifest consumers retain exact old export names.
+# No current cell/namespace renders a compiled diagram or reuses its outcome.
+HISTORICAL_BASE_ARTIFACT_NAMES = ("07-n2-authoring.md", "07-n2-compiled.md", "07-response-points.csv", "07-response-points.md")
+RETIRED_COMPILED_ARTIFACT_NAMES = ("07-n2-compiled.md", "07-n2-compiled.svg")
 DIAGRAM_ARTIFACT_NAMES = {
     "authoring": "07-n2-authoring.svg",
     "compiled": "07-n2-compiled.svg",
@@ -41,8 +45,8 @@ REFLECTION_ARTIFACT_NAMES = (
     "07-baseline-reflection.svg",
     "07-length-1p8-mm-reflection.svg", "07-capacitance-times-170-over-175-reflection.svg",
 )
-CONDITIONAL_ARTIFACT_NAMES = (*DIAGRAM_ARTIFACT_NAMES.values(), *REFLECTION_ARTIFACT_NAMES)
-OWNED_ARTIFACT_NAMES = (*BASE_ARTIFACT_NAMES, *CONDITIONAL_ARTIFACT_NAMES)
+CONDITIONAL_ARTIFACT_NAMES = (DIAGRAM_ARTIFACT_NAMES["authoring"], *REFLECTION_ARTIFACT_NAMES)
+OWNED_ARTIFACT_NAMES = (*BASE_ARTIFACT_NAMES, *CONDITIONAL_ARTIFACT_NAMES, *RETIRED_COMPILED_ARTIFACT_NAMES)
 _DC = "{http://purl.org/dc/elements/1.1/}description"
 
 
@@ -166,7 +170,7 @@ def _write_points(namespace: dict[str, object], output: Path) -> tuple[list[dict
 
 def generate(workspace: Path) -> None:
     namespace = _execute(_parse_cells(), workspace); output = workspace / "artifacts"; output.mkdir(); certificates = {}; observations = {}
-    for variable, stem, label in (("authoring", "07-n2-authoring", "N=2 authoring diagram"), ("compiled", "07-n2-compiled", "N=2 compiled diagram")):
+    for variable, stem, label in (("authoring", "07-n2-authoring", "N=2 authoring diagram"),):
         observation, names, certificate = _write_diagram_outcome(namespace, output, variable, stem, label); observations[variable] = observation
         if certificate is not None: certificates[names[0]] = certificate
     point_observations, point_names = _write_points(namespace, output); observations["parameter_points"] = point_observations
@@ -181,7 +185,9 @@ def generate(workspace: Path) -> None:
     for stale in CONDITIONAL_ARTIFACT_NAMES:
         if stale not in names and (FIGURES / stale).exists(): (FIGURES / stale).unlink()
     for name in names: shutil.copy2(output / name, FIGURES / name)
-    if _inventory(FIGURES) != set(names): raise RuntimeError("Chapter 7 published artifact inventory is not exact")
+    # Preserve only these named retired exports, outside the new execution.
+    retained = _inventory(FIGURES) & set(RETIRED_COMPILED_ARTIFACT_NAMES)
+    if _inventory(FIGURES) != set(names) | retained: raise RuntimeError("Chapter 7 published artifact inventory is not exact")
     text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"; MANIFEST.write_text(text, encoding="utf-8"); receipt = workspace / "generation-receipt.json"; receipt.write_text(text, encoding="utf-8"); print(receipt)
 
 
@@ -189,8 +195,19 @@ def check() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     check_publication_binding(manifest, _binding())
     observations = manifest.get("observations", {})
+    if set(observations) == {"authoring", "compiled", "parameter_points"}:
+        # Original closed historical manifest: retain its strict IDs/shape.
+        base_names = HISTORICAL_BASE_ARTIFACT_NAMES
+        diagram_items = tuple(DIAGRAM_ARTIFACT_NAMES.items())
+        retained = set()
+    elif set(observations) == {"authoring", "parameter_points"}:
+        base_names = BASE_ARTIFACT_NAMES
+        diagram_items = (("authoring", DIAGRAM_ARTIFACT_NAMES["authoring"]),)
+        retained = _inventory(FIGURES) & set(RETIRED_COMPILED_ARTIFACT_NAMES)
+    else:
+        raise RuntimeError("Chapter 7 observation inventory is malformed")
     diagram_names = []
-    for key, name in DIAGRAM_ARTIFACT_NAMES.items():
+    for key, name in diagram_items:
         observation = observations.get(key, {})
         status = observation.get("status")
         if status == "success":
@@ -201,10 +218,10 @@ def check() -> None:
     expected_labels = ("baseline", "length_1p8_mm", "capacitance_times_170_over_175")
     if not isinstance(point_observations, list) or tuple(row.get("label") for row in point_observations) != expected_labels or any(row.get("status") != "success" for row in point_observations):
         raise RuntimeError("Chapter 7 successful reflection outcomes are malformed")
-    expected_names = (*BASE_ARTIFACT_NAMES, *diagram_names, *REFLECTION_ARTIFACT_NAMES)
+    expected_names = (*base_names, *diagram_names, *REFLECTION_ARTIFACT_NAMES)
     expected = manifest.get("artifacts")
     if not isinstance(expected, dict) or set(expected) != set(expected_names): raise RuntimeError("Chapter 7 artifact inventory is malformed")
-    if _inventory(FIGURES) != set(expected_names): raise RuntimeError("Chapter 7 published artifact inventory is not exact")
+    if _inventory(FIGURES) != set(expected_names) | retained: raise RuntimeError("Chapter 7 published artifact inventory is not exact")
     if expected != {name: _hash(FIGURES / name) for name in expected_names}: raise RuntimeError("Chapter 7 artifacts are stale")
     certificates = manifest.get("certificates")
     if not isinstance(certificates, dict) or set(certificates) != set(diagram_names): raise RuntimeError("Chapter 7 certificate inventory is malformed")

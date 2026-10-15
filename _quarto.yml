@@ -65,6 +65,7 @@ project:
     - examples/tutorials/14_transform_retain.qmd
     - examples/tutorials/15_prepare_hb.qmd
     - examples/tutorials/16_compare_direct_hb.qmd
+    - docs/concepts/index.qmd
     - docs/concepts/simulation-conventions.qmd
     - docs/concepts/physical-authority-and-reusable-composition.qmd
     - docs/concepts/compilation-coordinates-and-network-views.qmd
@@ -73,6 +74,8 @@ project:
     - docs/concepts/units-parameters-and-optimization.qmd
     - docs/concepts/electrical-resolution.qmd
     - docs/contracts/index.qmd
+    - docs/contracts/implementation-evidence-history.qmd
+    - docs/implementation/index.qmd
     - docs/contracts/circuit-plan-assembly.qmd
     - docs/contracts/automatic-semantic-circuit-diagram-layout.qmd
     - docs/contracts/parameter-system.qmd
@@ -80,6 +83,7 @@ project:
     - docs/v1-runtime-contract.qmd
     - docs/guides/benchmark.qmd
     - docs/guides/sensitivity.qmd
+    - docs/guides/roots-and-branch-selection.qmd
     - docs/implementation/benchmark-and-backends.qmd
     - docs/implementation/system-architecture.qmd
     - docs/implementation/plan-sealing-and-identity.qmd
@@ -104,7 +108,7 @@ website:
   title: "SCNSim"
   description: "Superconducting Circuit Network Simulation"
   page-navigation: true
-  reader-mode: true
+  reader-mode: false
   search: true
   repo-url: "https://github.com/OrPenStrike/scnsim"
   repo-actions: [source, issue]
@@ -115,7 +119,7 @@ website:
       - text: "Tutorial"
         href: docs/index.qmd
       - text: "Concept"
-        href: docs/concepts/simulation-conventions.qmd
+        href: docs/concepts/index.qmd
       - text: "Contract"
         href: docs/contracts/index.qmd
   sidebar:
@@ -236,6 +240,8 @@ website:
       style: "floating"
       collapse-level: 1
       contents:
+        - text: "Concept overview"
+          href: docs/concepts/index.qmd
         - text: "Simulation conventions"
           href: docs/concepts/simulation-conventions.qmd
         - text: "Physical authority and composition"
@@ -263,21 +269,23 @@ website:
               href: docs/component-authoring.qmd
             - text: "CircuitPlan Assembly"
               href: docs/contracts/circuit-plan-assembly.qmd
-            - text: "Automatic Semantic Circuit Diagram Layout"
+            - text: "Manual circuit diagrams"
               href: docs/contracts/automatic-semantic-circuit-diagram-layout.qmd
             - text: "Parameter System"
               href: docs/contracts/parameter-system.qmd
+            - text: "Roots and branch selection"
+              href: docs/guides/roots-and-branch-selection.qmd
             - text: "Sensitivity guide"
               href: docs/guides/sensitivity.qmd
             - text: "CPU Benchmark guide"
               href: docs/guides/benchmark.qmd
             - text: "V1 Runtime Contract"
               href: docs/v1-runtime-contract.qmd
-        - section: "Implementation design"
+        - text: "Implementation overview"
+          href: docs/implementation/index.qmd
+        - section: "Ownership and identity"
           contents:
-            - text: "Benchmark and independent backends"
-              href: docs/implementation/benchmark-and-backends.qmd
-            - text: "System architecture and ownership"
+            - text: "System architecture"
               href: docs/implementation/system-architecture.qmd
             - text: "Plan sealing and identity"
               href: docs/implementation/plan-sealing-and-identity.qmd
@@ -285,32 +293,44 @@ website:
               href: docs/implementation/canonical-identities-and-schemas.qmd
             - text: "Catalog and runtime identity"
               href: docs/implementation/catalog-and-runtime-identity.qmd
-            - text: "Julia runtime preparation"
-              href: docs/implementation/julia-runtime-preparation.qmd
-            - text: "Python–Julia process protocol"
-              href: docs/implementation/python-julia-protocol.qmd
-            - text: "Workspace, attempts, and artifacts"
-              href: docs/implementation/workspace-attempts-and-artifacts.qmd
-            - text: "Composite snapshots and recursive expansion"
+        - section: "Physical model and selected network"
+          contents:
+            - text: "Composite snapshots"
               href: docs/implementation/composite-snapshots-and-recursive-expansion.qmd
-            - text: "Compilation, Ports, and views"
+            - text: "Compilation, Ports, and Views"
               href: docs/implementation/compilation-ports-and-views.qmd
-            - text: "RLGC, Q2D, and pi expansion"
+            - text: "RLGC and pi expansion"
               href: docs/implementation/rlgc-q2d-and-pi-expansion.qmd
-            - text: "View lineage and selected networks"
+            - text: "View lineage"
               href: docs/implementation/view-lineage-and-selected-networks.qmd
-            - text: "Diagonal-root numerical procedure"
+        - section: "Numerical procedures"
+          contents:
+            - text: "Diagonal-root procedure"
               href: docs/implementation/diagonal-root-numerical-procedure.qmd
-            - text: "Direct poles, zeros, couplings, and operators"
+            - text: "Poles, zeros, couplings, and operators"
               href: docs/implementation/direct-poles-zeros-and-operators.qmd
             - text: "Direct quantities and optimization"
               href: docs/implementation/direct-quantities-and-optimization.qmd
-            - text: "HB realization and outcomes"
+            - text: "HB realization"
               href: docs/implementation/hb-realization-and-outcomes.qmd
+        - section: "Execution, storage, and presentation"
+          contents:
+            - text: "Benchmark and backends"
+              href: docs/implementation/benchmark-and-backends.qmd
+            - text: "Workspace and artifacts"
+              href: docs/implementation/workspace-attempts-and-artifacts.qmd
             - text: "Results, reports, and diagrams"
               href: docs/implementation/results-reports-and-diagrams.qmd
+            - text: "Julia preparation"
+              href: docs/implementation/julia-runtime-preparation.qmd
+            - text: "Python–Julia protocol"
+              href: docs/implementation/python-julia-protocol.qmd
             - text: "External inputs and delivery"
               href: docs/implementation/external-inputs-and-delivery.qmd
+            - text: "Engineer course map"
+              href: docs/implementation/engineer-course-migration-map.qmd
+        - text: "Historical evidence record"
+          href: docs/contracts/implementation-evidence-history.qmd
 
 format:
   askr-html:

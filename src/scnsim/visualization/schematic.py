@@ -1,7 +1,8 @@
 """Immutable explicit diagram declarations and their lossless capture binding.
 
 Public refs address captured drawing inventory, never live electrical handles.
-Preparation/realization are diagram-owned consumers; this module owns records,
+Drawing units and body spans are presentation-only. Preparation/realization
+are diagram-owned consumers; this module owns records,
 layout serialization, and the Plan facade without any automatic geometry path.
 """
 from __future__ import annotations
@@ -10,6 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
 import json
+from math import isfinite
 from types import MappingProxyType
 from threading import RLock
 
@@ -62,12 +64,54 @@ class DiagramRef:
 
 
 @dataclass(frozen=True, slots=True)
+class DiagramUnit:
+    """Display-coordinate scale; never an electrical or material SI unit."""
+    name: str
+    units_per_u: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name:
+            raise ValueError("drawing unit requires a name")
+        value = float(self.units_per_u)
+        if not isfinite(value) or value <= 0:
+            raise ValueError("drawing units per U must be positive")
+        object.__setattr__(self, "units_per_u", value)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DiagramBoxSize:
+    """Exact CPW drawing rectangle axes; omitted axes retain content fitting."""
+    width: float | None = None
+    height: float | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("width", "height"):
+            value = getattr(self, name)
+            if value is not None:
+                value = float(value)
+                if not isfinite(value) or value <= 0:
+                    raise ValueError("drawing box dimensions must be positive")
+                object.__setattr__(self, name, value)
+
+
+@dataclass(frozen=True, slots=True)
 class DiagramPose:
     origin: tuple[float, float]
     rotation: int = 0
+    span: float | None = field(default=None, kw_only=True)
+    box: DiagramBoxSize | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "origin", _point(self.origin))
+        if self.box is not None and not isinstance(self.box, DiagramBoxSize):
+            raise TypeError("pose box must be DiagramBoxSize or None")
+        if self.span is not None and self.box is not None and self.box.width is not None:
+            raise ValueError("span and box.width are alternative longitudinal specifications")
+        if self.span is not None:
+            span = float(self.span)
+            if not isfinite(span) or span <= 0:
+                raise ValueError("drawing body span must be positive")
+            object.__setattr__(self, "span", span)
         if not isinstance(self.rotation, int) or isinstance(self.rotation, bool) or self.rotation not in (0, 90, 180, 270):
             raise ValueError("diagram pose rotation must be 0, 90, 180 or 270")
 
@@ -303,6 +347,16 @@ class SchematicPreparation:
     def refs(self) -> tuple[DiagramRef, ...]:
         return tuple(dict.fromkeys(_refs((self.root, self.scopes, self.native))))
 
+    @property
+    def metrics(self):
+        """One drawing-unit authority for measurement and realization."""
+        from .diagram.metrics import metrics_for_unit
+        return metrics_for_unit(self._spec.drawing_unit)
+
+    def measure_body(self, target: DiagramRef, *, rotation: int = 0, span: float | None = None, box: DiagramBoxSize | None = None) -> MeasuredFragment:
+        from .diagram.preparation import measure_body
+        return measure_body(self, target, rotation=rotation, span=span, box=box)
+
     def measure_scope(self, scope_ref: DiagramRef, scope_layout: SchematicScopeLayout) -> ScopeMeasurement:
         from .diagram.preparation import measure_scope
         return measure_scope(self, scope_ref, scope_layout)
@@ -311,7 +365,7 @@ class SchematicPreparation:
         return canonical_json_bytes({"identity": dict(self.identity), "root": _encode(self.root), "scopes": _encode(self.scopes), "native": _encode(self.native)}).decode("utf-8")
 
 
-_LAYOUT_TYPES = {cls.__name__: cls for cls in (DiagramPose, DiagramEndpoint, DiagramRoute, DiagramJunction, DiagramJump, DiagramCaption, DiagramLeader, DiagramCoupling, SchematicScopeLayout)}
+_LAYOUT_TYPES = {cls.__name__: cls for cls in (DiagramBoxSize, DiagramPose, DiagramEndpoint, DiagramRoute, DiagramJunction, DiagramJump, DiagramCaption, DiagramLeader, DiagramCoupling, SchematicScopeLayout)}
 
 
 def _encode(value: object) -> object:
@@ -406,21 +460,17 @@ def _prepare_schematic(plan: object, spec: object, *, parameters: object | None 
 
 def _render_schematic(plan: object, spec: object, *, parameters: object | None = None) -> object:
     from .diagram.pipeline import render_schematic
-    if spec.representation == "compiled":
-        snapshot = plan._capture_authoring_snapshot()
-        point = plan._resolve_parameter_point(parameters, snapshot=snapshot)
-        return render_schematic(point, spec)
     layout = spec.layout
     if layout is None:
         raise _fail("authoring rendering requires a complete SchematicLayout; call prepare_schematic() first")
     from .diagram.spec import CircuitDiagramSpec
-    capture_spec = CircuitDiagramSpec(theme=spec.theme, show_parameter_values=spec.show_parameter_values, show_provenance=spec.show_provenance)
+    capture_spec = CircuitDiagramSpec(drawing_unit=spec.drawing_unit, theme=spec.theme, show_parameter_values=spec.show_parameter_values, show_provenance=spec.show_provenance)
     preparation = _prepare_schematic(plan, capture_spec, parameters=parameters)
     if dict(preparation.identity) != dict(layout.preparation.identity):
         raise _fail("layout binding differs from the current Plan, point or presentation")
     return render_schematic(preparation._point, spec, layout=layout)
 
 
-__all__ = ["DiagramRef", "DiagramPose", "DiagramEndpoint", "DiagramRoute", "DiagramJunction", "DiagramJump", "DiagramCaption", "DiagramLeader", "DiagramCoupling", "SchematicScopeLayout", "SchematicLayout", "SchematicPreparation", "ScopeInventory", "MeasuredFragment", "ScopeMeasurement", "GeometryRealization"]
+__all__ = ["DiagramUnit", "DiagramBoxSize", "DiagramRef", "DiagramPose", "DiagramEndpoint", "DiagramRoute", "DiagramJunction", "DiagramJump", "DiagramCaption", "DiagramLeader", "DiagramCoupling", "SchematicScopeLayout", "SchematicLayout", "SchematicPreparation", "ScopeInventory", "MeasuredFragment", "ScopeMeasurement", "GeometryRealization"]
 for _name in __all__:
     globals()[_name].__module__ = "scnsim.schematic"

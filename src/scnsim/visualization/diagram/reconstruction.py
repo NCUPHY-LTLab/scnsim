@@ -1,8 +1,8 @@
 """Independent reconstruction of structured V2 facts from visible scene ink.
 
-The routines in this module never consume renderer correlation keys, placement
-records, captured net names, or an expected manifest.  Full identities are
-recovered from local visible labels plus measured region containment.
+Opaque correlation keys bind visible native bodies to their captured measured
+source geometry and owner scope. They never supply a net or connection: those
+facts are reconstructed from the emitted anchors and conductive strokes.
 """
 
 from __future__ import annotations
@@ -10,12 +10,14 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+import json
 import re
 from types import MappingProxyType
 from typing import cast
 
 from ...canonical import canonical_json_bytes
 from ...errors import SCNSimValidationError
+from ..schematic import DiagramRef, SchematicLayout
 from .scene import (
     COORDINATE_TOLERANCE,
     Bounds,
@@ -31,10 +33,8 @@ from .values import parse_display_scalar
 
 _Path = tuple[str, ...]
 
-
 def _fail(message: str, **evidence: object) -> SCNSimValidationError:
     return SCNSimValidationError(message, stage="schematic_audit", evidence=evidence)
-
 
 def _freeze(value: object) -> object:
     if isinstance(value, Mapping):
@@ -43,7 +43,6 @@ def _freeze(value: object) -> object:
         return tuple(_freeze(item) for item in value)
     return value
 
-
 def _plain(value: object) -> object:
     if isinstance(value, Mapping):
         return {str(key): _plain(item) for key, item in value.items()}
@@ -51,10 +50,8 @@ def _plain(value: object) -> object:
         return [_plain(item) for item in value]
     return value
 
-
 def _token(kind: str, **fields: object) -> str:
     return canonical_json_bytes({"kind": kind, **fields}).decode("utf-8")
-
 
 def _contact(*, path: _Path | None = None, pin: str | None = None, port: str | None = None) -> str:
     if port is not None:
@@ -62,22 +59,17 @@ def _contact(*, path: _Path | None = None, pin: str | None = None, port: str | N
     assert path is not None and pin is not None
     return _token("visible_physical_terminal", component_path=list(path), pin_id=pin)
 
-
 def _same(left: float, right: float) -> bool:
     return abs(left - right) <= COORDINATE_TOLERANCE
-
 
 def _same_point(left: Point, right: Point) -> bool:
     return _same(left.x, right.x) and _same(left.y, right.y)
 
-
 def _area(bounds: Bounds) -> float:
     return (bounds.xmax - bounds.xmin) * (bounds.ymax - bounds.ymin)
 
-
 def _strictly_contains(outer: Bounds, inner: Bounds) -> bool:
     return outer.contains(inner) and outer != inner
-
 
 def _region_contains_bounds(region: _Region, bounds: Bounds, *, include_boundary: bool = False) -> bool:
     if not region.path:
@@ -210,7 +202,6 @@ def _region_contains_bounds(region: _Region, bounds: Bounds, *, include_boundary
         )
     )
 
-
 def _point_on_boundary(point: Point, bounds: Bounds) -> bool:
     horizontal = bounds.xmin - COORDINATE_TOLERANCE <= point.x <= bounds.xmax + COORDINATE_TOLERANCE and (
         _same(point.y, bounds.ymin) or _same(point.y, bounds.ymax)
@@ -220,13 +211,11 @@ def _point_on_boundary(point: Point, bounds: Bounds) -> bool:
     )
     return horizontal or vertical
 
-
 @dataclass(frozen=True, slots=True)
 class _Region:
     source: SubsystemRegion
     path: _Path
     parent: _Path | None
-
 
 @dataclass(frozen=True, slots=True)
 class _Body:
@@ -244,6 +233,337 @@ class _Body:
     n_sections: int | None = None
     discretization_label: str | None = None
 
+@dataclass(frozen=True, slots=True)
+class _SourceGeometry:
+    ref: DiagramRef
+    owner: _Path
+    metrics: object
+    scene: NeutralScene
+
+def _source_geometry(layout: SchematicLayout) -> Mapping[str, _SourceGeometry]:
+    """Resolve each rendered native tag to one exact captured measurement."""
+    from dataclasses import replace
+    from .native import emit_native, transform_fragment
+
+    preparation = layout.preparation
+    inventories = {inventory.ref: inventory for inventory in preparation.scopes}
+    result: dict[str, _SourceGeometry] = {}
+
+    def visit(scope_layout, parent_origin: Point, parent_rotation: int) -> None:
+        inventory = inventories.get(scope_layout.scope)
+        if inventory is None:
+            raise _fail("layout scope is absent from its captured preparation")
+        caption_positions = {
+            caption.target: Point(*caption.at) for caption in scope_layout.captions
+        }
+        targets = (
+            *((ref, scope_layout.poses.get(ref)) for ref in inventory.physical_occurrences),
+            *((ref, scope_layout.ports.get(ref)) for ref in inventory.ports),
+            *((ref, scope_layout.grounds.get(ref)) for ref in inventory.grounds),
+        )
+        for ref, pose in targets:
+            if not isinstance(ref, DiagramRef) or pose is None:
+                raise _fail("captured native target has no exact declared pose")
+            if ref.key in result:
+                raise _fail("one captured native target is placed more than once", target=ref.key)
+            measured = preparation.measure_body(
+                ref, rotation=pose.rotation, span=pose.span, box=pose.box
+            )
+            captions = {
+                tuple(row["text_path"]): caption_positions[row["ref"]]
+                for row in inventory.captions
+                if row["target"] == ref
+            }
+            expected = emit_native(
+                measured, pose=pose, captions=captions
+            )
+            expected = transform_fragment(
+                expected, origin=parent_origin, rotation=parent_rotation
+            )
+            metrics = preparation.metrics
+            if pose.span is not None:
+                metrics = replace(metrics, body_span=pose.span)
+            # An occurrence ref's scope_path is its full component locator;
+            # the scope currently being visited owns the measured body.
+            result[ref.key] = _SourceGeometry(
+                ref,
+                tuple(inventory.ref.scope_path),
+                metrics,
+                expected,
+            )
+        for child_ref, child_layout in scope_layout.children.items():
+            pose = scope_layout.poses.get(child_ref)
+            if pose is None:
+                raise _fail("child scope has no exact declared parent pose", target=child_ref.key)
+            child_origin = Point(*pose.origin).rotated(parent_rotation).translated(
+                parent_origin.x, parent_origin.y
+            )
+            visit(
+                child_layout,
+                child_origin,
+                (parent_rotation + pose.rotation) % 360,
+            )
+
+    visit(layout.root, Point(0.0, 0.0), 0)
+    return result
+
+def _same_symbol_geometry(actual: NativeSymbol, expected: NativeSymbol) -> bool:
+    from .audit import _same_bounds, _same_path
+
+    return (
+        actual.kind == expected.kind
+        and actual.orientation == expected.orientation
+        and _same_text_geometry(actual.visible_name, expected.visible_name)
+        and _same_optional_text_geometry(actual.value, expected.value)
+        and _same_optional_text_geometry(actual.branch_label, expected.branch_label)
+        and len(actual.anchors) == len(expected.anchors)
+        and all(
+            actual_name == expected_name and _same_point(actual_point, expected_point)
+            for (actual_name, actual_point), (expected_name, expected_point)
+            in zip(actual.anchors, expected.anchors, strict=True)
+        )
+        and len(actual.paths) == len(expected.paths)
+        and all(_same_path(left, right) for left, right in zip(actual.paths, expected.paths, strict=True))
+        and _same_bounds(actual.symbol_bounds, expected.symbol_bounds)
+        and _same_path(actual.reference_polarity, expected.reference_polarity)
+    )
+
+def _same_text_geometry(actual, expected) -> bool:
+    from .audit import _same_bounds
+
+    return (
+        actual.text == expected.text
+        and actual.role == expected.role
+        and actual.orientation == expected.orientation
+        and actual.size == expected.size
+        and _same_point(actual.origin, expected.origin)
+        and _same_bounds(actual.bounds, expected.bounds)
+        and actual.ascent == expected.ascent
+        and actual.descent == expected.descent
+        and len(actual.glyphs) == len(expected.glyphs)
+        and all(
+            left.character == right.character
+            and left.font_sha256 == right.font_sha256
+            and left.codes == right.codes
+            and left.advance == right.advance
+            and _same_bounds(left.bounds, right.bounds)
+            and len(left.vertices) == len(right.vertices)
+            and all(_same_point(a, b) for a, b in zip(left.vertices, right.vertices, strict=True))
+            for left, right in zip(actual.glyphs, expected.glyphs, strict=True)
+        )
+    )
+
+def _same_optional_text_geometry(actual, expected) -> bool:
+    if actual is None or expected is None:
+        return actual is expected
+    return _same_text_geometry(actual, expected)
+
+def _same_box_geometry(actual, expected) -> bool:
+    from .audit import _same_path
+
+    text_fields = (
+        (actual.title, expected.title),
+        (actual.kind_label, expected.kind_label),
+        (actual.length_label, expected.length_label),
+        (actual.section_label, expected.section_label),
+        (actual.reference_label, expected.reference_label),
+    )
+    optional_text_matches = all(_same_optional_text_geometry(left, right) for left, right in text_fields)
+    return (
+        actual.kind == expected.kind
+        and actual.orientation == expected.orientation
+        and optional_text_matches
+        and len(actual.conductor_rows) == len(expected.conductor_rows)
+        and all(_same_text_geometry(left, right) for left, right in zip(actual.conductor_rows, expected.conductor_rows, strict=True))
+        and len(actual.anchor_labels) == len(expected.anchor_labels)
+        and all(_same_text_geometry(left, right) for left, right in zip(actual.anchor_labels, expected.anchor_labels, strict=True))
+        and len(actual.anchors) == len(expected.anchors)
+        and all(
+            actual_name == expected_name and _same_point(actual_point, expected_point)
+            for (actual_name, actual_point), (expected_name, expected_point)
+            in zip(actual.anchors, expected.anchors, strict=True)
+        )
+        and all(
+            _same_optional_text_geometry(left, right)
+            for left, right in (
+                (actual.length_label, expected.length_label),
+                (actual.section_label, expected.section_label),
+                (actual.reference_label, expected.reference_label),
+            )
+        )
+        and _same_path(actual.outline, expected.outline)
+        and len(actual.paths) == len(expected.paths)
+        and all(_same_path(left, right) for left, right in zip(actual.paths, expected.paths, strict=True))
+    )
+
+def _same_port_geometry(actual, expected) -> bool:
+    from .audit import _same_closed_path_cyclic_start, _same_path
+
+    return (
+        actual.correlation_key == expected.correlation_key
+        and _same_closed_path_cyclic_start(actual.circle, expected.circle)
+        and _same_point(actual.circle_center, expected.circle_center)
+        and all(
+            _same_point(left, right)
+            for left, right in zip(
+                (
+                    actual.boundary_anchor,
+                    actual.circuit_anchor,
+                    actual.external_anchor,
+                    actual.load_anchor,
+                    actual.ground_anchor,
+                ),
+                (
+                    expected.boundary_anchor,
+                    expected.circuit_anchor,
+                    expected.external_anchor,
+                    expected.load_anchor,
+                    expected.ground_anchor,
+                ),
+                strict=True,
+            )
+        )
+        and len(actual.paths) == len(expected.paths)
+        and all(_same_path(left, right) for left, right in zip(actual.paths, expected.paths, strict=True))
+        and len(actual.ground_glyph) == len(expected.ground_glyph)
+        and all(_same_path(left, right) for left, right in zip(actual.ground_glyph, expected.ground_glyph, strict=True))
+        and len(actual.labels) == len(expected.labels)
+        and all(_same_text_geometry(left, right) for left, right in zip(actual.labels, expected.labels, strict=True))
+        and _same_symbol_geometry(actual.reference_load, expected.reference_load)
+    )
+
+def _same_ground_geometry(actual: GuideMark, expected: GuideMark) -> bool:
+    from .audit import _same_path
+
+    return (
+        actual.correlation_key == expected.correlation_key
+        and actual.kind == expected.kind == "ground"
+        and actual.terminals == expected.terminals
+        and len(actual.paths) == len(expected.paths)
+        and all(_same_path(left, right) for left, right in zip(actual.paths, expected.paths, strict=True))
+    )
+
+def _group_by_key(items, *, label: str) -> dict[str, list[object]]:
+    groups: dict[str, list[object]] = defaultdict(list)
+    for item in items:
+        key = getattr(item, "correlation_key", None)
+        if not isinstance(key, str) or not key:
+            raise _fail("visible native geometry lacks its captured source binding", kind=label)
+        groups[key].append(item)
+    return groups
+
+def _validate_source_geometry(
+    scene: NeutralScene,
+    regions: Sequence[_Region],
+    sources: Mapping[str, _SourceGeometry],
+) -> Mapping[str, _Path]:
+    """Require exact measured source geometry before using tags for identity."""
+    from .audit import _port_identity
+
+    expected_symbols = {
+        key: source.scene.symbols for key, source in sources.items() if source.scene.symbols
+    }
+    expected_boxes = {
+        key: source.scene.boxes for key, source in sources.items() if source.scene.boxes
+    }
+    expected_ports = {
+        key: source.scene.ports for key, source in sources.items() if source.scene.ports
+    }
+    expected_grounds = {
+        key: tuple(guide for guide in source.scene.guides if guide.kind == "ground")
+        for key, source in sources.items()
+        if any(guide.kind == "ground" for guide in source.scene.guides)
+    }
+    actual_groups = (
+        ("native symbol", _group_by_key(scene.symbols, label="native symbol"), expected_symbols),
+        ("transmission-line body", _group_by_key(scene.boxes, label="transmission-line body"), expected_boxes),
+        ("Port", _group_by_key(scene.ports, label="Port"), expected_ports),
+        ("ground", _group_by_key((guide for guide in scene.guides if guide.kind == "ground"), label="ground"), expected_grounds),
+    )
+    owner_by_key: dict[str, _Path] = {}
+    for label, actual, expected in actual_groups:
+        if set(actual) != set(expected):
+            raise _fail(
+                "visible native inventory differs from captured measured targets",
+                kind=label,
+                missing=sorted(set(expected) - set(actual)),
+                extra=sorted(set(actual) - set(expected)),
+            )
+        for key, expected_items in expected.items():
+            actual_items = actual[key]
+            if len(actual_items) != len(expected_items):
+                raise _fail(
+                    "visible native multiplicity differs from its measured source",
+                    kind=label,
+                    target=key,
+                    expected=len(expected_items),
+                    actual=len(actual_items),
+                )
+            source = sources[key]
+            ref_document = json.loads(key)
+            if label == "native symbol":
+                matches = lambda left, right: isinstance(left, NativeSymbol) and isinstance(right, NativeSymbol) and _same_symbol_geometry(left, right)
+                bounds = [item.symbol_bounds for item in actual_items]
+                expected_path = tuple(ref_document["path"])
+                if any(item.visible_name.text != expected_path[-1] for item in actual_items):
+                    raise _fail("visible native identity disagrees with its captured source ref", target=key)
+            elif label == "transmission-line body":
+                matches = _same_box_geometry
+                bounds = [
+                    Bounds(
+                        min(item.outline.bounds.xmin, *(path.bounds.xmin for path in item.paths)),
+                        min(item.outline.bounds.ymin, *(path.bounds.ymin for path in item.paths)),
+                        max(item.outline.bounds.xmax, *(path.bounds.xmax for path in item.paths)),
+                        max(item.outline.bounds.ymax, *(path.bounds.ymax for path in item.paths)),
+                    )
+                    for item in actual_items
+                ]
+                expected_path = tuple(ref_document["path"])
+                if any(item.title.text != expected_path[-1] for item in actual_items):
+                    raise _fail("visible line identity disagrees with its captured source ref", target=key)
+            elif label == "Port":
+                matches = _same_port_geometry
+                bounds = [
+                    Bounds(
+                        min(port.circle.bounds.xmin, port.reference_load.symbol_bounds.xmin, *(path.bounds.xmin for path in (*port.paths, *port.ground_glyph, *port.reference_load.paths))),
+                        min(port.circle.bounds.ymin, port.reference_load.symbol_bounds.ymin, *(path.bounds.ymin for path in (*port.paths, *port.ground_glyph, *port.reference_load.paths))),
+                        max(port.circle.bounds.xmax, port.reference_load.symbol_bounds.xmax, *(path.bounds.xmax for path in (*port.paths, *port.ground_glyph, *port.reference_load.paths))),
+                        max(port.circle.bounds.ymax, port.reference_load.symbol_bounds.ymax, *(path.bounds.ymax for path in (*port.paths, *port.ground_glyph, *port.reference_load.paths))),
+                    )
+                    for port in actual_items
+                ]
+                expected_id = ref_document.get("id")
+                if any(_port_identity(item)[0] != expected_id for item in actual_items):
+                    raise _fail("visible Port identity disagrees with its captured source ref", target=key)
+            else:
+                matches = _same_ground_geometry
+                bounds = [
+                    Bounds(
+                        min(path.bounds.xmin for path in guide.paths),
+                        min(path.bounds.ymin for path in guide.paths),
+                        max(path.bounds.xmax for path in guide.paths),
+                        max(path.bounds.ymax for path in guide.paths),
+                    )
+                    for guide in actual_items
+                ]
+            remaining = list(expected_items)
+            for item in actual_items:
+                found = next((index for index, expected_item in enumerate(remaining) if matches(item, expected_item)), None)
+                if found is None:
+                    raise _fail("visible native geometry differs from its exact captured measurement", kind=label, target=key)
+                remaining.pop(found)
+            for bound in bounds:
+                owner = _deepest(bound, regions).path
+                if owner != source.owner:
+                    raise _fail(
+                        "visible native body crosses its captured hierarchy owner",
+                        kind=label,
+                        target=key,
+                        expected_owner=list(source.owner),
+                        observed_owner=list(owner),
+                    )
+                owner_by_key[key] = owner
+    return MappingProxyType(owner_by_key)
 
 def _regions(scene: NeutralScene) -> tuple[_Region, ...]:
     from .audit import _same_bounds
@@ -278,8 +598,8 @@ def _regions(scene: NeutralScene) -> tuple[_Region, ...]:
             or not _same_bounds(region.boundary.bounds, region.bounds)
         ):
             raise _fail("visible child region lacks one exact closed contour")
-        if region.header is None or not contains(region, region.header.bounds):
-            raise _fail("ownership header is not wholly visible inside its region")
+        if region.header is None:
+            raise _fail("non-root ownership region lacks one visible local identity")
     parents: dict[int, SubsystemRegion] = {}
     for region in scene.regions:
         if region is root:
@@ -331,13 +651,11 @@ def _regions(scene: NeutralScene) -> tuple[_Region, ...]:
         for region in scene.regions
     )
 
-
 def _deepest(bounds: Bounds, regions: Sequence[_Region]) -> _Region:
     containers = [region for region in regions if _region_contains_bounds(region, bounds)]
     if not containers:
         raise _fail("complete visible object lies outside the root envelope")
     return min(containers, key=lambda item: _area(item.source.bounds))
-
 
 def _quantity(text: str, unit: str) -> Mapping[str, object]:
     try:
@@ -346,20 +664,23 @@ def _quantity(text: str, unit: str) -> Mapping[str, object]:
     except Exception as error:
         raise _fail("visible scalar is not a complete display-projected quantity", label=text, unit=unit) from error
 
-
 def _body_groups(
     scene: NeutralScene,
     regions: Sequence[_Region],
     *,
     show_values: bool,
+    source_geometry: Mapping[str, _SourceGeometry],
 ) -> tuple[_Body, ...]:
     from .audit import _branch_role, _box_model, _verify_native_geometry
 
     grouped: dict[tuple[_Path, str], list[NativeSymbol]] = defaultdict(list)
     for symbol in scene.symbols:
-        _verify_native_geometry(symbol, "authoring")
+        source = source_geometry[symbol.correlation_key]
+        _verify_native_geometry(symbol, source.metrics)
         _branch_role(symbol)
-        owner = _deepest(symbol.occupied_bounds, regions).path
+        owner = _deepest(symbol.symbol_bounds, regions).path
+        if owner != source.owner:
+            raise _fail("visible physical body owner differs from its captured target", target=symbol.correlation_key)
         name = symbol.visible_name.text
         if not name or "/" in name or name.startswith("REGION:"):
             raise _fail("native body name is not one local authored identity", name=name)
@@ -428,13 +749,13 @@ def _body_groups(
                 }
             )
         union = Bounds(
-            min(symbol.occupied_bounds.xmin for symbol in symbols),
-            min(symbol.occupied_bounds.ymin for symbol in symbols),
-            max(symbol.occupied_bounds.xmax for symbol in symbols),
-            max(symbol.occupied_bounds.ymax for symbol in symbols),
+            min(symbol.symbol_bounds.xmin for symbol in symbols),
+            min(symbol.symbol_bounds.ymin for symbol in symbols),
+            max(symbol.symbol_bounds.xmax for symbol in symbols),
+            max(symbol.symbol_bounds.ymax for symbol in symbols),
         )
-        if not _deepest(union, regions).path == owner:
-            raise _fail("one body's complete glyph/label occupancy crosses an ownership boundary", body=name)
+        if _deepest(union, regions).path != owner:
+            raise _fail("one body's physical glyphs cross an ownership boundary", body=name)
         bodies.append(
             _Body(
                 (*owner, name), owner, model, pins, auxiliary, union, primary.visible_name.bounds,
@@ -443,7 +764,16 @@ def _body_groups(
         )
     _box_model(scene, regions)  # type: ignore[arg-type]
     for box in scene.boxes:
-        owner = _deepest(box.bounds, regions).path
+        physical_bounds = Bounds(
+            min(box.outline.bounds.xmin, *(path.bounds.xmin for path in box.paths)),
+            min(box.outline.bounds.ymin, *(path.bounds.ymin for path in box.paths)),
+            max(box.outline.bounds.xmax, *(path.bounds.xmax for path in box.paths)),
+            max(box.outline.bounds.ymax, *(path.bounds.ymax for path in box.paths)),
+        )
+        source = source_geometry[box.correlation_key]
+        owner = _deepest(physical_bounds, regions).path
+        if owner != source.owner:
+            raise _fail("visible line body owner differs from its captured target", target=box.correlation_key)
         name = box.title.text
         if not name or "/" in name:
             raise _fail("line body title is not one local authored identity", title=name)
@@ -490,7 +820,7 @@ def _body_groups(
         fields.insert(0, {"id": "length", "unit": "meter", "value": None if box.length_label is None else _plain(_quantity(box.length_label.text, "meter")), "displayed_text": None if box.length_label is None else box.length_label.text})
         bodies.append(
             _Body(
-                (*owner, name), owner, "transmission_line", pins, (), box.bounds,
+                (*owner, name), owner, "transmission_line", pins, (), physical_bounds,
                 box.title.bounds, tuple(fields), (), rows, reference, sections, policy_label,
             )
         )
@@ -499,14 +829,15 @@ def _body_groups(
         raise _fail("visible physical-body identities are duplicated")
     return tuple(sorted(bodies, key=lambda body: body.path))
 
-
 def _observed_nets(
     scene: NeutralScene,
     bodies: Sequence[_Body],
+    *,
+    metrics,
 ) -> tuple[object, dict[int, str], object, tuple[tuple[Point, Point], ...]]:
     from .audit import _build_point_graph, _point_on_segment, _port_identity
 
-    graph, segments = _build_point_graph(scene)
+    graph, segments = _build_point_graph(scene, metrics=metrics)
     # Structured semantic guides may terminate at an interior point of one
     # visible wire segment.  Register that literal geometric incidence before
     # naming equivalence classes; segmentation of the same continuous ink
@@ -564,7 +895,6 @@ def _observed_nets(
         raise _fail("visible conductive ink forms a net with no physical terminal or Port")
     return graph, roots, tuple(sorted(rows, key=canonical_json_bytes)), segments
 
-
 def _net(graph: object, roots: Mapping[int, str], point: Point) -> str:
     root = graph.root(point)
     if graph.is_ground(root):
@@ -572,7 +902,6 @@ def _net(graph: object, roots: Mapping[int, str], point: Point) -> str:
     if root not in roots:
         raise _fail("visible contact net contains no physical terminal or Port")
     return roots[root]
-
 
 def _ray_count(point: Point, segments: Sequence[tuple[Point, Point]]) -> int:
     from .audit import _point_on_segment
@@ -602,7 +931,6 @@ def _ray_count(point: Point, segments: Sequence[tuple[Point, Point]]) -> int:
             directions.append(direction)
     return len(directions)
 
-
 def _junction_segments(
     scene: NeutralScene,
     conductive: Sequence[tuple[Point, Point]],
@@ -626,26 +954,46 @@ def _junction_segments(
                     segments.append((path.points[-1], path.points[-2]))
     return tuple(segments)
 
-
 def _verify_junction_marks(
     scene: NeutralScene,
     segments: Sequence[tuple[Point, Point]],
+    *,
+    metrics,
 ) -> None:
     """Require visible dots for true junctions without letting dots join ink."""
 
-    from .audit import _same_path, _segment_intersection
+    from .audit import _segment_intersection
     from .native import junction_mark
+
+    def same_dot_path(actual, expected) -> bool:
+        """Match a closed dot outline independent of its first vertex only."""
+        if (
+            actual.role != expected.role
+            or not actual.closed
+            or not expected.closed
+            or actual.codes != expected.codes
+            or len(actual.points) != len(expected.points)
+        ):
+            return False
+        count = len(expected.points)
+        return any(
+            all(
+                _same_point(actual.points[index], expected.points[(index + offset) % count])
+                for index in range(count)
+            )
+            for offset in range(count)
+        )
 
     by_point: list[Point] = []
     for mark in scene.node_marks:
         if mark.label is not None:
             raise _fail("authoring junction dot carries a hidden node identity")
-        reference = junction_mark(mark.point)
+        reference = junction_mark(mark.point, metrics=metrics)
         if (
             not mark.filled
             or len(mark.paths) != len(reference.paths)
             or any(
-                not _same_path(actual, wanted)
+                not same_dot_path(actual, wanted)
                 for actual, wanted in zip(mark.paths, reference.paths, strict=True)
             )
         ):
@@ -676,7 +1024,6 @@ def _verify_junction_marks(
                 x=point.x,
                 y=point.y,
             )
-
 
 def _boundary_segments(region: _Region) -> tuple[tuple[Point, Point], ...]:
     path = region.source.boundary
@@ -715,14 +1062,12 @@ def _boundary_segments(region: _Region) -> tuple[tuple[Point, Point], ...]:
             raise _fail("visible region uses an unsupported contour code", code=code)
     return tuple(segments)
 
-
 def _inside_region(point: Point, region: _Region) -> bool:
     bounds = region.source.bounds
     return (
         bounds.xmin + COORDINATE_TOLERANCE < point.x < bounds.xmax - COORDINATE_TOLERANCE
         and bounds.ymin + COORDINATE_TOLERANCE < point.y < bounds.ymax - COORDINATE_TOLERANCE
     )
-
 
 def _open_boundary_stub(
     scene: NeutralScene,
@@ -796,7 +1141,6 @@ def _open_boundary_stub(
             if relation == "overlap" or relation == "point" and crossing is not None:
                 return False
     return True
-
 
 def _boundary_incidence(
     scene: NeutralScene,
@@ -935,7 +1279,6 @@ def _boundary_incidence(
         raise _fail("visible boundary name is not attached to actual child-contour ink")
     return sorted(rows, key=canonical_json_bytes)
 
-
 def _verify_local_grounds(
     scene: NeutralScene,
     regions: Sequence[_Region],
@@ -975,22 +1318,8 @@ def _verify_local_grounds(
             ground_glyphs=len(guide_roots),
         )
 
-
-def _combined_bounds(*bounds: Bounds) -> Bounds:
-    return Bounds(
-        min(item.xmin for item in bounds),
-        min(item.ymin for item in bounds),
-        max(item.xmax for item in bounds),
-        max(item.ymax for item in bounds),
-    )
-
-
 def _guide_owner(guide: GuideMark, regions: Sequence[_Region]) -> _Path:
-    occupied = guide.bounds
-    if guide.label is not None:
-        occupied = _combined_bounds(occupied, guide.label.bounds)
-    return _deepest(occupied, regions).path
-
+    return _deepest(guide.bounds, regions).path
 
 def _guide_connected(guide: GuideMark) -> None:
     from .audit import _verify_guide_terminal_incidence
@@ -999,12 +1328,12 @@ def _guide_connected(guide: GuideMark) -> None:
         raise _fail("semantic guide contains conductive or closed ink")
     _verify_guide_terminal_incidence(guide)
 
-
 def _couplings(
     scene: NeutralScene,
     regions: Sequence[_Region],
     bodies: Sequence[_Body],
     *,
+    source_geometry: Mapping[str, _SourceGeometry],
     show_values: bool,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     records: list[dict[str, object]] = []
@@ -1056,6 +1385,7 @@ def _couplings(
                         other,
                         symbol.symbol_bounds,
                         orientation=symbol.orientation,
+                        metrics=source_geometry[symbol.correlation_key].metrics,
                     )
                     if _same_point(terminal, center) and sum(_same_path(dot, actual) for actual in dots) == 1:
                         candidates.append((body, pin))
@@ -1103,11 +1433,12 @@ def _couplings(
             )
     return records, rows
 
-
 def reconstruct_authoring(
     scene: NeutralScene,
     *,
     show_values: bool,
+    layout: SchematicLayout,
+    metrics,
 ) -> tuple[Mapping[str, object], Mapping[str, object], tuple[Mapping[str, object], ...]]:
     """Reconstruct authoring A/B solely from emitted glyph/stroke geometry."""
 
@@ -1115,6 +1446,8 @@ def reconstruct_authoring(
         raise TypeError("authoring reconstruction requires NeutralScene")
     if not isinstance(show_values, bool):
         raise TypeError("show_values must be boolean")
+    if not isinstance(layout, SchematicLayout):
+        raise TypeError("authoring reconstruction requires its immutable SchematicLayout")
     from .audit import _is_ground_paths
 
     for guide in scene.guides:
@@ -1147,15 +1480,26 @@ def reconstruct_authoring(
                 label=guide.label.text,
             )
     regions = _regions(scene)
-    bodies = _body_groups(scene, regions, show_values=show_values)
-    graph, roots, nets, segments = _observed_nets(scene, bodies)
-    _verify_junction_marks(scene, _junction_segments(scene, segments))
+    metrics = layout.preparation.metrics
+    source_geometry = _source_geometry(layout)
+    source_owners = _validate_source_geometry(scene, regions, source_geometry)
+    bodies = _body_groups(
+        scene, regions, show_values=show_values, source_geometry=source_geometry
+    )
+    graph, roots, nets, segments = _observed_nets(scene, bodies, metrics=metrics)
+    _verify_junction_marks(
+        scene, _junction_segments(scene, segments), metrics=metrics
+    )
     from .audit import _build_point_graph
 
-    raw_graph, _ = _build_point_graph(scene, normalize_ground=False)
+    raw_graph, _ = _build_point_graph(scene, metrics=metrics, normalize_ground=False)
     _verify_local_grounds(scene, regions, bodies, graph, raw_graph, roots)
     coupling_structures, coupling_rows = _couplings(
-        scene, regions, bodies, show_values=show_values
+        scene,
+        regions,
+        bodies,
+        source_geometry=source_geometry,
+        show_values=show_values,
     )
 
     analysis_labels = []
@@ -1183,7 +1527,8 @@ def reconstruct_authoring(
                 label=guide.label.text,
             )
         contact_root = graph.root(wire_point)
-        owner = _deepest(guide.label.bounds, regions).path
+        contact = guide.paths[0].points[0]
+        owner = _deepest(Bounds(contact.x, contact.y, contact.x, contact.y), regions).path
         record = {
             "scope": list(owner),
             "text": guide.label.text,
@@ -1226,13 +1571,11 @@ def reconstruct_authoring(
     ports: list[dict[str, object]] = []
     from .audit import _port_identity, _verify_port_block_geometry
     for port in scene.ports:
-        _verify_port_block_geometry(port)
+        source = source_geometry[port.correlation_key]
+        _verify_port_block_geometry(port, source.metrics)
         port_id, role, impedance_text, _ = _port_identity(port)
-        if _deepest(port.occupied_bounds, regions).path or any(
-            region.path and region.source.bounds.overlaps(port.occupied_bounds)
-            for region in regions
-        ):
-            raise _fail("root Port/load occupancy lies inside a child ownership region", port_id=port_id)
+        if source_owners[port.correlation_key] != source.owner:
+            raise _fail("visible Port owner differs from its captured target", port_id=port_id)
         if any(graph.root(anchor) != graph.root(port.external_anchor) for anchor in (port.circuit_anchor, port.boundary_anchor, port.load_anchor)):
             raise _fail("Port circle/load is not continuously attached to its visible circuit node", port_id=port_id)
         if not graph.is_ground(graph.root(port.ground_anchor)):
@@ -1263,7 +1606,14 @@ def reconstruct_authoring(
         if region.path
     ]
     leaf_ownership = [{"path": list(body.path), "owner": list(body.owner), "model": body.model} for body in bodies]
-    port_ownership = [{"port_id": row["port_id"], "owner": []} for row in ports]
+    port_owners = {
+        _port_identity(port)[0]: list(source_owners[cast(str, port.correlation_key)])
+        for port in scene.ports
+    }
+    port_ownership = [
+        {"port_id": row["port_id"], "owner": port_owners[row["port_id"]]}
+        for row in ports
+    ]
     boundary_incidence = _boundary_incidence(
         scene, regions, bodies, graph, roots, segments
     )
@@ -1289,6 +1639,5 @@ def reconstruct_authoring(
             row["comparison_value"] = values[row["identity"]]
     detail = tuple(cast(Mapping[str, object], _freeze(row)) for row in details)
     return electrical, structural, detail
-
 
 __all__ = ["reconstruct_authoring"]

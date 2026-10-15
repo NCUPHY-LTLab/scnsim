@@ -43,9 +43,10 @@ Read downward in either column. Each paired line row is **one coupled
 two-conductor body**, not two independent single-conductor lines.
 
 This is a physical-connectivity teaching table, checked against the Plan
-below, not a certified diagram projection. The current certified layout
-reports a typed `schematic_layout` conflict for this four-Port topology;
-neither an authoring nor compiled diagram is claimed as successful here.
+below, not a certified diagram projection. Earlier automatic-diagram attempts
+reported a typed `schematic_layout` conflict for this four-Port topology. That
+historical outcome is not a current manual-layout request: this lesson does
+not declare geometry or claim a successful diagram.
 
 ## 2. Choose the resolution
 

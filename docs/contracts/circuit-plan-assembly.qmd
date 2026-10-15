@@ -703,7 +703,7 @@ CircuitPlan convenience methods delegate without changing that authority.
 Runtime consumes its frozen snapshot directly. Diagram imports and public
 reexports are lazy without changing public names. A diagram request, layout,
 or failure never changes a Plan, numerical request, or parameter definition.
-Compiled diagrams are one-way evidence consumers, not numerical prerequisites.
+Manual diagrams are one-way Plan projections, not numerical prerequisites. Retired compiled diagram producers do not remove mathematical compiler consumers or historical evidence.
 
 The [Parameter System](parameter-system.qmd) owns definition/value semantics;
 the [Runtime contract](../v1-runtime-contract.qmd) owns Calculation and Result

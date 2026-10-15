@@ -5,10 +5,12 @@ toc-depth: 3
 ---
 
 ::: {.callout-warning}
-## CONVERGING contract — explicit-layout successor
+## CONVERGING contract — caller-declared manual layout
 
 This document is the single target authority for diagram composition and
-certified authoring/compiled projections. Common circuit assembly is owned by
+certified caller-declared authoring projections. The compiled automatic diagram
+public API is retired in this successor; numerical compilation is unaffected.
+Common circuit assembly is owned by
 the [assembly contract](circuit-plan-assembly.qmd). The explicit-layout successor replaces authoring automatic completion; its
 implementation and actual rendering evidence remain separate from this target
 contract. This scope is not Human-accepted or stabilized. The
@@ -35,7 +37,13 @@ CircuitPlan + inline SubsystemPlan + reusable CompositePlan
           |
           +----> numerical lowering and existing Run/Result evidence
           |
-          +----> authoring or compiled certified diagram
+          +----> immutable inventory/refs and measured native anchors
+                      |
+                      v
+                 caller complete geometry -> actual scene
+                      |
+                      v
+                 one independent witness -> frozen detached diagram
 ```
 
 The diagram never supplies topology to the solver. The solver never infers
@@ -44,7 +52,7 @@ authoring intent from component names, a drawing, or incidental graph shape.
 This contract owns:
 
 - diagram-only Block and wiring composition over authored handles;
-- authoring and compiled projection evidence;
+- caller-declared authoring projection evidence;
 - diagram evidence and presentation identities, referencing the shared Plan
   identity without redefining it; and
 - layout and audit failure behavior.
@@ -88,8 +96,9 @@ occurrence `n_sections` always, visibly written as `1 section` or `<N> sections`
 Conductor, reference, and head/tail names are
 not drawn. The two visible endpoints compare without claiming ordered
 head/tail identity; exact endpoint identity and RLGC remain source-verified.
-MTL retains the necessary ordered conductor and terminal evidence. Compiled
-scientific evidence is unchanged.
+MTL retains the necessary ordered conductor and terminal evidence. Historical
+compiled diagram evidence remains attributed to its original projection;
+numerical compiler evidence is unaffected by diagram API retirement.
 
 Authoring scalar labels use Decimal `ROUND_HALF_EVEN` to six significant
 digits, removing trailing zeros. Dimensionful quantities use supported
@@ -116,9 +125,14 @@ CircuitPlan.render_schematic(
     spec: CircuitDiagramSpec = CircuitDiagramSpec(),
     *, parameters: ParameterSet | None = None,
 ) -> CircuitDiagramResult
+CircuitPlan.declare_schematic(
+    spec: CircuitDiagramSpec,
+    *, parameters: ParameterSet | None = None,
+) -> CircuitDiagramResult
+CircuitPlan.show_schematic() -> None
 CircuitDiagramSpec(
-    *, representation: Literal["authoring", "compiled"] = "authoring",
-    theme: Theme = Theme.AUTO,
+    *, theme: Theme = Theme.AUTO,
+    drawing_unit: DiagramUnit | None = None,
     show_parameter_values: bool = True,
     show_provenance: bool = True,
     layout: SchematicLayout | None = None,
@@ -130,8 +144,32 @@ Plan and effective parameter point, resolves native representation, and returns
 immutable inventory and measurements. It performs no solver work, JAX or Julia
 initialization, workspace allocation, or whole-scene certification. Authoring
 rendering with `layout=None` fails and points to `prepare_schematic()`.
-Compiled rendering retains its existing compiler-evidence path and rejects a
-non-`None` layout; it is not a fallback for missing authoring geometry.
+The compiled automatic diagram API and its exclusive layout/router consumers
+are retired, with no old/new switch or fallback for missing authoring geometry.
+The numerical compiler, matrix stamps and physical models remain unchanged.
+`declare_schematic` requires the complete layout and delegates to the same
+render/certify/freeze authority, then atomically replaces one Plan-owned
+association with the completed immutable result and its captured-point binding.
+A declaration failure leaves the previous association intact. The detached
+result contains no live Plan backreference; `render_schematic` remains pure
+render-to-result and does not register an association.
+
+`show_schematic()` displays only that declared certified result at its frozen
+captured parameter point. Missing declaration or stale physical/source binding
+raises a clear existing typed schematic failure. Show may compare the existing
+capture binding, but does not prepare, realize layout, recertify, solve or
+allocate a Run. Presentation uses the existing FrozenDrawing notebook rich-
+display hook to serialize the held certified scene. It does not invoke a
+standalone GUI figure manager, and provides no display fallback. Existing
+IPython notebook support is required for that presentation; native import or
+serialization errors propagate. It has
+no parameter override, automatic layout or latest-point lookup. A new point
+requires a new explicit declaration; an old detached result remains readable
+as its historical captured drawing. This association does not enter physical
+Plan or numerical identity, and there is no global registry or drawing history.
+`CircuitDiagramSpec` has no public `representation` selector in this manual
+successor. Historical result metadata may still name its original representation;
+it does not enable a current compiled producer or an alternate layout path.
 
 ### One full layout authority {#schematic-composition}
 
@@ -147,17 +185,85 @@ occurrence poses, whole-child poses, Port and ground poses, routes, junctions,
 jumps, captions, leaders, coupling guides and complete child layouts. Geometry uses scope-local
 drawing units, separately from physical SI quantities. Every physical
 occurrence has a pose; Series/Parallel/branch membership does not authorize
-automatic packing of its members. Native atomic bodies retain intrinsic
-contacts under whole-body translation and cardinal rotation (0, 90, 180 or
-270 degrees), without stretch or mirror.
+automatic packing of its members. Native bodies retain cardinal rotation (0, 90, 180 or 270 degrees) and use
+supported caller-declared body spans. Measurement and realization share the
+same native body and actual pin anchors; changing only a metadata span does
+not change the drawing. Drawing units, positions and spans affect presentation
+only, not physical TL lengths, SI coefficients, mesh or numerical identity.
+`DiagramUnit(name: str, units_per_u: float)` names a display coordinate unit
+and the positive number of coordinate units in one existing native reference
+span U. The name is a presentation label, never a physical Unit or metre
+conversion. `CircuitDiagramSpec(drawing_unit=None)` retains the actual existing
+legacy measured geometry; no new default dbu value is introduced. Coordinates
+remain binary64, including fractional dbu, without quantization, snapping,
+rounding or new comparison tolerance. Preparation and rendering bind the same
+unit declaration. The single DiagramMetrics authority scales native bodies,
+pins, terminal stubs, ground and jump geometry together.
 
-The public records are `DiagramPose`, `DiagramEndpoint`, `DiagramRoute`,
+`DiagramPose(origin, rotation=0, *, span=None, box=None)` sets native longitudinal
+terminal-plane separation in the chosen coordinate unit for two-terminal
+R/L/C/JJ and two-face TL/MTL bodies. `None` retains the body's current native
+span. Measurement and emitted bodies preserve conductor/reference ordering,
+JJ parallel capacitance, and freshly measured typography; they do not stretch
+a finished SVG. Ports, grounds, scope frames and boundary markers retain their
+existing records and unit-scaled metrics, without a fictitious two-terminal
+span. For TL/MTL boxes, an explicit span is the exact actual contact-plane
+separation; content or text width does not silently enlarge the electrical
+body or move its anchors. Labels retain separately measured occupied bounds,
+without stretched typography or implicit body resizing to avoid overlap.
+Omitted span retains the current native sizing behavior. Typography, footer
+and layout-canvas metrics use the same drawing-unit authority as applicable.
+A target without the supported span capability reports a structural request
+error rather than ignoring the field. Mirroring and non-cardinal
+routing remain outside this successor.
+
+### CPW intrinsic box sizing and caller content positions
+
+For a one-conductor CPW, `DiagramBoxSize(*, width=None, height=None)` on
+`DiagramPose.box` and `measure_body(..., box=None)` selects the same native
+factory geometry. Width is the unrotated local rectangle axis along the line;
+height is transverse. Both are drawing lengths in the selected DiagramUnit,
+not physical TL length or mesh controls. Cardinal rotation moves the actual
+rectangle, stubs and pins; typography is freshly measured upright.
+
+Each omitted dimension retains native content-measured sizing on that axis.
+With both omitted, native fitting uses the factory's measured content before
+caller caption relocation. Arbitrary caption positions do not feed a circular
+resize or automatic overall layout. An explicit positive rectangle dimension
+is exact: no content-driven enlargement, clipping, shrink-to-fit, wrapping or
+hidden position repair. Overflow/overlap is caller-owned; the measured occupied
+text bounds remain separate from the electrical rectangle and pin anchors.
+
+`span` and `box.width` cannot both be supplied because they are alternative
+longitudinal specifications. Explicit width gives contact-plane separation
+`width + 2 * terminal_stub`, using the shared unit-scaled stub. With span and
+no width, rectangle width is `span - 2 * terminal_stub`; explicit height may
+accompany span. Omitted span and width retain native content-fit width. This
+is structural ambiguity handling, not a numerical threshold or an equality
+compare-and-repair rule. MTL span remains unchanged; this box arrangement
+extension is only for one-conductor CPW.
+
+Inner content uses the existing source-bound `ScopeInventory.captions` and
+`DiagramCaption(target, at)` records. Captured kind, local title, physical
+length when values are shown, and section count remain unchanged. `at` is the
+frozen TextRun origin, not its bounding-box center. The caller places those
+same caption refs at arbitrary explicit anchors; no custom strings, HTML,
+text DSL, font/value override or copied physical fields are introduced.
+`measure_body` exposes text bounds keyed by those native text paths. Moving a
+pose does not implicitly move independently declared caption anchors. Required
+text truth, actual box, anchors and conductive incidence are observed in the
+same scene; source association alone cannot certify an absent body or wire.
+
+The public records are `DiagramUnit`, `DiagramBoxSize`, `DiagramPose`, `DiagramEndpoint`, `DiagramRoute`,
 `DiagramJunction`, `DiagramJump`, `DiagramCaption`, `DiagramLeader` and
 `DiagramCoupling`.
 A route binds actual preparation contacts or a scope-local named junction arm
 and declares its complete ordered cardinal waypoints. Junction centers and
-straight/elbow/T/Cross arms are explicit. A jump declares the actual crossing
-and which route carries it. Captions use captured text identity and an explicit
+straight/elbow/T/Cross arms are explicit. A `DiagramJump(route_id, at, over_route_id)` declares the actual nonconnecting
+crossing and which route carries the existing visible jump and gap. T/Cross
+uses existing declared cardinal junction arms; every connected arm needs a
+real continuous stroke, and a dot cannot replace a missing arm. Unmarked or
+indistinguishable electrical incidence fails integrity. Captions use captured text identity and an explicit
 anchor. An analysis leader starts at its actual contact and declares the knee
 and free end of two connected cardinal segments; it remains nonconductive.
 There are no free-coordinate electrical endpoints or inferred net-label wires.
@@ -176,11 +282,21 @@ occupied bounds, keyed text measurements, owned obstacles and exact terminal
 access. Explicit text relocation retains its captured content and ownership.
 
 ```text
+prepared.measure_body(target: DiagramRef, *, rotation=0, span=None, box=None) -> MeasuredFragment
 prepared.measure_scope(scope_ref, scope_layout) -> ScopeMeasurement
 SchematicLayout(preparation, root_scope_layout)
 layout.to_json() -> str
 SchematicLayout.from_json(preparation, text) -> SchematicLayout
 ```
+
+`measure_body` invokes the same native factory used by realization, returning
+actual contacts and body/occupied/text bounds before the caller chooses routes.
+The existing `preparation.native[(ref, rotation)]` is the default-span view of
+that authority, not another factory. Scope realization uses the measurement
+corresponding to each pose's unit, rotation and span. Any acquisition cache
+contains only immutable preparation/ref/rotation/span/box measurements, never
+Run, Workspace or factors. Caller coordinates are not implicitly rescaled from
+an old layout recipe when a different drawing unit is requested.
 
 Child measurement requires the complete child-local layout and descendants,
 but not its parent layout. `ScopeMeasurement` retains the fully realized
@@ -189,10 +305,11 @@ terminal access and native winding-dot markers keyed by captured occurrence
 ref and branch ID. These nonconductive marker facts can support parent coupling
 guides without electrical exposure or display-name lookup. Parent realization
 adopts that same fragment and marker geometry under its
-explicit pose; it does not remeasure, pack or route hidden contents. Measurement
-is not whole-diagram certification. Existing owner-aware collision and legal
-terminal-access checks still apply, including other contacts of the same owner
-or net. All realized geometry joins one NeutralScene and the existing
+explicit pose; it does not remeasure, pack or route hidden contents. Measurement is not whole-diagram certification. Actual routes must reach the
+correct native pin anchors and preserve electrical incidence. Text spacing,
+label/body overlap and aesthetic clearance are caller-owned and do not block
+rendering. Missing bodies, wrong-pin contacts or indistinguishable conductive
+overlap still fail drawing integrity. All realized geometry joins one NeutralScene and the existing
 certify-before-freeze flow.
 
 A plain Python or Notebook helper may generate new layouts from this inventory.
@@ -218,27 +335,42 @@ requires fresh preparation and newly bound declarations.
 
 Old axis/order hints, `SchematicComposition`, automatic `layout=None` completion
 and automatic snapshot roundtrips are replaced, with no compatibility adapter
-or alternate current authoring path. Numerical and compiled projection
-contracts remain unchanged.
+or alternate current authoring path. Compiled automatic diagram consumers are
+retired without deleting the numerical compiler or its matrix-stamp authority.
+Consumer-aware removal retains shared manual helpers and immutable history.
 
 ## Independent certification {#independent-certification}
 
-One immutable diagram certificate carries expected and independently observed
-evidence. The neutral scene cannot contain hidden answer tables that let a
-witness copy the expected result. Composition settings and expected ownership
-maps are not hidden answers in `NeutralScene`. Separate layout-constraint
-verification compares requested shapes and sides against actual visible
-geometry; witnesses A/B continue to reconstruct electrical and ownership ink
-against the existing Plan/effective-point evidence.
+One declaration-aware actual-scene witness produces a single immutable
+certificate, with electrical and visible-ownership observations kept distinct.
+Expected bodies, pins, nets and boundary facts come from the captured Plan.
+Observed facts come from actual emitted native bodies, pin anchors, continuous
+conductive wires, junction arms, jump gaps and visible scope boundaries.
+Declaration refs associate an observed body or pin with its source occurrence;
+they cannot supply the observed net answer or turn an absent wire into a
+connection. NeutralScene tags, net labels, expected maps and layout metadata
+alone cannot certify a wrong or incomplete drawing.
+
+The witness reads real continuity and endpoint incidence before comparing with
+the Plan. A declared T/Cross requires actual connected arms. A nonconnecting
+crossing needs its explicit visible gap/jump representation; coincident display
+coordinates cannot amend Plan topology. Indistinguishable different-net
+collinear overlap or wrong-pin contact fails integrity, even when labels claim
+the intended nets. There is no automatic placement, routing, avoidance, overlap
+repair or metadata-only success.
+
+JJ and its declared parallel capacitance retain actual parallel branches and
+shared terminal incidence. MTL conductor/reference roles, terminal order,
+Port/ground load roles and visible mutual polarity remain intact. Cosmetic
+relaxation does not remove required native bodies or electrical evidence.
 
 ### Electrical witness A
 
-Witness A reconstructs visible component bodies, terminal incidence, wires,
-junctions, grounds, Ports, couplings, and compiled matrix associations. For an
-authoring projection it compares that reconstruction with the exact complete
-Plan at the resolved effective parameter point. For a compiled projection it
-compares with the exact compiler-emitted expansion for that same Plan and
-point. Identity or correspondence mismatch fails.
+The electrical part of the single witness (A) observes actual component
+bodies, terminal incidence, wires, junctions, grounds, Ports and couplings, then
+compares with the complete captured Plan at the effective parameter point.
+Identity or correspondence mismatch fails. Source association never replaces
+observation of the actual body, pin or wire.
 
 For an unmarked ordinary symmetric two-terminal body, including L and JJ,
 witness A may compare electrical evidence modulo endpoint-reference reversal.
@@ -250,7 +382,7 @@ reconstructs relative polarity from actual visible winding dots, their endpoint
 incidence, and coupling information. Comparison permits consistent reference
 reversal only with the corresponding coupling-sign transformation; it never
 drops signed mutual evidence or substitutes hidden orientation for visible
-evidence. Required oriented compiled evidence remains unchanged.
+evidence. Historical oriented compiled evidence retains its original meaning.
 
 With parameter values shown, mutual coupling has a visible signed numerical
 coefficient. With `show_parameter_values=False`, its magnitude is hidden and
@@ -267,8 +399,8 @@ display projection, not a numerical tolerance or a bit-exact Float64 roundtrip
 claim. The audit exposes displayed values separately from exact source values.
 When value labels are hidden, the scene makes no
 visible-scalar-label claim, but the certificate still binds the exact effective
-point. This presentation choice does not weaken the compiled projection's
-required matrix, coefficient, sign, unit, half-shunt, or omission evidence.
+point. This presentation choice does not relabel historical compiled matrix,
+coefficient, sign, unit, half-shunt, or omission evidence.
 
 Open public-pin stubs are observed from real visible geometry and terminal
 incidence, not open flags, expected maps, or placement records. Partly or
@@ -295,15 +427,18 @@ expected manifest.
 
 ### Structural witness B
 
-Witness B reconstructs visible:
+The visible-ownership part of that same witness (B) observes:
 
 - recursive visible Subsystem and Composite regions, headers, and containment;
 - each visible native leaf's and Port's owning region;
 - cross-boundary electrical incidence at visible boundary sites.
 
-Every native leaf's complete occupied symbol-and-label geometry lies in its
-owning region and outside child regions, except registered electrical crossings
-at child boundaries. For a single unlabelled crossing, witness B checks the
+Required bodies and actual boundary contacts retain their declared scope
+association. Cosmetic label overlap with a region is not a failure; missing
+required visible boundaries, wrong body ownership and incorrect conductive
+boundary incidence still fail. Complete hierarchy remains captured recursively;
+only actual visible frames/headers/bodies/boundaries are observed hierarchy.
+Captured metadata alone does not establish a new flat-rendering capability. For a single unlabelled crossing, witness B checks the
 visible wire incidence through the visible boundary; the hidden `PinRef`
 identity remains source evidence rather than an observed fact. The undrawn root
 scene envelope supplies bounds only and is not an observed B ownership region.
@@ -351,7 +486,7 @@ retains:
 - complete verified source rows for authored operators, exposures, parameters,
   buses, taps, grounding, ownership, and their provenance;
 - `plan_sha256`, `connectivity_sha256`, and `semantic_sha256`;
-- compiler lineage and `expanded_graph_sha256` for compiled views; and
+- compiler lineage and `expanded_graph_sha256` in historical compiled evidence; and
 - optional `presentation_sha256` for the frozen scene.
 
 Parameterized rendering additionally binds `parameters_sha256` for the
@@ -369,9 +504,10 @@ membership or the owner-local grounding role. Only the source-level batching
 and tuple order of `ground_pins()` are nonsemantic provenance excluded from
 physical and diagram digests.
 
-The connectivity and semantic digests are representation-tagged. The Plan,
-compiler-lineage, and expanded-graph identities retain their own existing
-encoders. `expanded_graph_sha256` binds `plan_sha256`, `node_order`,
+Existing connectivity and semantic evidence digests retain their original
+representation tags, including historical compiled records. Those tags are
+not a public request selector. Plan, compiler-lineage and expanded-graph
+identities retain their existing mathematical/source encoders. `expanded_graph_sha256` binds `plan_sha256`, `node_order`,
 `resolved_bindings`, and `expanded_branch_rows`; it does not claim that every
 solver stamp matrix is independently covered.
 
@@ -381,15 +517,23 @@ authenticity or security signature. Hiding provenance for publication changes
 presentation only; the hidden band cannot be the sole code-free acceptance
 packet.
 
-## Compiled matrix-stamp projection {#compiled-projection}
+## Retired compiled diagram boundary {#compiled-projection}
 
-A compiled transmission-line projection preserves the complete matrix-stamp
+The automatic compiled diagram public API is removed in this successor.
+The following matrix-stamp description records the mathematical/source
+boundary and historical projection meaning, not a current automatic rendering
+capability. Numerical assembly and the compiler remain maintained independently.
+
+
+A historical compiled transmission-line projection preserves the complete matrix-stamp
 expansion rather than replacing it with a scalar-equivalent circuit. The
 canonical equations, half-shunt handling, coefficient interpretation, and
 required visible evidence remain in
 [the compiled matrix-stamp implementation](../implementation/results-reports-and-diagrams.qmd#compiled-matrix-stamp-projection).
-This contract owns only how that exact emitted expansion is projected and
-independently checked for correspondence.
+That historical projection was independently checked for correspondence with
+the emitted expansion. This paragraph preserves its evidence interpretation;
+it does not provide a current rendering request or require retaining its
+automatic layout/router producer.
 
 The compiler remains a trusted numerical baseline outside A/B correspondence.
 A successful diagram audits its actual effective-point binding and visible
@@ -402,10 +546,13 @@ optimization correctness.
 Successful rendering returns one immutable `CircuitDiagramResult`. Its
 `show()` returns a real Schemdraw `Drawing` through the supported read-only
 facade. The existing `Drawing.save()` remains the static-file API; this target
-adds no second save/export surface.
+adds no second save/export surface. Capture, measurement, emission and witness
+resources are call-local. Returned drawing/layout/audit values are detached
+immutable data, not live Plan, Run, Workspace, solver or factor owners. Normal
+return, failure and interruption release those working resources.
 
-For authoring diagrams, `diagram.layout` is the immutable detached full-layout
-projection bound to this exact preparation. For compiled diagrams it is `None`.
+`diagram.layout` is the immutable detached full-layout projection bound to
+this exact preparation.
 It exposes no live electrical handles and remains readable after a live Plan
 changes. It replaces `composition` and `to_composition()`; no result method
 re-enters automatic completion. Lossless layout JSON may be read with an exact
@@ -438,9 +585,16 @@ Rendering returns no `CircuitDiagramResult` when:
   duplicate, dead or conflicting scope/occurrence/contact refs;
 - declared routes, junction arms, Port/ground poses or boundaries do not cover
   actual required inventory and contact sets;
-- actual geometry contradicts declared structural order, terminal sides or
-  explicit tee/Cross arms; or
-- bodies, labels, leaders, boundary access or wires collide or cross illegally.
+- required bodies/pins/wires are missing or routes contact the wrong actual
+  terminal anchors;
+- actual conductive incidence, junction arms, jump gaps or required visible
+  boundary contacts disagree with the captured Plan; or
+- different-net conductive overlap is indistinguishable, or a nonconductive
+  leader/guide is used to replace required wiring.
+
+Text spacing, label/body overlap and aesthetic clearance are not success
+conditions. The caller owns them and the renderer does not repair them. The
+remaining failures protect drawing integrity rather than visual taste.
 
 Those failures use `stage="schematic_layout"`. A mismatch between expected and
 independently reconstructed electrical/structural evidence uses
@@ -487,7 +641,9 @@ their current destinations without duplicating this contract.
 
 The current course completes the authored model before choosing an analysis
 question. ASCDLS translates the explicit Plan into
-an authoring or compiled diagram and independently audits that projection.
+a caller-declared authoring diagram and independently audits that projection.
+Historical compiled exports retain their original identities; they do not imply
+that the retired automatic API remains reachable.
 `CircuitRun` separately supplies `run.original` and any selected analysis View.
 Rendering may project one explicit parameter point, but it neither creates nor
 displays PTC, transformed/retained coordinates, a parameter space, solver
@@ -503,8 +659,8 @@ acceptance.
 
 - This document is a `CONVERGING` contract for an explicit-layout successor, not Human acceptance, stabilization, release, or scientific-result
   evidence.
-- Durable tests for reopened semantics wait for Human acceptance; current
-  evidence limitations are centralized in the Contract map.
+- Durable tests require explicit Human scope assignment; acceptance alone
+  does not authorize them. Current evidence limits are in the Contract map.
 - Superseded flat public authoring and catalog-hint APIs are historical
   evidence, not reachable compatibility authorities.
 - This target has no public generic netlist-to-intent inference, no

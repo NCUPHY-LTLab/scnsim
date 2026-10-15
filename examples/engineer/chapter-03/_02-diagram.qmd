@@ -16,14 +16,14 @@ from scnsim.errors import SCNSimValidationError
 
 complete_preparation = plan.prepare_schematic(
     CircuitDiagramSpec(
-        representation="authoring", theme=Theme.AUTO,
+        theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )
 complete_layout = engineer_layout(complete_preparation, "feedline_readout")
 complete_diagram = plan.render_schematic(
     CircuitDiagramSpec(
-        layout=complete_layout, representation="authoring", theme=Theme.AUTO,
+        layout=complete_layout, theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )
@@ -117,6 +117,8 @@ display(feedline_illustration.show())
 
 ![Standalone feedline subcircuit illustration.](../figures/03-feedline-illustration.svg){#fig-ch3-feedline-illustration .lightbox fig-alt="Separate illustrative Plan with two one-millimetre scalar CPW sections between terminated Ports."}
 
+{{< askr-image-view target="fig-ch3-feedline-illustration" label="Inspect circuit" >}}
+
 [Open the SVG](../figures/03-feedline-illustration.svg).
 
 :::
@@ -151,6 +153,8 @@ display(readout_illustration.show())
 ::: {.content-visible when-format="html"}
 
 ![Standalone grounded-readout subcircuit illustration.](../figures/03-readout-illustration.svg){#fig-ch3-readout-illustration .lightbox fig-alt="Separate illustrative Plan containing a 110 femtofarad capacitor and 5.8 nanohenry inductor in parallel to ground."}
+
+{{< askr-image-view target="fig-ch3-readout-illustration" label="Inspect circuit" >}}
 
 [Open the SVG](../figures/03-readout-illustration.svg).
 

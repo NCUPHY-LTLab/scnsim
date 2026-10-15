@@ -74,6 +74,8 @@ four_arm_default.show()
 
 ![Default fixed completion of the four-arm circuit.](../figures/06-four-arm-default.svg){#fig-ch6-four-arm-default .lightbox fig-alt="Four capacitor arms and terminated Ports arranged by Default schematic composition."}
 
+{{< askr-image-view target="fig-ch6-four-arm-default" label="Inspect circuit" >}}
+
 [Open the SVG](../figures/06-four-arm-default.svg)
 
 :::

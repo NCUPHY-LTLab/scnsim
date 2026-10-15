@@ -108,6 +108,8 @@ winner_diagram.audit.show()
 
 ![The same Plan rendered at the returned optimization winner.](../figures/02-optimized-winner.svg){#fig-engineer-ch2-winner .lightbox fig-alt="A terminated Port and fixed six femtofarad coupling capacitor connected directly to the public terminal of the grounded parallel resonator, labeled at the returned capacitance and fixed 5.8 nanohenry inductance."}
 
+{{< askr-image-view target="fig-engineer-ch2-winner" label="Inspect circuit" >}}
+
 [Open the winner SVG](../figures/02-optimized-winner.svg) ·
 [download the winner record](../figures/02-optimized-winner.csv).
 

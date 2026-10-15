@@ -21,8 +21,8 @@ behavior stays in Contract pages; the course teaches how to apply it.
 | 3. CPW feedline and readout S21 | Build an ordered two-section CPW feedline, couple a readout, and inspect a two-Port response | Implemented in Batch 3B |
 | 4. Four-Port capstone | Build the original physical Plan, apply PTC, then optionally retain/transform coordinates, evaluate quantities, and inspect Direct and pump-off HB on their own grids | Implemented in Batch 3B |
 | 5. Library | Package, instantiate, and reuse a Composite with deliberate public boundaries | Implemented in Batch 3C |
-| 6. Diagram customization | Review Default layout, set bounded composition hints, and read A/B correspondence | Implemented in Batch 3C |
-| 7. MTL | Author ordered multi-conductor RLGC and distinguish authoring from finite-pi compiled projections | Implemented in Batch 3C |
+| 6. Diagram customization | Declare complete manual layouts, choose cardinal poses and T/Cross junctions, and read A/B correspondence | Implemented in Batch 3C |
+| 7. MTL | Author ordered multi-conductor RLGC and declare manual geometry; retain historical finite-pi exports | Implemented in Batch 3C |
 | 8. Report and resolve | Preserve exact request, Result, report, workspace, and resolution lineage | Implemented in Batch 3C |
 
 The order is pedagogical only. It does not change the public API, numerical
@@ -44,7 +44,7 @@ The table records where each former Chapter's reviewed content now lives.
 | `08_create_library` | Chapter 5 | Introduce the immutable custom Library before its factory. |
 | `09_add_composite_factory` | Chapter 5 | Keep factory ownership, provenance, and deliberate public exposure together. |
 | `10_use_custom_component` | Chapter 5 | Follow the factory immediately with one real reuse in a parent Plan. |
-| `11_review_customize_schematic` | Chapter 6 | Keep authoring projection, A/B audit, Default completion, and explicit fixed composition in one diagram Chapter; move the four Plan-authoring refusal cases into the CircuitPlan Assembly Contract. |
+| `11_review_customize_schematic` | Chapter 6 | Keep manual authoring projection, A/B audit, complete explicit layouts, and exact-Plan layout reuse in one diagram Chapter; move the four Plan-authoring refusal cases into the CircuitPlan Assembly Contract. |
 | `12_model_n_trace_line` | Chapters 3 and 7 | Use scalar CPW continuity in Chapter 3; keep ordered multi-conductor RLGC and finite-pi evidence in Chapter 7. |
 | `13_compensate_probes` | Chapters 3 and 4 | Use a reduced two-Port feedline/readout declaration as the Chapter 3 destination; keep the original four-Port physical Plan and PTC core in Chapter 4. |
 | `14_transform_retain` | Chapter 4 | Make transform/retain an optional continuation after the original Plan and PTC are understood. |
@@ -120,8 +120,9 @@ Neither Chapter changes renderer behavior or creates a new success condition.
 - Chapter 7 evaluates the exact ordered N=2 RLGC model at the baseline,
   1.8 mm, and whole-C-matrix ×170/175 points on the declared three-sample grid.
   Every Result records all sixteen labeled four-Port channels; the public plots
-  show only the named readout-head reflection example. Authoring and finite-pi
-  compiled diagrams both remain typed layout failures, with no substitute SVG.
+  show only the named readout-head reflection example. The original authoring
+  and finite-pi compiled exports record typed layout failures without substitute
+  SVGs; they are historical outcomes, not successor executions.
 - Chapter 7 Lesson 5 is a separate source/notebook execution unit. Its moving
   middle attachment keeps two line bodies and their wiring fixed while x and
   8 mm − x produce point-owned electrical-resolution grids. Its three-position

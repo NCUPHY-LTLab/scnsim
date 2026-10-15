@@ -49,9 +49,9 @@ stand in for an analysis Result.
 network and the structure the author deliberately assigned to it. The same
 authored Plan is the source for two independent uses:
 
-1. The Automatic Semantic Circuit Diagram Layout System (ASCDLS) captures an
+1. Manual circuit diagram preparation captures an
    immutable snapshot without sealing or mutating the authoring object, then
-   derives an authoring or compiled diagram and checks its correspondence.
+   realizes caller-declared geometry and checks actual-scene correspondence.
 2. `CircuitRun` separately seals the Plan for analysis and supplies
    `run.original`; an analysis may keep that original network or derive a
    `NetworkViewRef`, then submit a Solve, Evaluate, or Optimization request.
@@ -273,8 +273,8 @@ local grounds, Ports, physical couplings, ownership regions, and visible
 cross-boundary incidence. It does not cover the schematic with operator IDs,
 link-call history, bus/tap names, or exposure metadata. Those complete authored
 facts remain separately available in the audit's verified source rows. The
-compiled diagram instead explains deterministic compiler expansion. Neither
-projection is another circuit definition.
+historical compiled diagram explained deterministic compiler expansion; its
+automatic producer is retired. No drawing is another circuit definition.
 
 ### Declare drawing geometry without reauthoring the circuit
 
@@ -293,18 +293,20 @@ diagram refs can address captured Composite interiors for drawing but cannot
 mutate or expose electrical handles. A plain Python helper may construct fresh
 layouts from each instance's inventory without another template registry.
 
-Routes bind real contacts and explicit junction arms. Native fixed bodies keep
-intrinsic contacts under whole-body cardinal poses. Labels and analysis leaders
-retain captured content and actual contact attachment. Existing owner-aware
-obstacle, terminal-access and independent actual-ink checks remain responsible
-for collisions, crossings and electrical correspondence.
+Routes bind real contacts and explicit junction arms. Native cardinal poses
+may request supported body spans; one measurement authority supplies actual
+pin anchors. Labels and analysis leaders retain captured content and attachment.
+Text/body overlap and aesthetic spacing are caller-owned. Missing bodies,
+wrong-pin contact, missing wires and ambiguous conductive crossings remain
+integrity failures under one actual-scene witness; source labels cannot replace
+a missing conductive path.
 
 `diagram.layout` is the readonly full layout bound to exact Plan, parameters,
 font metrics and presentation source. Lossless JSON requires a matching new
 preparation and rendering/certification. Another point or instance needs fresh
 refs and helper output; there is no automatic composition snapshot adapter.
-Numerical use and compiled projection remain independent of this authoring
-geometry. Exact public operations belong to the single
+Numerical use remains independent of drawing geometry; historical compiled
+exports do not retain an automatic producer. Exact public operations belong to the single
 [layout contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd#schematic-composition).
 
 ### Keep composition checks separate from circuit review
@@ -313,7 +315,7 @@ Authoring labels are readable projections, not rounded model inputs. Scalar
 values use six significant digits with Decimal half-even rounding and supported
 engineering prefixes; exact values remain in source evidence. The audit checks
 the displayed text and units in that same display projection, not a numerical
-tolerance. Compiled scientific coefficients retain their exact evidence path.
+tolerance. Numerical compiler coefficients retain their exact evidence path.
 
 An N=1 CPW Box shows kind/local ID, length when values are enabled, and
 the section count (`1 section` or `<N> sections`) always. Its two visible ends
@@ -327,7 +329,7 @@ ink and terminal incidence; a cut required wire is not an open-pin exception.
 Review remains three separate questions:
 
 1. **A — electrical correspondence:** do visible bodies, terminals, wires,
-   grounds, Ports, couplings, and enabled values match the declared or compiled
+   grounds, Ports, couplings, and enabled values match the captured Plan
    electrical evidence?
 2. **B — visible ownership correspondence:** do visible regions, containment,
    leaf and Port ownership, and boundary crossings match the expected visible

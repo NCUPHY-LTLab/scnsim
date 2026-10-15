@@ -15,7 +15,7 @@ from examples.engineer.diagram_layouts import engineer_layout
 
 capstone_preparation = plan.prepare_schematic(
     CircuitDiagramSpec(
-        representation="authoring", theme=Theme.AUTO,
+        theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )
@@ -33,7 +33,7 @@ layout does not shortcut their distinct parent-local groups.
 #| id: ch4-render-explicit-capstone
 capstone = plan.render_schematic(
     CircuitDiagramSpec(
-        layout=capstone_layout, representation="authoring", theme=Theme.AUTO,
+        layout=capstone_layout, theme=Theme.AUTO,
         show_parameter_values=True, show_provenance=True,
     )
 )
@@ -43,6 +43,8 @@ capstone.show()
 ::: {.content-visible when-format="html"}
 
 ![Certified authoring diagram of the exact four-Port physical Plan.](../figures/04-explicit-capstone.svg){#fig-ch4-explicit-capstone .lightbox fig-alt="Four-Port capstone with a two-section feedline, grounded readout, floating pair, three coupling capacitors, and separate right-side probe outputs."}
+
+{{< askr-image-view target="fig-ch4-explicit-capstone" mode="inline" >}}
 
 [Open the SVG](../figures/04-explicit-capstone.svg).
 
