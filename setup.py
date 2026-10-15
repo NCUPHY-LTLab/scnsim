@@ -16,7 +16,7 @@ class OrderedBuildExt(build_ext):
                  else ['-std=c++17', '-fno-fast-math', '-ffp-contract=off'])
         for extension in self.extensions:
             extension.extra_compile_args = list(flags)
-        self.announce(f'SCNSim ordered kernel compiler={self.compiler.compiler_type} flags={flags!r}', level=2)
+        print(f'SCNSim ordered kernel compiler={self.compiler.compiler_type} flags={flags!r}', flush=True)
         super().build_extensions()
 
 setup(cmdclass={'build_ext': OrderedBuildExt}, ext_modules=[Extension(
