@@ -1,7 +1,7 @@
 """SQLite authority for one bound Plan leaf's operation evidence.
 
 The caller retains the Plan lock before entering this store. This module then
-owns the operation flock and native SQLite transaction, in that order. Canonical
+owns the platform operation lock and native SQLite transaction, in that order. Canonical
 payload meaning, numerical artifacts, callbacks and resumable generation policy
 belong to the adapter; no computation or callback runs inside a transaction.
 Readers use native mode=ro and never recover implicitly. Object digests identify
@@ -10,7 +10,6 @@ exact immutable bytes, not the mutable database file or an absolute location.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -28,6 +27,7 @@ from ..errors import (
     WorkspaceRecoveryRequiredError,
 )
 from ..numeric_encoding import record_bytes, record_document
+from ._os_io import lock_fd, unlock_fd
 from .storage import _fsync_directory
 
 _DATABASE = "operations.sqlite3"
@@ -203,13 +203,29 @@ class OperationStore:
         path = self.root / ".scnsim.lock"
         flags = (os.O_RDWR | os.O_CREAT) if exclusive else os.O_RDONLY
         descriptor = os.open(path, flags | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        acquired = False
         try:
             with self._scope("sqlite_lock_wait", {"exclusive": exclusive}):
-                fcntl.flock(descriptor, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+                lock_fd(descriptor, exclusive=exclusive)
+            acquired = True
             yield
         finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-            os.close(descriptor)
+            primary = sys.exc_info()[1]
+            try:
+                if acquired:
+                    unlock_fd(descriptor)
+            except BaseException as error:
+                if primary is None:
+                    primary = error
+                    raise
+                _secondary(primary, "Operation lock release", error)
+            finally:
+                try:
+                    os.close(descriptor)
+                except BaseException as error:
+                    if primary is None:
+                        raise
+                    _secondary(primary, "Operation lock close", error)
 
     def _connect(self, *, mode: str) -> sqlite3.Connection:
         self._check_paths()

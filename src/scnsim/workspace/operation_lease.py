@@ -3,8 +3,10 @@
 The root activity inode is distinct from SQLite and Plan locks. An operation
 holds a shared lease from before runtime preparation through result decoding;
 replaceable-leaf mutation takes the exclusive side. Native supervisors may
-inherit a duplicate descriptor so a surviving kernel continues to pin the leaf
-after its parent exits. A second, stable request-hash lease serializes exact
+inherit a duplicate descriptor on supported Unix supervisors so a surviving
+kernel continues to pin the leaf after its parent exits. Windows JAX retains
+its original locked handles through drain; fd duplication does not imply
+Unix inheritance semantics. A second, stable request-hash lease serializes exact
 cache selection and attempt publication without holding a Workspace lock over
 the numerical call.
 """
@@ -13,14 +15,11 @@ from __future__ import annotations
 import os
 import re
 import stat
-import sys
 from pathlib import Path
 from uuid import UUID
 
-if sys.platform in {"linux", "darwin"}:
-    import fcntl
-
-from ..errors import EvidenceIntegrityError, UnsupportedRuntimePlatformError
+from ..errors import EvidenceIntegrityError
+from ._os_io import lock_fd, unlock_fd, require_workspace_platform
 
 _LOCK_NAME = ".scnsim-operation-lease.lock"
 _OPERATION_LOCKS = ".scnsim-operation-leases"
@@ -63,12 +62,7 @@ def _operation_id_text(operation_id: str) -> str:
 
 
 def _open(root: Path) -> int:
-    if sys.platform not in {"linux", "darwin"}:
-        raise UnsupportedRuntimePlatformError(
-            "Workspace operation leases are supported only on Linux and macOS.",
-            stage="operation_lease",
-            evidence={"platform": sys.platform},
-        )
+    require_workspace_platform(stage="operation_lease")
     if root.is_symlink() or not root.is_dir():
         raise EvidenceIntegrityError(
             "Workspace operation lease root is missing or symlinked.",
@@ -127,7 +121,7 @@ def _open_operation(root: Path, operation_id: str) -> int:
 
 
 class OperationLease:
-    """One locked descriptor; closing it releases only this descriptor's lease."""
+    """Own root/operation locks through drain; Unix duplicates have native lifetime."""
 
     __slots__ = ("operation_id", "root", "_root_descriptor", "_operation_descriptor", "_entered")
 
@@ -179,9 +173,9 @@ class OperationLease:
         root_descriptor = _open(self.root)
         operation_descriptor = -1
         try:
-            fcntl.flock(root_descriptor, fcntl.LOCK_SH)
+            lock_fd(root_descriptor, exclusive=False)
             operation_descriptor = _open_operation(self.root, self.operation_id)
-            fcntl.flock(operation_descriptor, fcntl.LOCK_EX)
+            lock_fd(operation_descriptor, exclusive=True)
         except BaseException as original:
             _close_descriptors(
                 (operation_descriptor, root_descriptor),
@@ -199,8 +193,9 @@ class OperationLease:
         root_descriptor = self._root_descriptor
         self._operation_descriptor = -1
         self._root_descriptor = -1
-        # Do not issue LOCK_UN. A supervisor duplicate must retain each lease
-        # until its owned native process tree has drained.
+        # Unix supervisor duplicates retain the lease through native drain.
+        # Windows JAX has no supervisor duplicate; closing its owned handles
+        # releases their native ranges after the operation has drained.
         _close_descriptors(
             (operation_descriptor, root_descriptor),
             primary_error=error,
@@ -273,7 +268,7 @@ class RequestExecutionLease:
                     "Request execution lease is not a regular file.",
                     stage="request_lease", evidence={"path": str(path)},
                 )
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            lock_fd(descriptor, exclusive=True)
             self._binding.assert_current()
             if Path(self._binding.leaf) != self.leaf:
                 raise EvidenceIntegrityError(
@@ -292,8 +287,8 @@ class RequestExecutionLease:
     def __exit__(self, _kind, error, _traceback) -> None:
         descriptor = self._descriptor
         self._descriptor = -1
-        # A native supervisor may hold a duplicate until the process tree drains.
-        # Closing this descriptor releases only the caller's reference.
+        # Supported Unix supervisors may retain a duplicate through drain.
+        # Windows JAX releases its original native handle at this boundary.
         _close_descriptors(
             (descriptor,), primary_error=error,
             context="Request execution lease release",
@@ -317,7 +312,7 @@ class _IdleOperationLease:
     def __enter__(self):
         descriptor = _open_operation(self.root, self.operation_id)
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_fd(descriptor, exclusive=True, nonblocking=True)
         except BlockingIOError:
             os.close(descriptor)
             return self
@@ -350,7 +345,7 @@ class _ExclusiveActivityLease:
     def __enter__(self):
         descriptor = _open(self.root)
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            lock_fd(descriptor, exclusive=True)
         except BaseException:
             os.close(descriptor)
             raise
@@ -361,8 +356,19 @@ class _ExclusiveActivityLease:
         descriptor = self.descriptor
         self.descriptor = -1
         if descriptor >= 0:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-            os.close(descriptor)
+            primary = _error
+            try:
+                unlock_fd(descriptor)
+            except BaseException as error:
+                if primary is None:
+                    primary = error
+                    raise
+                primary.add_note(f"Activity lease unlock also failed: {error!r}")
+            finally:
+                _close_descriptors(
+                    (descriptor,), primary_error=primary,
+                    context="Activity lease release",
+                )
 
 
 def _exclusive_activity_lease(root: Path) -> _ExclusiveActivityLease:
