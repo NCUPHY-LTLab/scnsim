@@ -111,11 +111,58 @@ parallel. This deliberately simple ceiling avoids two processes selecting the
 same next attempt number or sealing competing successes. Per-request locking
 is considered only if measured same-workspace throughput requires it.
 
-On Linux and macOS the stable root permanently retains `.scnsim.lock` and uses
-stdlib `fcntl.flock`: writers take an exclusive lock and `resolve()` takes a
-shared lock. The file is never deleted or replaced; normal exit, crash, or
-process termination releases the kernel-held lock. Windows fails before any
-workspace mutation.
+The stable root permanently retains `.scnsim.lock`: writers take an exclusive
+lock and `resolve()` takes a shared lock. Linux and macOS use stdlib
+`fcntl.flock`. The Windows JAX candidate uses `LockFileEx`/`UnlockFileEx` over
+one byte at offset zero of the same dedicated lock file for every consumer.
+Blocking acquisition waits in the native API; only the idle probe requests
+nonblocking acquisition, and only native lock-contention error 33 means busy.
+Other native errors remain failures with their causes. Lock files are never
+deleted or replaced. Each call owns its handle through its scope and releases
+it on close; process-exit release belongs to the operating system.
+
+Root activity, per-operation, request-selection and store locks keep their
+existing order and distinct lifetimes. Unix supervisor descriptor duplication
+retains its existing semantics; Windows handles do not imply Linux open-file-
+description inheritance. The Windows JAX path retains the original handles
+through numerical drain and Result construction. Julia's Windows supervisor
+remains unsupported.
+
+Filesystem paths use `Path`; SQLite readonly connections use the absolute
+path's `as_uri()` with `mode=ro`, including drive roots, spaces and Unicode.
+Saved artifact keys remain normalized POSIX-relative logical names and are
+converted to platform paths only at the filesystem boundary. A drive or rooted
+path cannot escape the bound evidence root. Publication durability is a
+separate platform boundary; acquiring a Windows lock is not a claim that a
+POSIX directory `fsync` is available there.
+
+The private Workspace OS-I/O authority owns those native calls. Unix retains
+its existing file `fsync`, atomic `os.replace`, and directory `fsync` sequence.
+Windows flushes a written regular-file handle with `FlushFileBuffers` and
+publishes files/directories with `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`;
+`COPY_ALLOWED` is never set, so cross-volume moves do not become a copy/delete
+publication. Existing directory barriers obtain a real writable directory
+handle with `CreateFileW(..., FILE_FLAG_BACKUP_SEMANTICS, ...)` and call
+`FlushFileBuffers` on it. Handles close on every path. Unsupported-handle,
+permission, move and flush errors remain visible native errors, with no no-op
+or fallback; a successful file move does not assert that unrelated directory
+mutations were flushed. The Windows candidate requires actual saved-operation
+observations before a working-platform claim, and neither platform's API calls
+establish arbitrary hardware power-loss behavior.
+
+For the logical active pointer, POSIX uncertainty begins after successful
+replace if the subsequent barrier or exact-state confirmation fails. Windows
+also treats a native failure returned by an issued combined write-through
+move as indeterminate, because the API does not expose rename and flush as
+separate outcomes. The existing commit-indeterminate owner retains Plan/seal
+responsibility and the actual native cause; earlier path/write/file-flush
+failures are not promoted to that class.
+
+See Microsoft's [LockFileEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex),
+[MoveFileExW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw),
+and [FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)
+contracts for the native boundary rather than inferring cross-platform handle
+inheritance or POSIX directory durability.
 
 For native Julia, short writer-lock scopes cover Plan binding or replacement,
 attempt-ordinal allocation, and verified artifact/receipt publication. The
@@ -283,8 +330,11 @@ evidence rather than an alternate spelling.
 
 Julia writes only inside that staging directory. Python validates the outcome
 and allowed artifacts, writes
-`receipt.json` last, fsyncs the written files and directories, then atomically
-renames the staging directory to the final ordinal name on the same filesystem.
+`receipt.json` last, flushes the written files and directories through the
+platform authority, then atomically publishes the staging directory to the
+final ordinal name on the same filesystem. Unix retains its existing
+rename/fsync sequence; Windows uses the native write-through move and real
+directory barrier described above.
 
 A valid `outcome.json`, logs, and referenced artifacts move with that rename;
 the receipt records the outcome SHA-256. Invalid raw outcome bytes may be moved

@@ -1,4 +1,9 @@
-"""Exact workspace file publication and decoding primitives."""
+"""Exact workspace publication, native durability barriers and decoding.
+
+The OS-I/O authority owns native platform calls. This module retains staging,
+logical-pointer uncertainty and exact-state confirmation; a native barrier
+failure cannot be relabeled as a successful publication.
+"""
 
 from __future__ import annotations
 
@@ -6,11 +11,13 @@ import json
 import os
 import re
 import shutil
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
 from ..canonical import canonical_json_bytes as _canonical_bytes
+from ._os_io import replace_path, sync_directory, sync_fd
 from .validation.common import _integrity
 
 _ATTEMPT = re.compile(r"^(?!000000$)(?:[0-9]{6}|[1-9][0-9]{6,})$")
@@ -67,15 +74,15 @@ def _atomic_write(path: Path, data: bytes) -> None:
         with temporary.open("xb") as handle:
             handle.write(data)
             handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
+            sync_fd(handle.fileno())
+        replace_path(temporary, path)
         _fsync_directory(path.parent)
     finally:
         if temporary.exists():
             temporary.unlink()
 
 class _WorkspacePublishIndeterminate(Exception):
-    """The active-pointer replace succeeded but its directory fsync did not."""
+    """The active pointer may be published but its durable tail is unconfirmed."""
 
 def _publish_workspace_state(path: Path, data: bytes) -> None:
     """Publish the logical workspace commit with a distinct uncertain tail."""
@@ -84,12 +91,21 @@ def _publish_workspace_state(path: Path, data: bytes) -> None:
         raise _integrity("Evidence write target must not traverse a symlink.", path=str(path))
     temporary = path.with_name(f".{path.name}.tmp-{uuid.uuid4()}")
     replaced = False
+    uncertain = False
     try:
         with temporary.open("xb") as handle:
             handle.write(data)
             handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
+            sync_fd(handle.fileno())
+        try:
+            replace_path(temporary, path)
+        except OSError as error:
+            if getattr(error, "_scnsim_move_issued", False):
+                # Windows combines rename and write-through without a separate
+                # rename-completed result. Retain possible publication state.
+                uncertain = True
+                raise _WorkspacePublishIndeterminate from error
+            raise
         replaced = True
         try:
             _fsync_directory(path.parent)
@@ -101,25 +117,21 @@ def _publish_workspace_state(path: Path, data: bytes) -> None:
         except BaseException as exc:
             raise _WorkspacePublishIndeterminate from exc
     finally:
-        if not replaced and temporary.exists():
+        if not replaced and not uncertain and temporary.exists():
             temporary.unlink()
 
 def _fsync_directory(path: Path) -> None:
     if path.is_symlink():
         raise _integrity("Evidence directory must not be a symlink.", path=str(path))
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    sync_directory(path)
 
 def _fsync_tree(path: Path) -> None:
     for child in sorted(path.rglob("*")):
         if child.is_symlink():
             raise _integrity("Evidence tree contains a symlink.", path=str(child))
         if child.is_file():
-            with child.open("rb") as handle:
-                os.fsync(handle.fileno())
+            with child.open("r+b" if sys.platform == "win32" else "rb") as handle:
+                sync_fd(handle.fileno())
     for directory in sorted((node for node in path.rglob("*") if node.is_dir()), reverse=True):
         _fsync_directory(directory)
     _fsync_directory(path)

@@ -97,10 +97,13 @@ def _slug(entry: dict[str, str]) -> str:
     return entry["root"].removeprefix(PREFIX).rstrip("/")
 
 
-def _manifest(catalog: dict[str, object]) -> bytes:
+def _manifest(catalog: dict[str, object], current_slug: str) -> bytes:
     versions = []
     for entry in _entries(catalog):
-        row: dict[str, object] = {"label": entry["label"], "root": entry["root"]}
+        # Askr resolves roots from this version directory, not the origin.
+        slug = _slug(entry)
+        root = "./" if slug == current_slug else f"../{slug}/"
+        row: dict[str, object] = {"label": entry["label"], "root": root}
         versions.append(row)
     return (json.dumps({"mode": "inline", "versions": versions}, indent=2) + "\n").encode()
 
@@ -277,7 +280,6 @@ def _assemble(catalog: dict[str, object], template: Path, sources: Path, develop
     for entry in entries:
         source_sha = develop_sha if entry["kind"] == "development" else entry["commit"]
         sites[_slug(entry)] = _inspect(sources / _slug(entry), entry, source_sha, presentation_sha)
-    manifest = _manifest(catalog)
     root_html = template.read_text(encoding="utf-8")
     root_html = root_html.replace("{{DEV_SLUG}}", escape(_slug(entries[0]))).replace("{{DEV_LABEL}}", escape(entries[0]["label"]))
     if "{{" in root_html:
@@ -287,7 +289,7 @@ def _assemble(catalog: dict[str, object], template: Path, sources: Path, develop
     try:
         for slug, site in sites.items():
             shutil.copytree(site, temporary / slug)
-            (temporary / slug / "askr-versions.json").write_bytes(manifest)
+            (temporary / slug / "askr-versions.json").write_bytes(_manifest(catalog, slug))
         (temporary / "index.html").write_text(root_html, encoding="utf-8")
         not_found = _missing_page(catalog)
         (temporary / "404.html").write_text(not_found, encoding="utf-8")

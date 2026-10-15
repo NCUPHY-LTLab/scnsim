@@ -154,16 +154,28 @@ Continue with the [Engineer course](docs/index.qmd).
 ## Install
 
 The 1.0 beta is distributed through [GitHub Releases](https://github.com/OrPenStrike/scnsim/releases).
-Choose the matching CPython 3.12 wheel for Linux x86_64 or macOS arm64:
+Choose a matching CPython 3.12 wheel for Linux x86_64, macOS arm64, or Windows
+x86_64 (AMD64). The Windows CPU-JAX wheel supports both in-memory and Workspace
+operations; Windows ARM, GPU, and Julia execution are not included.
 
-```bash
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python /path/to/scnsim-wheel.whl
+For a Windows consuming repository, its maintainer configures the matching
+prebuilt SCNSim wheel as the package source and updates that repository's
+`uv.lock`. Once configured, users install from the repository with:
+
+```powershell
+uv sync
 ```
 
-A matching prebuilt SCNSim wheel does not require a C++ compiler. Installing
-from source requires a C++17 toolchain. For a notebook environment, source
-installation and optional backends, see the
+The pure-Python `asciitree` dependency may be installed from its source
+distribution; it has no native extension or custom build. Other native
+dependencies remain wheel-only. Installing a matching prebuilt SCNSim wheel
+does not require a C++ compiler. Installing SCNSim from source requires a
+C++17 toolchain. Depending on the wheel's MSVC runtime requirements, Windows
+may also need the matching Microsoft Visual C++ Redistributable, separate from
+the compiler tools; see
+[Microsoft's supported Redistributable guidance](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170).
+For the CPU JAX backend, see the [JAX CPU installation notes](https://docs.jax.dev/en/latest/installation.html#cpu).
+For a notebook environment, source installation and optional backends, see the
 [setup guide](examples/engineer/setup.qmd). Julia-only features use explicit
 backend selection and a separately provided Julia installation; see
 [Direct and HB realizations](docs/concepts/direct-and-hb-realizations.qmd).
