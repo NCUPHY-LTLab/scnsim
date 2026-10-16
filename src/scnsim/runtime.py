@@ -1676,16 +1676,9 @@ class CircuitRun:
         """Apply the selected-View contract shared by evaluate and CMA selectors."""
 
         if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
-            lineage = ref._lineage
-            if lineage.get("ptc") is not None or lineage.get("retain") is not None:
-                raise RuntimePreparationError(
-                    "Static capacitance requires the original or coordinate-transform-only View",
-                    stage="preflight")
-            # Public handles retain ownership checks. Returned canonical static
-            # axis strings bind against the compiler's full same-point basis.
-            zero_charge = tuple(self._static_coordinate_id(ref, value) for value in spec.zero_charge)
-            if len(set(zero_charge)) != len(zero_charge):
-                raise SCNSimValidationError("zero_charge coordinates must be unique", stage="preflight")
+            # View binding owns public-coordinate retention and PTC lineage.
+            # An element binds after the same compiled static partition; full
+            # View elements may still address returned finite-mesh axis IDs.
             if isinstance(spec, StaticCapacitanceElementSpec):
                 for value in (spec.row, spec.column):
                     self._static_coordinate_id(ref, value)

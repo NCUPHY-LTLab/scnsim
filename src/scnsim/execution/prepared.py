@@ -305,9 +305,9 @@ def _quantity_coordinates(
     if isinstance(spec, ResponseElementSpec):
         return spec.input_coordinate, spec.output_coordinate
     if isinstance(spec, StaticCapacitanceElementSpec):
-        return (*spec.zero_charge, spec.row, spec.column)
+        return spec.row, spec.column
     if isinstance(spec, StaticCapacitanceSpec):
-        return spec.zero_charge
+        return ()
     if isinstance(spec, OperatorSpec):
         return ()
     raise TypeError("unsupported Direct quantity Spec")
@@ -519,8 +519,7 @@ def _encode_direct_quantity(
             ),
         }
     if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
-        record = {"type": "static_capacitance", "zero_charge": [
-            _bound_coordinate_id(value, coordinate_bindings) for value in spec.zero_charge]}
+        record = {"type": "static_capacitance"}
         if isinstance(spec, StaticCapacitanceElementSpec):
             record.update(type="static_capacitance_element",
                           row=_bound_coordinate_id(spec.row, coordinate_bindings),

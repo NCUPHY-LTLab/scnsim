@@ -329,11 +329,11 @@ def compile_quantity_program(plan_document, quantity_declarations, parameter_set
         zero_charge_indices, retained_indices = (), ()
         coordinates = view.terminal_ids
         if kind in ('static_capacitance_projection', 'static_capacitance_element_projection'):
-            if declaration.get('retain') or declaration.get('ptc'):
-                raise TypeError('static capacitance requires an original or transform-only View')
             descriptor_kind = spec['type']
-            zero_charge_indices = tuple(view.node_ids.index(name) for name in spec['zero_charge'])
-            retained_indices = tuple(i for i in range(len(view.node_ids)) if i not in zero_charge_indices)
+            # The View alone owns the ordered partition. For this Spec the
+            # complement carries q_e=0; PTC's resistive load mask is inert for C.
+            retained_indices = view.selected if view.retained else tuple(range(len(view.node_ids)))
+            zero_charge_indices = view.eliminated if view.retained else ()
             coordinates = tuple(view.node_ids[i] for i in retained_indices)
             grid, unit, complex_output = (), 'farad', False
             if kind == 'static_capacitance_projection':
@@ -417,7 +417,7 @@ def compile_quantity_program(plan_document, quantity_declarations, parameter_set
             'si_unit': unit, 'raw_si_unit': raw_unit, 'hidden': hidden,
             'start_index': branches[0] if branches else None, 'primal_locator': locator,
             **({'row_coordinates': list(coordinates), 'column_coordinates': list(coordinates),
-                'zero_charge': list(spec['zero_charge']),
+                'zero_charge': [view.node_ids[i] for i in zero_charge_indices],
                 'coordinate_order': list(view.node_ids),
                 'original_coordinate_order': list(model.node_ids),
                 'coordinate_transform_locator': {'kind': 'static_facts', 'observable_index': index},

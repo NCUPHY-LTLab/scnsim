@@ -1229,8 +1229,8 @@
       "required": ["type", "frequencies"],
       "properties": { "type": { "const": "operator" }, "frequencies": { "$ref": "#/$defs/frequencyGrid" } }
     },
-    "staticCapacitanceSpec": {"type": "object", "additionalProperties": false, "required": ["type", "zero_charge"], "properties": {"type": {"const": "static_capacitance"}, "zero_charge": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}}}},
-    "staticCapacitanceElementSpec": {"type": "object", "additionalProperties": false, "required": ["type", "zero_charge", "row", "column"], "properties": {"type": {"const": "static_capacitance_element"}, "zero_charge": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}}, "row": {"$ref": "#/$defs/identifier"}, "column": {"$ref": "#/$defs/identifier"}}},
+    "staticCapacitanceSpec": {"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"const": "static_capacitance"}}},
+    "staticCapacitanceElementSpec": {"type": "object", "additionalProperties": false, "required": ["type", "row", "column"], "properties": {"type": {"const": "static_capacitance_element"}, "row": {"$ref": "#/$defs/identifier"}, "column": {"$ref": "#/$defs/identifier"}}},
     "directEvaluationSpec": {
       "oneOf": [
         { "$ref": "#/$defs/diagonalRootSpec" },
