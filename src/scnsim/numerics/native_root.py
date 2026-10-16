@@ -286,7 +286,7 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
         status = first(status, determinant_status != 0, determinant_status)
         prior_status = status
         U, singular, Vh = jax.lax.cond(status == 0,
-            lambda matrix: jnp.linalg.svd(matrix, full_matrices=False),
+            lambda matrix: tuple(jnp.linalg.svd(matrix, full_matrices=False)),
             lambda matrix: (jnp.zeros_like(matrix), jnp.zeros((width,), dtype=rd), jnp.zeros_like(matrix)),
             state.F)
         rank_ok = jnp.asarray(False) if width < 2 else ((singular[0] > 0) &
