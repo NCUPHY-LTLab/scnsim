@@ -172,18 +172,36 @@ def _output_coordinate_labels(
 
 
 def _failure_text(block: object) -> str:
+    """Present recorded failure fields without inferring a numerical cause.
+
+    Keep the existing kind/stage/message summary. Structured producer reasons
+    and other recorded fields remain explicit, including their nested context.
+    Full original failure metadata is retained separately by the renderer.
+    """
     reason = getattr(block, "failure", None)
     if not isinstance(reason, Mapping):
-        return ""
+        return "" if reason is None else str(reason)
+
+    def recorded(value):
+        if isinstance(value, Mapping):
+            return "{" + "; ".join(f"{key}: {recorded(item)}" for key, item in value.items()) + "}"
+        if isinstance(value, (tuple, list)):
+            return "[" + "; ".join(recorded(item) for item in value) + "]"
+        return str(value)
+
     kind = reason.get("kind")
     stage = reason.get("stage")
     message = reason.get("message")
+    message_field = "message"
     if message is None:
         message = reason.get("detail")
+        message_field = "detail"
     location = " @ ".join(str(item) for item in (kind, stage) if item is not None)
-    if message is None:
-        return location
-    return f"{location}: {message}" if location else str(message)
+    summary = location if message is None else f"{location}: {message}" if location else str(message)
+    summarized = {"kind", "stage", message_field}
+    remaining = "; ".join(f"{key}={recorded(value)}" for key, value in reason.items()
+                          if key not in summarized and value is not None)
+    return "; ".join(part for part in (summary, remaining) if part)
 
 
 def _required_values(block: object) -> np.ndarray:
@@ -410,11 +428,86 @@ def _value_table(
     return _table_figure(go, headers, columns, meta)
 
 
+def _jacobian_display(block, *, output_unit, output_units, parameter_units_by_key,
+                      normalized, normalized_scales):
+    """One unit/normalization authority for block and overview presentation.
+
+    Unavailable rows retain their declared units without manufacturing values.
+    The operation owns returned arrays; no Result or reader cache is retained.
+    """
+    values = (_required_values(block).reshape((-1, len(block.parameters)))
+              if block.status == "complete" else None)
+    if normalized and values is not None:
+        values = block.normalized(
+            input_scales=normalized_scales[0],
+            output_scales=normalized_scales[1],
+        ).reshape((-1, len(block.parameters)))
+    parameter_si_units = [parameter.spec.si_unit for parameter in block.parameters]
+    parameter_display_units = [
+        parameter_units_by_key.get(
+            (parameter.definitions_id, parameter.id), parameter.spec.si_unit
+        )
+        for parameter in block.parameters
+    ]
+    if normalized:
+        display_values = values
+        ratio_units = [[units.registry.Unit("dimensionless")] * len(block.parameters)
+                       for _ in block.output_coordinates]
+        cell_units = [["dimensionless"] * len(block.parameters) for _ in block.output_coordinates]
+        output_display_units = ["dimensionless"] * len(block.output_coordinates)
+        parameter_display_units = ["normalized input"] * len(block.parameters)
+    else:
+        display_values = (np.empty_like(values, dtype=np.result_type(values, np.float64))
+                          if values is not None else None)
+        output_display_units = []
+        cell_units = []
+        ratio_units = []
+        for row, coordinate in enumerate(block.output_coordinates):
+            source_output_unit = block.row_units[row] if block.row_units else block.output_unit
+            target_output_unit = (
+                output_units.get(coordinate, source_output_unit)
+                if output_units is not None
+                else output_unit or source_output_unit
+            )
+            _require_angular_unit_convention(
+                source_output_unit,
+                target_output_unit,
+                context="Jacobian output display unit",
+            )
+            output_display_units.append(target_output_unit)
+            row_cell_units = []
+            row_ratios = []
+            for column, parameter in enumerate(block.parameters):
+                target_parameter_unit = parameter_display_units[column]
+                _require_angular_unit_convention(
+                    parameter_si_units[column],
+                    target_parameter_unit,
+                    context="Jacobian parameter display unit",
+                )
+                source_ratio = (
+                    units.registry.Unit(source_output_unit)
+                    / units.registry.Unit(parameter_si_units[column])
+                )
+                target_ratio = (
+                    units.registry.Unit(target_output_unit)
+                    / units.registry.Unit(target_parameter_unit)
+                )
+                if display_values is not None:
+                    converted = units.registry.Quantity(values[row, column], source_ratio).to(target_ratio)
+                    display_values[row, column] = converted.magnitude
+                row_ratios.append(target_ratio)
+                row_cell_units.append(f"{target_ratio:~P}")
+            cell_units.append(row_cell_units)
+            ratio_units.append(row_ratios)
+    return display_values, cell_units, output_display_units, parameter_display_units, ratio_units
+
+
 def sensitivity_plot(
     result: Any,
     *,
     kind: str,
-    block_id: str,
+    block_id: str | None = None,
+    quantities: Sequence[str] | None = None,
     style: _STYLE = "auto",
     output_unit: str | None = None,
     output_units: Mapping[OutputCoordinate, str] | None = None,
@@ -425,7 +518,11 @@ def sensitivity_plot(
     output_scales: Mapping[OutputCoordinate, Quantity] | None = None,
     theme: Theme = Theme.AUTO,
 ) -> Any:
-    """Render exactly one selected saved block from the requested operation."""
+    """Render one saved block or an ordered Jacobian quantity overview.
+
+    Exactly one selection route is required. Quantity selection reads only its
+    named saved blocks and never requests missing derivatives or numerical work.
+    """
 
     if kind not in {"jacobian", "jvp", "vjp"}:
         raise ValueError("kind must be 'jacobian', 'jvp', or 'vjp'")
@@ -450,6 +547,18 @@ def sensitivity_plot(
     if kind != "jacobian" and output_units is not None:
         raise ValueError("output_units apply only to a Jacobian block")
 
+    if (block_id is None) == (quantities is None):
+        raise ValueError("select exactly one of block_id or quantities")
+    if quantities is not None:
+        if kind != "jacobian":
+            raise ValueError("quantities selection applies only to Jacobian plots")
+        from .sensitivity_overview import jacobian_overview
+        return jacobian_overview(
+            result, quantities=quantities, style=style, output_unit=output_unit,
+            output_units=output_units, parameter_units=parameter_units,
+            parameter_labels=parameter_labels, normalized=normalized,
+            input_scales=input_scales, output_scales=output_scales, theme=theme,
+        )
     go, _, _ = _plotly()
     operation = getattr(result, kind)
     block = operation.block(block_id)  # one fixed-reader body access
@@ -537,65 +646,12 @@ def sensitivity_plot(
 
     if kind == "jacobian":
         quantity = _output_quantity(result, block)
-        values = _required_values(block).reshape((-1, len(block.parameters)))
         row_labels = _output_coordinate_labels(quantity, block)
-        if normalized:
-            values = block.normalized(
-                input_scales=normalized_scales[0],
-                output_scales=normalized_scales[1],
-            ).reshape((-1, len(block.parameters)))
-        row_units = []
-        parameter_si_units = [parameter.spec.si_unit for parameter in block.parameters]
-        parameter_display_units = [
-            parameter_units_by_key.get(
-                (parameter.definitions_id, parameter.id), parameter.spec.si_unit
-            )
-            for parameter in block.parameters
-        ]
-        if normalized:
-            display_values = values
-            row_units = ["dimensionless"] * len(block.output_coordinates)
-            cell_units = [["dimensionless"] * len(block.parameters) for _ in row_labels]
-            output_display_units = ["dimensionless"] * len(row_labels)
-            parameter_display_units = ["normalized input"] * len(block.parameters)
-        else:
-            display_values = np.empty_like(values, dtype=np.result_type(values, np.float64))
-            output_display_units = []
-            cell_units = []
-            for row, coordinate in enumerate(block.output_coordinates):
-                source_output_unit = block.row_units[row] if block.row_units else block.output_unit
-                target_output_unit = (
-                    output_units.get(coordinate, source_output_unit)
-                    if output_units is not None
-                    else output_unit or source_output_unit
-                )
-                _require_angular_unit_convention(
-                    source_output_unit,
-                    target_output_unit,
-                    context="Jacobian output display unit",
-                )
-                output_display_units.append(target_output_unit)
-                row_cell_units = []
-                for column, parameter in enumerate(block.parameters):
-                    target_parameter_unit = parameter_display_units[column]
-                    _require_angular_unit_convention(
-                        parameter_si_units[column],
-                        target_parameter_unit,
-                        context="Jacobian parameter display unit",
-                    )
-                    source_ratio = (
-                        units.registry.Unit(source_output_unit)
-                        / units.registry.Unit(parameter_si_units[column])
-                    )
-                    target_ratio = (
-                        units.registry.Unit(target_output_unit)
-                        / units.registry.Unit(target_parameter_unit)
-                    )
-                    converted = units.registry.Quantity(values[row, column], source_ratio).to(target_ratio)
-                    display_values[row, column] = converted.magnitude
-                    row_cell_units.append(f"{target_ratio:~P}")
-                cell_units.append(row_cell_units)
-                row_units.append(target_output_unit)
+        display_values, cell_units, output_display_units, parameter_display_units, _ = _jacobian_display(
+            block, output_unit=output_unit, output_units=output_units,
+            parameter_units_by_key=parameter_units_by_key, normalized=normalized,
+            normalized_scales=normalized_scales,
+        )
         column_labels = _parameter_labels(
             block.parameters,
             parameter_labels_by_key,
