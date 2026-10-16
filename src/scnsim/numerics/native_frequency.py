@@ -94,6 +94,28 @@ def _selected_candidate_pair_jet(program, view_index, dependency, candidate, ome
     return program.selected_pair_jet(candidate.operands[view_index], candidate.views[view_index], omega, dependency=dependency)
 
 
+def selected_compensated_jet_function(frequency_program, view_index, *, dependency=()):
+    """Same selected-state interface over the actual compensated Schur jet.
+
+    Hybrid roots consume one selected-dtype physical value for every field.
+    Project all represented channels together; high-only Q/X would disagree
+    with the F/Fp formed from the checked pair equations. Empty elimination
+    retains the producer's actual empty arrays and no-solve certificates.
+    """
+    from functools import partial
+    return partial(_selected_candidate_compensated_jet, frequency_program, view_index, dependency)
+
+
+def _selected_candidate_compensated_jet(program, view_index, dependency, candidate, omega):
+    from . import native_compensated as cp
+    state = _selected_candidate_pair_jet(program, view_index, dependency, candidate, omega)
+    return NativeSelectedJet(state.F, state.Fp,
+        cp.project((state.Q_values, state.Q_low_values)),
+        cp.project((state.Qp_values, state.Qp_low_values)), state.bound_values,
+        cp.project((state.X, state.X_low)), cp.project((state.Xp, state.Xp_low)),
+        state.elimination_eta, state.check_status, state.certificate_status, state.certificates)
+
+
 def _pair_product(pattern, values, solution):
     """Original per-row ascending-column accumulation; no dense operator."""
     import jax

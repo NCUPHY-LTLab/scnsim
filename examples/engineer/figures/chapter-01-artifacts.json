@@ -193,9 +193,9 @@
     }
   },
   "publication_binding": {
-    "binding_sha256": "bc7b9fb4fa79dc89f02ce85f22416b9c924ba26e12c6a42fdc11504082647385",
+    "binding_sha256": "e6f7df89a511f3873d3edc60eecfe5753f1a411d7e9e916d94705ab1a84ef9a7",
     "generator_sha256": "855cd52bf4d89e177046473fbe366aa526f7ccbc691f5d904703c954d9d7a9dd",
-    "source_tree_sha256": "e56dc743e4878cf1ce14eaba86f3cb01a9d4ccee31f54de8cf369a9382a73047"
+    "source_tree_sha256": "93d2602872756dc17a547cf0ffc25b7ed97a3a6b704f73df478c876b38dd2162"
   },
   "publication_rebind": {
     "deltas": {
@@ -245,9 +245,13 @@
         "before_sha256": "855cd52bf4d89e177046473fbe366aa526f7ccbc691f5d904703c954d9d7a9dd"
       },
       "source_files": {
-        "src/scnsim/numerics/native_root.py": {
-          "after_sha256": "c7e018e4da8490daa0b18e8a35d40334d7c9b2c1e685de4614fc51afaf58ae76",
-          "before_sha256": "183579fde24f3a23dcb80736cf3b737453944905587ddbb486e2c491aa81e33a"
+        "src/scnsim/numerics/native_frequency.py": {
+          "after_sha256": "2ef30cd16eb8909042c51b850477dd8d25e203735719055ea8ce14eea07c607c",
+          "before_sha256": "d77f1de2dea90e4350cca5226f2a97cfa7a434a9242a640903c27f781f03c45a"
+        },
+        "src/scnsim/numerics/native_program.py": {
+          "after_sha256": "6aa4578dfac1bddb6b9b78592e68e0d1b0e4a68c1067483d18469fc128d5d98a",
+          "before_sha256": "374f6c3fa7a204dce36ed42665e14347aa39212ffebe09a9a874a941313fa178"
         }
       },
       "teaching_sources": {}
@@ -275,7 +279,7 @@
         "01-s11-data.csv": "30fa4cc4ca0baa16b7ce546c232b418749fa4868694a15bd213bf9ba45189c46",
         "01-s11-selected.svg": "0e08b8ee2b8ab23f891780e8c877e48e62ed631ea2b4f5afd8b9d05963fab1f4"
       },
-      "prior_publication_binding_sha256": "d4734d9e7a93ced566f7e8a21ff2fe54d428f7bcd4499fa883dd80163f5df832",
+      "prior_publication_binding_sha256": "bc7b9fb4fa79dc89f02ce85f22416b9c924ba26e12c6a42fdc11504082647385",
       "prior_redrawn_artifacts": {
         "01-s11-baseline.svg": {
           "execution_sha256": "3c8e5cc31c17c6d4e8cdf7925e861a925fc323246816b15898a925dd7b89c525",
@@ -290,9 +294,9 @@
     },
     "kind": "reviewed_source_only_transition",
     "numerical_evidence_reused": true,
-    "prior_manifest_sha256": "99ff96de4df0698232e5aa714ed6dfdd791082f87428ae33735256d5c64fa399",
-    "prior_publication_binding_sha256": "d4734d9e7a93ced566f7e8a21ff2fe54d428f7bcd4499fa883dd80163f5df832",
-    "prior_publication_rebind_sha256": "388a9715467aebe004571d6be25856f1397c0f6d9517ea5a1d27ffee15bc9a69",
+    "prior_manifest_sha256": "12310e98680d7f2b56aa68953bba575230c0ed92602c4d1b978c940c46ddf362",
+    "prior_publication_binding_sha256": "bc7b9fb4fa79dc89f02ce85f22416b9c924ba26e12c6a42fdc11504082647385",
+    "prior_publication_rebind_sha256": "81d3adc6fc5fdcd8108bc9a935cfdf4e9dec28d44de2eb3a26239155cc8624b3",
     "prior_published_artifacts_retained": true,
     "publication_artifacts": {
       "01-authoring.svg": "369b761abdf6fc140af02c4885b2eca45f35b057990eeebaf39299a43d3252b3",
@@ -303,10 +307,10 @@
       "01-s11-data.csv": "30fa4cc4ca0baa16b7ce546c232b418749fa4868694a15bd213bf9ba45189c46",
       "01-s11-selected.svg": "0e08b8ee2b8ab23f891780e8c877e48e62ed631ea2b4f5afd8b9d05963fab1f4"
     },
-    "publication_binding_sha256": "bc7b9fb4fa79dc89f02ce85f22416b9c924ba26e12c6a42fdc11504082647385",
+    "publication_binding_sha256": "e6f7df89a511f3873d3edc60eecfe5753f1a411d7e9e916d94705ab1a84ef9a7",
     "redrawn_artifacts": {},
     "schema": "scnsim.engineer_publication_rebind.v3",
-    "transition_id": "scnsim.dynamic_root_pytree.20261017"
+    "transition_id": "scnsim.dev39.hybrid-root-compensated.20261017"
   },
   "results": {
     "baseline_direct": {

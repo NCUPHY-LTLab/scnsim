@@ -23,6 +23,9 @@ from .native_frequency import NativeFrequencyProgram, NativeCandidate
 from .observable_projection import _flatten, _projection
 
 
+HYBRID_ROOT_ARITHMETIC = 'scnsim.jax.hybrid_root.selected_pair_projection.v1'
+
+
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True, slots=True)
 class CompletedBranchBinding:
@@ -439,7 +442,7 @@ class NativePhysicalCore:
 
     def root_function(self, view_index, declaration):
         """Admit one declared root over the SAME candidate/selected-state core."""
-        from .native_frequency import selected_jet_function
+        from .native_frequency import selected_jet_function, selected_compensated_jet_function
         from .native_root import compile_native_root
         # Hint/seed ordinal and user labels are aggregate metadata, not a
         # physical equation signature. Independent branches share this stable
@@ -460,8 +463,10 @@ class NativePhysicalCore:
                         precision=self.precision, view_index=view_index,
                         capability=self.capabilities[view_index], availability_dependency=availability_dependency)
                 else:
+                    selected_state = (selected_compensated_jet_function
+                                      if declaration.kind == 'hybridized_pole' else selected_jet_function)
                     function = compile_native_root(declaration,
-                        selected_jet_function(frequency, view_index, dependency=availability_dependency), precision=self.precision,
+                        selected_state(frequency, view_index, dependency=availability_dependency), precision=self.precision,
                         node_count=len(view.node_ids), selected=view.selected,
                         eliminated=view.eliminated, pattern=frequency.assembly.pattern,
                         availability_dependency=availability_dependency)
@@ -520,6 +525,8 @@ def acquire_native_core(quantity_program, capabilities, *, owner=None, admit=Fal
         'views': [json.loads(view.declaration_bytes) for view in program.views],
         'precision': program.precision, 'capabilities': capabilities,
         'implementation': 'scnsim.jax.native_physical_core.stage_bundle.v1'}
+    if any(item.kind == 'hybridized_pole' for item in program.observables):
+        record['hybrid_root_arithmetic'] = HYBRID_ROOT_ARITHMETIC
     if any(static_views):
         record['static_views'] = static_views
         record['dynamic_views'] = dynamic_views
@@ -1086,9 +1093,12 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
                            'certificate_layout': frequency_programs[works[indices[0][0]][0]].certificate_layout(
                                families=works[indices[0][0]][1], capability=capabilities[works[indices[0][0]][0]])}
                           for _, indices in frozen_segments)})
-    identity = hashlib.sha256(canonical_json_bytes({'program': quantity_program.program_sha256,
+    identity_record = {'program': quantity_program.program_sha256,
         'capabilities': capabilities, 'source_indices': source_indices, 'gathers': gathers,
-        'implementation': 'scnsim.jax.native_physical.stage_bundle.v1'})).hexdigest()
+        'implementation': 'scnsim.jax.native_physical.stage_bundle.v1'}
+    if any(item.kind == 'hybridized_pole' for item in descriptors):
+        identity_record['hybrid_root_arithmetic'] = HYBRID_ROOT_ARITHMETIC
+    identity = hashlib.sha256(canonical_json_bytes(identity_record)).hexdigest()
     work_layout = tuple(MappingProxyType({'work_index': index, 'view_index': view_index,
         'demand': tuple(sorted(demand)), 'omega_index': omega_index,
         'source_index': source_indices[omega_index]})

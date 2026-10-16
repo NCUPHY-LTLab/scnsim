@@ -21,9 +21,9 @@ from pathlib import Path
 from typing import Mapping
 
 
-TRANSITION_ID = "scnsim.dynamic_root_pytree.20261017"
-PRIOR_PUBLISHED_GIT_COMMIT = "e3a0f10581e832939b8e7d6685645e5d32e5730f"
-TRANSITION_FILE = Path(__file__).with_name("engineer_publication_transitions_dynamic_root_pytree_20261017.json")
+TRANSITION_ID = "scnsim.dev39.hybrid-root-compensated.20261017"
+PRIOR_PUBLISHED_GIT_COMMIT = "79dff4991d3eef4d4d611a638dc42aa9e760dd7f"
+TRANSITION_FILE = Path(__file__).with_name("engineer_publication_transitions_hybrid_root_compensated_20261017.json")
 _TRANSITION_NAMES = {
     f"chapter-{chapter:02d}-artifacts.json" for chapter in range(1, 9)
 }
