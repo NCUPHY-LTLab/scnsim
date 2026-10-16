@@ -177,7 +177,8 @@ def _verify_request_document(
         logical_ports = [port["id"] for port in plan["connectivity"]["ports"]]
         _verify_v1_hb_spec(spec, terminal, port_realizable, logical_ports)
     elif operation == "evaluate_direct":
-        _verify_v1_evaluation_spec(spec, terminal, port_realizable)
+        _verify_v1_evaluation_spec(spec, terminal, port_realizable,
+            static_retained=static_capacitance and request["view"]["retain"] is not None)
     else:
         if is_jax:
             _verify_v1_jax_optimization_spec(
@@ -354,7 +355,8 @@ def _verify_v1_sensitivity_request(
             if (value.get("projection") != ("matrix" if matrix else "value")
                     or selected_spec.get("type") != ("static_capacitance" if matrix else "static_capacitance_element")):
                 raise _integrity("Sensitivity static capacitance projection is malformed.")
-            _verify_v1_evaluation_spec(selected_spec, terminal, False)
+            _verify_v1_evaluation_spec(selected_spec, terminal, False,
+                static_retained=value["view"]["retain"] is not None)
             # Anonymous finite-mesh node axes are compiled OutputLayout facts,
             # not Port/public-coordinate counts. Check rank here; the compiler
             # and detached result projection own the actual extents.
@@ -623,8 +625,6 @@ def _verify_view_declaration(
 ) -> tuple[list[str], bool]:
     if not isinstance(view, dict) or set(view) != {"type", "ptc", "transforms", "retain"} or view.get("type") != "network_view":
         raise _integrity("Declarative View is malformed.")
-    if static_capacitance and (view.get("ptc") is not None or view.get("retain") is not None):
-        raise _integrity("Static capacitance View must be original or coordinate-transform-only.")
     _, public = _plan_coordinates(plan)
     available = list(sorted(public))
     connectivity = plan.get("connectivity")
@@ -1079,6 +1079,7 @@ def _verify_v1_evaluation_spec(
     port_realizable: bool,
     *,
     residue_branch: bool = False,
+    static_retained: bool = False,
 ) -> None:
     if not isinstance(spec, dict) or not isinstance(spec.get("type"), str):
         raise _integrity("Direct evaluation Spec is malformed.")
@@ -1132,19 +1133,18 @@ def _verify_v1_evaluation_spec(
             raise _integrity("S-family response evaluation is not Port-realizable.")
         _verify_quantity_role(spec.get("frequency"), complex_value=False, unit="hertz", dimensionality="inverse_time")
     elif kind in {"static_capacitance", "static_capacitance_element"}:
-        fields = {"type", "zero_charge"}
+        fields = {"type"}
         if kind == "static_capacitance_element":
             fields |= {"row", "column"}
         if set(spec) != fields:
             raise _integrity("Static capacitance Spec is open or malformed.")
-        eliminated = _identifiers(spec.get("zero_charge"), field="Static zero-charge coordinates", nonempty=False)
-        # Full finite-mesh axis membership is compiler/output-layout owned;
-        # the public-coordinate inventory is not the static node basis.
+        # An explicit retained View already owns a closed public-coordinate
+        # boundary. Full-View finite-mesh membership remains compiler-owned.
         if kind == "static_capacitance_element":
             for name in ("row", "column"):
                 _identifiers([spec[name]], field=f"Static capacitance {name}")
-                if spec[name] in eliminated:
-                    raise _integrity("Static capacitance element belongs to the zero-charge partition.")
+                if static_retained and spec[name] not in terminal:
+                    raise _integrity("Static capacitance element is outside its retained View.")
     elif kind == "operator":
         if set(spec) != {"type", "frequencies"}:
             raise _integrity("Operator Spec is malformed.")

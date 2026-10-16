@@ -71,6 +71,22 @@ reduction. A later pipeline can derive another immutable Ref:
    physical plus/minus terminals to common/differential coordinates.
 3. `retain()` selects the boundary kept for a particular calculation.
 
+The View chooses the retained coordinate boundary; the Spec chooses the
+physical equation evaluated on that View. The static-C mapping below is the
+CONVERGING dev36 extension; it does not change the existing dynamic equations:
+
+| Declaration | Owns | Static-capacitance behavior |
+|---|---|---|
+| `ReductionPipeline().retain(...)`, applied with `run.original.reduce(...)` | Ordered retained coordinates and their complement | Selects the retained matrix axes. The finite complement, including internal finite-pi nodes, receives the static zero-charge reduction. |
+| `StaticCapacitanceSpec()` | Static-capacitance equation and output selector | Evaluates the full transformed finite C when the View has no retain, or C on the retained View. It has no `zero_charge` input. |
+| PTC in a View lineage | Existing port-load compensation selection | A valid PTC lineage remains usable. Its resistive/reference load mask does not change C or transform weights, and static C does not apply RF port eligibility or normalization. |
+
+For static C, `retain()` induces the C-only boundary $q_e=0$. Existing dynamic
+Direct/HB response, operator, root, and residue-coupling equations continue to
+use their full dynamic Schur behavior on the same retained View. See the
+[static-capacitance contract](../contracts/static-capacitance.qmd) and
+[guide](../guides/static-capacitance.qmd) for the static equation and API.
+
 The order matters and remains visible in the Ref lineage. Direct and HB must
 either realize that same final View faithfully or fail closed.
 

@@ -774,7 +774,10 @@ def _evaluation_result(
     if raw.failure is not None and kind in {"static_capacitance", "static_capacitance_element"}:
         # Failure facts remain readable; no failed numerical placeholder is usable.
         fields.update(evidence=decode_record(record_document(raw.failure.evidence_bytes)),
-                      zero_charge=tuple(spec["zero_charge"]))
+                      zero_charge=tuple(context["zero_charge"]))
+        if kind == "static_capacitance":
+            fields.update(row_coordinates=tuple(context["row_coordinates"]),
+                          column_coordinates=tuple(context["column_coordinates"]))
         if kind == "static_capacitance_element":
             fields.update(row=spec["row"], column=spec["column"])
     result = _verified_result(result_type, **fields)

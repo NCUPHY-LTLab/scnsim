@@ -22,7 +22,7 @@ quantities, derivatives and parameter searches.
 |---|---|
 | **Circuit response** — S, Y and Z matrices or a named reflection/transmission trace | `run.solve(view, DirectSolveSpec(...))` |
 | **Characteristic quantities** — selected operator, root, pole, transfer zero or coupling | `run.evaluate(view, spec, parameters=point)` |
-| **Static capacitance** — compiled finite capacitance matrix, zero-charge reduction or coordinate entry | `run.evaluate(view, StaticCapacitanceSpec(...), parameters=point)` |
+| **Static capacitance** — compiled finite capacitance matrix, View-selected reduction or coordinate entry | `run.evaluate(view, StaticCapacitanceSpec(), parameters=point)` |
 | **Sensitivity** — how a quantity changes with circuit parameters | `run.sensitivity(SensitivitySpec(...))` for Jacobian, JVP or VJP |
 | **Parameter exploration** — compare a declared sweep or search scalar objectives | Supply a `ParameterSpace` to solve/evaluate, or use `run.optimize(view, OptimizationSpec(...))` |
 
@@ -35,7 +35,7 @@ and local derivatives. Optimization offers CMA-ES, L-BFGS-B, value-first
 projected L-BFGS and ordered Hybrid stages; choose the method for your objective
 and available derivatives.
 The [static capacitance guide](docs/guides/static-capacitance.qmd) covers the
-finite matrix, explicit zero-charge reduction and supported sensitivities.
+finite matrix, View-selected zero-charge reduction and supported sensitivities.
 
 ## Work in memory or save a Workspace
 

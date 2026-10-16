@@ -1563,6 +1563,33 @@ It is not equivalent to selecting the same rows and columns from a native S
 matrix, because omitted native incident waves leave those ports terminated in
 their wave references.
 
+#### Static capacitance on a retained View
+
+This static-capacitance rule is the CONVERGING dev36 extension; established
+View and dynamic-operation behavior remains unchanged.
+
+For static capacitance, the View owns the ordered retained coordinates and the
+Spec selects the physical C equation: `StaticCapacitanceSpec()` has no
+`zero_charge` input. Without `retain()`, evaluation returns the full finite C
+in the selected transformed basis. With `retain()`, the selected coordinates
+are the retained order and the complete finite complement—including internal
+finite-pi coordinates—is eliminated by
+
+$$
+C_{\mathrm{eff}}=C_{rr}-C_{re}\,\operatorname{solve}(C_{ee},C_{er}),
+\qquad q_e=0.
+$$
+
+The partition and zero-charge condition are derived from the View and retained
+as result/evidence facts. A valid PTC lineage may precede transform and retain;
+its resistive/reference load mask does not change static C or transform
+weights. Static C does not require response-port eligibility or apply RF
+normalization. Existing Direct/HB dynamic response, operator, root, and
+residue-coupling paths keep their dynamic Schur equations and existing
+zero-external-current boundary. See the
+[static-capacitance contract](contracts/static-capacitance.qmd)
+and [guide](guides/static-capacitance.qmd).
+
 ### Terminal-operation capability
 
 The pipeline vocabulary stays common while terminal operations enforce what

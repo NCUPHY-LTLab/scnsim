@@ -1,13 +1,14 @@
 ---
-title: "Evaluate Static Capacitance"
-subtitle: "Inspect the finite capacitance matrix and explicit zero-charge reductions"
+title: "Evaluate Static Capacitance on a View"
+subtitle: "Inspect finite C, retained-coordinate reductions, and coordinate entries"
 toc-depth: 2
 ---
 
 The [Static Capacitance Contract](../contracts/static-capacitance.qmd) defines
-the candidate API and its failure boundary. This guide shows how to request the
-matrix or a coordinate entry at one physical point, then differentiate the
-same declaration.
+the candidate API and its failure boundary. `retain()` on a View chooses the
+coordinate boundary; `StaticCapacitanceSpec()` chooses the static C equation.
+This guide shows the full matrix, a retained reduction, coordinate entries,
+and sensitivities at one effective point.
 
 ## Evaluate the compiled matrix
 
@@ -28,6 +29,12 @@ matrix_result = run.evaluate(
 capacitance = matrix_result.matrix.to("farad")
 ```
 
+The Spec has no `zero_charge` argument. Without a retained View, it returns the
+full ordered finite matrix for the selected View, including finite-pi internal
+coordinates. The row and column IDs remain usable for static element reads;
+they do not become new View coordinates or make internal nodes selectable by
+`retain()`.
+
 `matrix_result.row_coordinates` and `matrix_result.column_coordinates` give the
 ordered compiled node-coordinate IDs for the two matrix axes. The matrix covers
 that complete coordinate basis, including internal non-Port coordinates.
@@ -35,43 +42,57 @@ that complete coordinate basis, including internal non-Port coordinates.
 View, dtype, and finite discretization. This is a capacitance matrix, not a
 frequency-indexed response.
 The returned row and column IDs, including internal finite-pi axes, can be
-reused for a static element or `zero_charge` request only with the same Plan,
-View, parameter point, and realized mesh. These IDs address static result axes;
-they do not create public coordinate refs or enable internal-node RF selection
-or `retain()`.
+used for static element reads. View-retained coordinates themselves remain
+limited to the existing public and transform coordinates.
 
 For an existing paired-coordinate View, the runtime resolves its actual
 parameter-dependent real transform $T(\theta)$ and evaluates
 $C_y=T(\theta)^T C_x(\theta)T(\theta)$. The transformation changes the
-coordinate representation; it does not rewire the Plan. No PTC or retained
-View is substituted into this request.
+coordinate representation; it does not rewire the Plan. A retained View uses
+its selected coordinate order and the static C-only zero-charge reduction
+described below. A valid PTC lineage may also be used; its resistive/reference
+load mask does not change C or transform weights.
 
-## Request a zero-charge reduction
+## Retain coordinates before evaluating C
 
-Name every coordinate whose charge is constrained to zero. The remaining
-coordinates retain their order from the selected View:
+Use the same `retain()` View used by the rest of the analysis pipeline. Its
+declared coordinate order is the static matrix order; the full finite
+complement, including internal finite-pi nodes, is eliminated at zero charge.
+The reduction is derived from the View rather than separately entered in the
+Spec:
 
 ```python
-reduced_spec = StaticCapacitanceSpec(
-    zero_charge=(eliminated_coordinate,),
+from scnsim import ReductionPipeline, StaticCapacitanceSpec
+
+retained_view = run.original.reduce(
+    ReductionPipeline().retain(
+        retained_coordinate_a,
+        retained_coordinate_b,
+    )
 )
-reduced_result = run.evaluate(view, reduced_spec, parameters=point)
-effective_capacitance = reduced_result.matrix.to("farad")
+retained_spec = StaticCapacitanceSpec()
+retained_result = run.evaluate(
+    retained_view,
+    retained_spec,
+    parameters=point,
+)
+effective_capacitance = retained_result.matrix.to("farad")
 ```
 
-With $r$ denoting the retained coordinates and $e$ the explicit eliminated
-coordinates, the operation uses
+With $r$ denoting the ordered retained coordinates and $e$ their full finite
+complement, the static operation uses
 
 $$
 C_{\mathrm{eff}}=C_{rr}-C_{re}\,\operatorname{solve}(C_{ee},C_{er}),
 \qquad q_e=0.
 $$
 
-Inspect `reduced_result.zero_charge` and its row/column coordinate IDs alongside
-the matrix. This is a zero-charge boundary, not a voltage clamp, physical
-ground, or guessed node. A singular full matrix may still be exported. If the
-selected $C_{ee}$ block cannot be solved, the request reports that native
-failure; it does not substitute a pseudoinverse or regularize the block.
+The result's `zero_charge` field and its evidence retain the actual View-derived
+partition and $q_e=0$ condition; it is empty when there is no retained
+boundary. This is not a voltage clamp, physical ground, or guessed node. A
+singular full matrix may still be exported. If the selected $C_{ee}$ block
+cannot be solved, the request reports that native failure; it does not
+substitute a pseudoinverse or regularize the block.
 
 ## Select one coordinate entry
 
@@ -86,10 +107,28 @@ entry_result = run.evaluate(view, entry_spec, parameters=point)
 entry = entry_result.value.to("farad")
 ```
 
-The element result preserves `row`, `column`, `zero_charge`, and the same
-Plan/point/View/discretization provenance as a matrix result. For an element of
-a reduced matrix, construct the element from the spec that carries the desired
-`zero_charge` partition.
+The element result preserves `row`, `column`, and the same
+Plan/point/View/discretization provenance as a matrix result. Select row and
+column IDs from the result axes of the View being evaluated; for a retained
+View, these are the retained axes. A full-matrix internal coordinate ID can
+address a full-view element, but is not a new retain handle.
+
+To select an entry after a retained-matrix evaluation, use its retained row and
+column IDs with the same retained View:
+
+```python
+retained_row_id = retained_result.row_coordinates[0]
+retained_column_id = retained_result.column_coordinates[0]
+retained_entry_spec = retained_spec.element(
+    row=retained_row_id,
+    column=retained_column_id,
+)
+retained_entry_result = run.evaluate(
+    retained_view,
+    retained_entry_spec,
+    parameters=point,
+)
+```
 
 ## Differentiate the same matrix or element
 
@@ -101,7 +140,7 @@ the ordered physical parameter list:
 from scnsim import Jacobian, SensitivitySpec
 
 sensitivity_spec = SensitivitySpec(
-    quantities={"C": capacitance_spec.matrix.on(view)},
+    quantities={"C": retained_spec.matrix.on(retained_view)},
     wrt=(capacitance_parameter,),
     derivative=Jacobian(),
     discretization=fixed_mesh,
@@ -112,9 +151,10 @@ jacobian_result = run.sensitivity(
 )
 ```
 
-For an element, bind `entry_spec.value.on(view)` as the quantity instead. The
-existing JVP and VJP declarations work on either selected quantity. Their
-directions and weights follow the ordinary physical-unit rules in the
+For an element, bind `retained_entry_spec.value.on(retained_view)` as the
+quantity instead. The existing JVP and VJP declarations work on either
+selected quantity. Their directions and weights follow the ordinary
+physical-unit rules in the
 [Sensitivity guide](sensitivity.qmd); the static-C outputs have units of
 farads. A raw matrix Jacobian therefore has units F per SI unit of the input;
 when the input is itself measured in F, the cell is dimensionless by unit
@@ -123,7 +163,10 @@ through the parameter-dependent $C(\theta)$, resolved $T(\theta)$, and the
 actual elimination solve. The transform weights are not replaced by baseline
 constants.
 
-Use one fixed realized finite mesh for the sensitivity request. The derivative
+Use one fixed realized finite mesh for the sensitivity request. A valid PTC
+lineage is supported, but the PTC resistive/reference load mask has no
+numerical effect on C or transform weights; this static request does not apply
+RF/Port eligibility or normalization. The derivative
 does not differentiate an integer line-section choice. The initial
 static-capacitance backend is JAX; selecting Julia for this quantity reports an
 unsupported capability rather than rerunning the calculation through another
@@ -134,3 +177,10 @@ interfaces. Memory results are detached; Workspace results use fixed selected
 readers and may be inspected after `run.close()`. Existing Julia operations
 and the current dynamic response, root, and residue-normalized-coupling
 contracts are unchanged.
+
+The dev36 retained-View static equation is newly integrated and its numerical
+use has not yet been observed. Prior dev35 static LC observations do not verify
+this retained request path. The existing dynamic `retain()` equation remains
+unchanged: it uses its dynamic Schur behavior, including the zero-external-
+current boundary, while this static quantity eliminates only C under
+$q_e=0$.
