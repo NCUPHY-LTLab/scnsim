@@ -3,7 +3,7 @@ title: "Sensitivity of physical quantities"
 subtitle: "Declare Jacobian, JVP and VJP requests on the same Plan and Views"
 ---
 
-This dev28 `CONVERGING` guide describes the current candidate public declarations.
+This dev37 `CONVERGING` guide describes the current candidate public declarations.
 The snippets are source examples, not recorded derivative executions or numerical
 accuracy evidence. The [Runtime Contract](../v1-runtime-contract.qmd#physical-program-target)
 is the authority for execution, ownership and failure behavior.
@@ -346,18 +346,65 @@ separate from a later stage's selected-point seed. Its preparation evaluations
 and cost are reported separately from optimizer search budgets/controller `nfev`.
 
 
-### dev28 的保存值呈現
+## Plot selected saved Jacobian quantities
 
-此候選的既有 `plot`/`show` 入口提供 `style="auto"|"table"|"bar"|"heatmap"`。
-Auto 對同量綱的單一 row 使用 signed bar，多 row 使用 heatmap，混合單位使用 table；
-完整 IDs 保留在 hover/metadata。`output_unit` 或逐 `OutputCoordinate` 的
-`output_units` 與逐參數的 `parameter_units`/`parameter_labels` 明確決定呈現，
-不依 `_m`/`_um` 名稱推測實際單位，也不默默做 2π 轉換。
-角頻率輸出仍代表角頻率：可縮放為 `Mrad/s` 或 `rad/µs`，不能只用
-Pint 將 `rad/s` 換成 `MHz` 就把數值標為普通頻率。若要呈現 Hz，必須先
-在 authored physical Quantity projection 中明確定義除以 `2π` 的物理量，
-再呈現該輸出及其導數；display unit 不會代替這項物理定義。
-`normalized=False` 保留原 SI 值；`normalized=True` 預設只用 request-authored scales。
-若另外提供呈現 scales，必須同時提供有單位的 `input_scales` 與 `output_scales`，
-不由套件推測工程步長、threshold 或 tolerance。這是保存 Jacobian 的可追蹤
-呈現，不重新執行求解，不改局部導數或 global-optimum 責任。
+For a Jacobian, `plot()` and `show()` can select named quantities already in
+the saved result. The labels come from `SensitivitySpec.quantities`, and their
+order in `quantities` determines the quantity-group order; saved coordinate order
+follows within each quantity. Columns remain in the authored `wrt` order.
+Provide exactly one selection route: a nonempty ordered `quantities` sequence
+for a Jacobian or the existing `block_id` for one block. JVP and VJP keep the
+`block_id` route. Calling `show()` without `kind` still shows the result
+summary. Selection reads the saved Jacobian; it does not rerun a physical
+calculation.
+
+```python
+figure = jacobian_result.plot(
+    kind="jacobian",
+    quantities=("response", "frequency"),
+    style="heatmap",
+)
+
+jacobian_result.show(
+    kind="jacobian",
+    quantities=("response", "frequency"),
+    style="heatmap",
+)
+```
+
+Rows retain physical array indices and explicit real/imaginary components;
+scalar outputs use an empty index. Parameter columns are matched by exact
+`ParameterRef` identity, not by display label. Existing `output_unit`,
+`output_units`, `parameter_units`, `parameter_labels`, and `theme` options remain
+available; Jacobian `normalized`, `input_scales` and `output_scales` retain
+their existing semantics.
+
+Each Jacobian cell has derivative units $q_i/\theta_j$. Compatible cell units
+are grouped in first-occurrence order when their ratio units and explicit
+angular-power conventions agree. Within each group values are converted to the
+first cell's display unit, while explicit display-unit options remain the
+initial choice. The result is one figure with vertically stacked unit groups
+and independent colorbars. Empty cross-cells are trimmed without changing
+relative authored order; nonmember cells stay blank and are marked not
+applicable. Unavailable derivative cells stay blank with their recorded reason.
+Neither becomes a numeric zero.
+
+`auto` chooses bars for one output row in a unit group and heatmaps for multiple
+rows. Bars group targets by parameter within each unit group; tables retain all
+selected rows with per-cell units. Heatmaps use a signed RdBu scale centered on
+zero, so a genuine zero remains visible as zero rather than being converted to
+an absolute value or percentage. Complex outputs use their explicit real and
+imaginary rows.
+
+Raw Jacobian values remain signed physical derivatives by default. The existing
+`normalized=True`, input-scale and output-scale options retain their current
+request/display-scale semantics; selection adds no automatic scale, percent,
+absolute-value or threshold behavior. Display units do not infer a conversion
+from a label or apply an implicit $2\pi$ factor. An angular-frequency output
+continues to represent angular frequency unless the authored physical quantity
+itself defines another quantity. Full IDs, units, conversion details, cell
+status and unavailable reasons remain available in figure metadata/hover.
+
+This is a saved-result presentation. Memory data remains detached and Workspace
+data uses its existing fixed-reader lifetime; presentation does not mutate the
+Result or create new reader, cache or Run ownership.

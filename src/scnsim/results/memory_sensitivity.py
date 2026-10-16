@@ -149,7 +149,8 @@ class InMemorySensitivityResult(Result):
         self,
         *,
         kind: Literal["jacobian", "jvp", "vjp"],
-        block_id: str,
+        block_id: str | None = None,
+        quantities: Sequence[str] | None = None,
         style: Literal["auto", "table", "bar", "heatmap"] = "auto",
         output_unit: str | None = None,
         output_units: Mapping[OutputCoordinate, str] | None = None,
@@ -161,7 +162,7 @@ class InMemorySensitivityResult(Result):
         theme: Theme = Theme.AUTO,
     ) -> Figure:
         return SensitivityResult.plot(
-            self, kind=kind, block_id=block_id, style=style,
+            self, kind=kind, block_id=block_id, quantities=quantities, style=style,
             output_unit=output_unit, output_units=output_units,
             parameter_units=parameter_units, parameter_labels=parameter_labels,
             normalized=normalized, input_scales=input_scales,
@@ -173,6 +174,7 @@ class InMemorySensitivityResult(Result):
         *,
         kind: Literal["jacobian", "jvp", "vjp"] | None = None,
         block_id: str | None = None,
+        quantities: Sequence[str] | None = None,
         style: Literal["auto", "table", "bar", "heatmap"] = "auto",
         output_unit: str | None = None,
         output_units: Mapping[OutputCoordinate, str] | None = None,
@@ -184,7 +186,7 @@ class InMemorySensitivityResult(Result):
         theme: Theme = Theme.AUTO,
     ) -> object:
         return SensitivityResult.show(
-            self, kind=kind, block_id=block_id, style=style,
+            self, kind=kind, block_id=block_id, quantities=quantities, style=style,
             output_unit=output_unit, output_units=output_units,
             parameter_units=parameter_units, parameter_labels=parameter_labels,
             normalized=normalized, input_scales=input_scales,

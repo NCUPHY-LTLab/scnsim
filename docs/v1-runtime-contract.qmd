@@ -125,6 +125,19 @@ $(i,j)$ has units $q_i/\theta_j$, with ordered input/output axes. Explicit scale
 and optimizer coordinate chain rules are recorded separately from physical
 derivatives. Only the requested derivative mode is stored; reading JVP/VJP
 never executes a missing full Jacobian.
+
+The CONVERGING dev37 presentation candidate lets a Sensitivity Result's
+`plot()` and `show()` methods select already-saved named quantities in caller
+order. Within each quantity, rows retain the saved coordinate order and columns
+retain authored `wrt` order. Selection is mutually exclusive with the existing
+`block_id` route; JVP/VJP remain block-selected, and `show()` without an
+operation kind remains the summary view. Compatible derivative-unit groups
+share one figure with separate panels; nonmember cells and unavailable
+derivatives remain distinguishable from numeric zero. It is a display
+projection: it does not recompute, mutate or change Result ownership. The
+[Sensitivity guide](guides/sensitivity.qmd) defines the selected-unit and
+figure behavior.
+
 Each output expression uses its own ordered leaf mapping into the shared
 physical frame. Repeated leaves, mixed Views and real/imaginary projections
 retain the declared occurrence and unit; a local leaf ordinal is not a global

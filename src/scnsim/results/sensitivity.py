@@ -238,17 +238,22 @@ class SensitivityBlockSequence(Sequence[object]):
     block through the fixed Workspace reader.
     """
 
-    __slots__ = ("_reader", "_identifiers", "_decode")
+    __slots__ = ("_reader", "_identifiers", "_decode", "_quantity_blocks")
 
     def __init__(
         self,
         reader: object,
         identifiers: Sequence[str],
         decode: Callable[[Mapping[str, object]], object],
+        *,
+        quantity_blocks: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         object.__setattr__(self, "_reader", reader)
         object.__setattr__(self, "_identifiers", tuple(identifiers))
         object.__setattr__(self, "_decode", decode)
+        # Sealed index metadata only; selected values are never cached here.
+        object.__setattr__(self, "_quantity_blocks", None if quantity_blocks is None else
+                           _freeze({key: tuple(value) for key, value in quantity_blocks.items()}))
 
     def __setattr__(self, name: str, value: object) -> None:
         raise AttributeError("Sensitivity block sequences are immutable")
@@ -261,6 +266,12 @@ class SensitivityBlockSequence(Sequence[object]):
         """Return request-ordered block identities without reading any body."""
 
         return self._identifiers
+
+    def _block_ids_for_quantity(self, identifier: str) -> tuple[str, ...]:
+        """Look up fixed index associations without hydrating any block."""
+        if self._quantity_blocks is None:
+            raise SCNSimStateError("Sensitivity quantity/block metadata is unavailable", stage="result_access")
+        return self._quantity_blocks[identifier]
 
     def _index(self, selected: int | slice) -> int | range:
         if isinstance(selected, slice):
@@ -324,6 +335,49 @@ class SensitivityProjection:
             stage="result_access",
             evidence={"operation": self.kind, "block_sequence": type(blocks).__name__},
         )
+
+
+def _jacobian_blocks_for_quantities(result, labels: Sequence[str]) -> tuple[SensitivityJacobianBlock, ...]:
+    """Read only selected sealed Jacobian blocks, in caller quantity order.
+
+    Association comes from the decoder's fixed index or real memory blocks,
+    never block-ID spelling. The hydration dictionary lives for this call only.
+    """
+    if not isinstance(labels, Sequence) or isinstance(labels, (str, bytes)):
+        raise TypeError("quantities must be a sequence of quantity labels")
+    labels = tuple(labels)
+    if not labels:
+        raise ValueError("quantities must contain at least one quantity label")
+    identifiers = {quantity.label: quantity.id for quantity in result.quantities}
+    selected_ids = []
+    for label in labels:
+        if not isinstance(label, str):
+            raise TypeError("quantity labels must be strings")
+        selected_ids.append(identifiers[label])
+    projection = result.jacobian
+    blocks = projection.blocks
+    hydrated = {}
+    if isinstance(blocks, SensitivityBlockSequence):
+        associations = {identifier: blocks._block_ids_for_quantity(identifier) for identifier in selected_ids}
+    elif isinstance(blocks, tuple):
+        associations = {identifier: tuple(block.block_id for block in blocks if block.quantity_id == identifier)
+                        for identifier in selected_ids}
+        hydrated = {block.block_id: block for block in blocks}
+    else:
+        raise SCNSimStateError("Sensitivity quantity/block metadata is unavailable", stage="result_access")
+    ordered = []
+    for identifier in selected_ids:
+        selected = associations[identifier]
+        if not selected:
+            raise KeyError(identifier)
+        for block_id in selected:
+            if block_id not in hydrated:
+                hydrated[block_id] = blocks.by_id(block_id)
+            block = hydrated[block_id]
+            if not isinstance(block, SensitivityJacobianBlock):
+                raise TypeError("selected block is not a Jacobian block")
+            ordered.append(block)
+    return tuple(ordered)
 
 
 class _NormalizedJacobian(Mapping[str, np.ndarray]):
@@ -430,7 +484,8 @@ class SensitivityResult(AnalysisResult):
         self,
         *,
         kind: SensitivityOperationKind,
-        block_id: str,
+        block_id: str | None = None,
+        quantities: Sequence[str] | None = None,
         style: Literal["auto", "table", "bar", "heatmap"] = "auto",
         output_unit: str | None = None,
         output_units: Mapping[OutputCoordinate, str] | None = None,
@@ -447,6 +502,7 @@ class SensitivityResult(AnalysisResult):
             self,
             kind=kind,
             block_id=block_id,
+            quantities=quantities,
             style=style,
             output_unit=output_unit,
             output_units=output_units,
@@ -463,6 +519,7 @@ class SensitivityResult(AnalysisResult):
         *,
         kind: SensitivityOperationKind | None = None,
         block_id: str | None = None,
+        quantities: Sequence[str] | None = None,
         style: Literal["auto", "table", "bar", "heatmap"] = "auto",
         output_unit: str | None = None,
         output_units: Mapping[OutputCoordinate, str] | None = None,
@@ -475,7 +532,7 @@ class SensitivityResult(AnalysisResult):
     ) -> object:
         if kind is None:
             if (
-                block_id is not None or style != "auto" or output_unit is not None
+                block_id is not None or quantities is not None or style != "auto" or output_unit is not None
                 or output_units is not None or parameter_units is not None
                 or parameter_labels is not None or normalized
                 or input_scales is not None or output_scales is not None
@@ -484,13 +541,12 @@ class SensitivityResult(AnalysisResult):
             from ..visualization.quantity_html import sensitivity_summary
 
             return sensitivity_summary(self, theme=theme)
-        if block_id is None:
-            raise ValueError("block_id is required to plot saved Sensitivity data")
         from ..visualization.plots.common import show_figure
 
         return show_figure(self.plot(
             kind=kind,
             block_id=block_id,
+            quantities=quantities,
             style=style,
             output_unit=output_unit,
             output_units=output_units,

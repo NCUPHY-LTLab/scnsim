@@ -763,7 +763,12 @@ def decode_sensitivity_operation(
         SensitivityProjection,
         kind=derivative_kind,
         status=status,
-        blocks=SensitivityBlockSequence(fixed_reader, derivative_ids, decode_derivative),
+        blocks=SensitivityBlockSequence(
+            fixed_reader, derivative_ids, decode_derivative,
+            quantity_blocks={identifier: tuple(block_id for block_id in derivative_ids
+                                              if rows_by_id[block_id].get("quantity_id") == identifier)
+                             for identifier in quantity_by_id},
+        ),
         diagnostics=_request_derivative_diagnostics(
             decoder, derivative_kind, request_derivative, quantity_by_id
         ),
