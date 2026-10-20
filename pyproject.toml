@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scnsim"
-version = "1.0.0.dev39"
+version = "1.0.0.dev42"
 description = "Superconducting Circuit Network Simulation."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -53,6 +53,8 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 scnsim = [
+  "_agent_knowledge/manifest.json",
+  "_agent_knowledge/resources/*",
   "py.typed",
   "_native/*.cpp",
   "_schemas/*.json",

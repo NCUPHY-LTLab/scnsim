@@ -16,6 +16,86 @@ network to observe through a View, and use `CircuitRun` to calculate typed
 Results with physical units. Reuse the same model for responses, characteristic
 quantities, derivatives and parameter searches.
 
+<!-- agent-knowledge-start:begin -->
+## Agent knowledge start
+
+SCNSim models a physical circuit in one `CircuitPlan`. A View selects its
+analysis boundary; a Spec names the requested quantity. Declare the model first,
+then choose `CircuitRun` operations. This guide is the installed knowledge entry
+`getting-started`; it describes current candidate interfaces, not evidence that
+your circuit has been executed or certified.
+
+### Choose a first task
+
+| Task | Detail and resource ID |
+|---|---|
+| Declare a finite capacitor and inspect its terminals | [Capacitor](docs/reference/agent-catalogue/components/capacitor.md) — `catalogue/components/capacitor` |
+| Declare an inductor and its inductive branch | [Inductor](docs/reference/agent-catalogue/components/inductor.md) — `catalogue/components/inductor` |
+| Declare a Josephson junction using LJ0 and independent Cj | [Josephson junction](docs/reference/agent-catalogue/components/josephson_junction.md) — `catalogue/components/josephson_junction` |
+| Define, bind and substitute physical inputs | [Parameter system](docs/contracts/parameter-system.qmd) — `contracts/parameter-system` |
+| Register bodies and assemble their connections | [Circuit Plan assembly](docs/contracts/circuit-plan-assembly.qmd#structured-authoring-grammar) — `contracts/circuit-plan-assembly` |
+| Select ordered retained coordinates | [Views and retain](docs/concepts/compilation-coordinates-and-network-views.qmd#network-view-lineage) — `compilation-coordinates-and-network-views` |
+| Request the same View's static matrix or entry | [Static capacitance](docs/guides/static-capacitance.qmd) — `static-capacitance` |
+| Supply numeric per-length matrices and conductor order | [RLGC](docs/reference/agent-catalogue/api/rlgc.md) — `catalogue/api/rlgc` |
+| Choose units and interpret frequency and Result conversion | [Units](docs/concepts/simulation-conventions.qmd#phasors-and-units) — `simulation-conventions` |
+
+The [public catalogue](docs/reference/agent-catalogue/index.md)
+(`catalogue/index`) lists exported names and built-in factories. Its construction
+observations apply only to the recorded inputs. The
+[Component Authoring Contract](docs/component-authoring.qmd)
+(`component-authoring`) explains Library ownership and physical models.
+[Known public documents outside this bundle](docs/reference/agent-catalogue/known-public-documents.md)
+(`catalogue/known-public-documents`) come from the producer's declared source
+inventory; an unresolved link alone does not establish that a document exists.
+
+### Inputs, units and common mistakes
+
+Use `from scnsim import units as u` for physical Quantities, for example
+`110 * u.fF`; a bare number is not a capacitance. Keep fixed values literal.
+Use `ParameterDefinitions` and `ParameterSpec` only for inputs deliberately
+consumed by physical component fields; a `ParameterSet` supplies values to
+those refs and does not create bindings. Ordinary frequency is in Hz;
+angular frequency is in rad/s. Convert a Result's Quantity projection, for example
+`root_result.frequency.to("GHz")` or `matrix_result.matrix.to("farad")`,
+instead of relabeling its numeric values.
+
+Explicit pins, buses and ground define connectivity. A drawing never creates
+an electrical connection. A transmission line requires actual numeric RLGC
+matrices, declared conductor order/reference and physical length; its drawing
+length is not that length. The Q2D loader accepts its documented distributed
+RLGC profile, not an arbitrary lumped capacitance export.
+
+`retain()` selects coordinates on a View. For static C its eliminated finite
+complement obeys zero charge; dynamic requests retain their own equations.
+`StaticCapacitanceSpec()` has no `zero_charge` input. A root Hint is a local
+seed, not a target value or an instruction to discover every root.
+
+### Execution prerequisites and Result ownership
+
+Use an exact-version installation matching your Python/platform. JAX CPU is
+the default numerical backend; Julia-only capabilities require an explicitly
+selected backend and a separately provided Julia installation. Notebook
+presentation has its own optional dependencies. See the
+[setup guide](examples/engineer/setup.qmd) (`engineer-setup`) before executing.
+Reading this bundle imports no producer and performs no simulation.
+
+`CircuitRun(plan=plan, storage="memory")` returns detached in-memory Results;
+`CircuitRun(plan=plan, workspace=path)` saves supported operations for exact
+readback. These are distinct persistence choices. Read
+[requests, execution and Result ownership](docs/concepts/requests-execution-and-result-ownership.qmd)
+(`requests-execution-and-result-ownership`) before resolving saved evidence or
+continuing an optimization. Returned public values remain readable after
+`run.close()`; memory Results do not acquire saved request/attempt identities.
+
+SCNSim owns circuit declaration and network calculations. Use the package
+that produced electromagnetic/material inputs for their extraction evidence;
+SCNSim cannot infer it from a matrix. Quantum Hamiltonian or pulse-dynamics
+work belongs to the corresponding circuit-quantization/dynamics tool, not to
+an invented SCNSim network result. Cite package version, bundle ID, resource
+ID and provenance when using installed knowledge, and report missing content
+through the installed package's Issues link rather than fabricating an API.
+<!-- agent-knowledge-start:end -->
+
 ## What do you want to calculate?
 
 | Calculation | Start here |
@@ -156,18 +236,29 @@ Continue with the [Engineer course](docs/index.qmd).
 
 ## Install
 
-The 1.0 beta is distributed through [GitHub Releases](https://github.com/OrPenStrike/scnsim/releases).
-Choose a matching CPython 3.12 wheel for Linux x86_64, macOS arm64, or Windows
-x86_64 (AMD64). The Windows CPU-JAX wheel supports both in-memory and Workspace
-operations; Windows ARM, GPU, and Julia execution are not included.
+`1.0.0.dev40` is an unreleased development candidate, and the 1.0 beta remains
+held. The exact-version development wheels delivered for `1.0.0.dev39` are
+historical artifacts, not dev40 installations. That prior wheel cohort targeted
+CPython 3.12 on Linux x86_64 (`manylinux_2_28`), macOS arm64 (minimum deployment
+target macOS 12), and Windows x86_64 (AMD64). These tags identify binary targets
+and do not establish coverage for every operating-system version or circuit
+workload.
+Install only a published wheel matching the version you intend to use; do not
+substitute a dev39 wheel for dev40.
 
-For a Windows consuming repository, its maintainer configures the matching
-prebuilt SCNSim wheel as the package source and updates that repository's
-`uv.lock`. Once configured, users install from the repository with:
+For a Windows consumer repository using CPython 3.12 AMD64, its maintainer
+configures the matching prebuilt SCNSim wheel as the package source and records
+that choice in the repository's `uv.lock`. Once an exact-version wheel is
+published and the consumer lock is configured, users install from the
+repository with:
 
 ```powershell
 uv sync
 ```
+
+The prior dev39 Windows CPU-JAX wheel evidence covered both in-memory and
+Workspace operations. Windows ARM, GPU, and Julia were outside that wheel; this
+historical evidence does not establish dev40 behavior.
 
 The pure-Python `asciitree` dependency may be installed from its source
 distribution; it has no native extension or custom build. Other native

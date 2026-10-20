@@ -289,7 +289,7 @@ branch convention defined above.
 | `resistor` | `resistance` | none | one R branch |
 | `capacitor` | `capacitance` | none | one C branch |
 | `inductor` | `inductance` | `inductive_branch("self")` | one linear L branch |
-| `josephson_junction` | `josephson_inductance`, `junction_capacitance=0 * u.F` | none | nonlinear JJ plus optional parallel C row |
+| `josephson_junction` | `josephson_inductance`, `junction_capacitance=0 * u.F` | `inductive_branch("self")` | nonlinear JJ plus optional parallel C row |
 
 ```python
 r = plan.add(components.resistor(id="loss", resistance=2.0 * u.kohm))

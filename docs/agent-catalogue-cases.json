@@ -1,0 +1,447 @@
+{
+  "schema_version": "1.0",
+  "description": "Editable public inputs for isolated catalogue-maintenance construction observations. These are construction cases, not numerical tests or claims for every parameter combination.",
+  "factory_cases": [
+    {
+      "id": "capacitor-documented",
+      "factory": "capacitor",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "capacitor_catalogue",
+        "capacitance": {
+          "quantity": {
+            "magnitude": 90.0,
+            "unit": "fF"
+          }
+        }
+      },
+      "scope": "Documented literal two-terminal capacitor; parameter-bound inputs are a separate construction case."
+    },
+    {
+      "id": "floating_parallel_linear_lc_resonator-documented",
+      "factory": "floating_parallel_linear_lc_resonator",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "floating_parallel_linear_lc_resonator_catalogue",
+        "terminal_1_to_reference_capacitance": {
+          "quantity": {
+            "magnitude": 52.0,
+            "unit": "fF"
+          }
+        },
+        "terminal_2_to_reference_capacitance": {
+          "quantity": {
+            "magnitude": 47.0,
+            "unit": "fF"
+          }
+        },
+        "terminal_mutual_capacitance": {
+          "quantity": {
+            "magnitude": 16.0,
+            "unit": "fF"
+          }
+        },
+        "inductance": {
+          "quantity": {
+            "magnitude": 7.0,
+            "unit": "nH"
+          }
+        }
+      },
+      "scope": "Documented floating linear example."
+    },
+    {
+      "id": "floating_parallel_single_junction_resonator-documented",
+      "factory": "floating_parallel_single_junction_resonator",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "floating_parallel_single_junction_resonator_catalogue",
+        "terminal_1_to_reference_capacitance": {
+          "quantity": {
+            "magnitude": 52.0,
+            "unit": "fF"
+          }
+        },
+        "terminal_2_to_reference_capacitance": {
+          "quantity": {
+            "magnitude": 47.0,
+            "unit": "fF"
+          }
+        },
+        "terminal_mutual_capacitance": {
+          "quantity": {
+            "magnitude": 16.0,
+            "unit": "fF"
+          }
+        },
+        "josephson_inductance": {
+          "quantity": {
+            "magnitude": 320.0,
+            "unit": "pH"
+          }
+        },
+        "junction_capacitance": {
+          "quantity": {
+            "magnitude": 2.0,
+            "unit": "fF"
+          }
+        }
+      },
+      "scope": "Declared case of the documented single-junction factory using documented literal field values; no response/HB claim."
+    },
+    {
+      "id": "floating_parallel_symmetric_squid_resonator-documented",
+      "factory": "floating_parallel_symmetric_squid_resonator",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "floating_parallel_symmetric_squid_resonator_catalogue",
+        "terminal_1_to_reference_capacitance": {
+          "quantity": {
+            "magnitude": 52.0,
+            "unit": "fF"
+          }
+        },
+        "terminal_2_to_reference_capacitance": {
+          "quantity": {
+            "magnitude": 47.0,
+            "unit": "fF"
+          }
+        },
+        "terminal_mutual_capacitance": {
+          "quantity": {
+            "magnitude": 16.0,
+            "unit": "fF"
+          }
+        },
+        "josephson_inductance": {
+          "quantity": {
+            "magnitude": 310.0,
+            "unit": "pH"
+          }
+        },
+        "junction_capacitance": {
+          "quantity": {
+            "magnitude": 2.0,
+            "unit": "fF"
+          }
+        },
+        "loop_inductance": {
+          "quantity": {
+            "magnitude": 45.0,
+            "unit": "pH"
+          }
+        }
+      },
+      "scope": "Declared finite-loop resonator construction using documented fields/values; the grounded case retains the documented loop ParameterRef. No pump/solver execution."
+    },
+    {
+      "id": "grounded_parallel_linear_lc_resonator-documented",
+      "factory": "grounded_parallel_linear_lc_resonator",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "grounded_parallel_linear_lc_resonator_catalogue",
+        "capacitance": {
+          "quantity": {
+            "magnitude": 110.0,
+            "unit": "fF"
+          }
+        },
+        "inductance": {
+          "quantity": {
+            "magnitude": 5.8,
+            "unit": "nH"
+          }
+        }
+      },
+      "scope": "Documented grounded linear example; actual public pin names are observed without interpreting their electrical independence."
+    },
+    {
+      "id": "grounded_parallel_single_junction_resonator-documented",
+      "factory": "grounded_parallel_single_junction_resonator",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "grounded_parallel_single_junction_resonator_catalogue",
+        "capacitance": {
+          "quantity": {
+            "magnitude": 110.0,
+            "unit": "fF"
+          }
+        },
+        "josephson_inductance": {
+          "quantity": {
+            "magnitude": 320.0,
+            "unit": "pH"
+          }
+        },
+        "junction_capacitance": {
+          "quantity": {
+            "magnitude": 2.0,
+            "unit": "fF"
+          }
+        }
+      },
+      "scope": "Declared case of the documented single-junction factory using documented literal field values; no response/HB claim."
+    },
+    {
+      "id": "grounded_parallel_symmetric_squid_resonator-documented",
+      "factory": "grounded_parallel_symmetric_squid_resonator",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "grounded_parallel_symmetric_squid_resonator_catalogue",
+        "capacitance": {
+          "quantity": {
+            "magnitude": 95.0,
+            "unit": "fF"
+          }
+        },
+        "josephson_inductance": {
+          "quantity": {
+            "magnitude": 300.0,
+            "unit": "pH"
+          }
+        },
+        "junction_capacitance": {
+          "quantity": {
+            "magnitude": 2.0,
+            "unit": "fF"
+          }
+        },
+        "loop_inductance": {
+          "parameter": {
+            "definitions_id": "flux_pump_inputs",
+            "id": "loop_inductance",
+            "baseline": {
+              "quantity": {
+                "magnitude": 40.0,
+                "unit": "pH"
+              }
+            },
+            "unit": "pH"
+          }
+        }
+      },
+      "scope": "Declared finite-loop resonator construction using documented fields/values; the grounded case retains the documented loop ParameterRef. No pump/solver execution."
+    },
+    {
+      "id": "inductor-documented",
+      "factory": "inductor",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "inductor_catalogue",
+        "inductance": {
+          "quantity": {
+            "magnitude": 1.2,
+            "unit": "nH"
+          }
+        }
+      },
+      "scope": "Documented literal inductor and public inductive branch."
+    },
+    {
+      "id": "interdigitated_capacitor-documented",
+      "factory": "interdigitated_capacitor",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "interdigitated_capacitor_catalogue",
+        "terminal_1_to_reference_capacitance": {
+          "quantity": {
+            "magnitude": 52.0,
+            "unit": "fF"
+          }
+        },
+        "terminal_2_to_reference_capacitance": {
+          "quantity": {
+            "magnitude": 47.0,
+            "unit": "fF"
+          }
+        },
+        "terminal_mutual_capacitance": {
+          "quantity": {
+            "magnitude": 16.0,
+            "unit": "fF"
+          }
+        }
+      },
+      "scope": "Three named capacitance inputs from the documented floating example; internal branch values are not solved."
+    },
+    {
+      "id": "josephson_junction-documented",
+      "factory": "josephson_junction",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "josephson_junction_catalogue",
+        "josephson_inductance": {
+          "quantity": {
+            "magnitude": 320.0,
+            "unit": "pH"
+          }
+        },
+        "junction_capacitance": {
+          "quantity": {
+            "magnitude": 2.0,
+            "unit": "fF"
+          }
+        }
+      },
+      "scope": "Documented per-junction zero-bias LJ0 and independent Cj; no nonlinear/HB execution."
+    },
+    {
+      "id": "resistor-documented",
+      "factory": "resistor",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "resistor_catalogue",
+        "resistance": {
+          "quantity": {
+            "magnitude": 2.0,
+            "unit": "kohm"
+          }
+        }
+      },
+      "scope": "Documented literal two-terminal resistor."
+    },
+    {
+      "id": "symmetric_squid-documented",
+      "factory": "symmetric_squid",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "symmetric_squid_catalogue",
+        "josephson_inductance": {
+          "quantity": {
+            "magnitude": 310.0,
+            "unit": "pH"
+          }
+        },
+        "junction_capacitance": {
+          "quantity": {
+            "magnitude": 2.0,
+            "unit": "fF"
+          }
+        },
+        "loop_inductance": {
+          "quantity": {
+            "magnitude": 45.0,
+            "unit": "pH"
+          }
+        }
+      },
+      "scope": "Documented finite-loop construction, not a negligible-loop surrogate or nonlinear execution."
+    },
+    {
+      "id": "transmission_line-documented",
+      "factory": "transmission_line",
+      "source_ref": "docs/component-authoring.qmd",
+      "prerequisites": [
+        "Use the installed public scnsim.components Library and its scnsim.units registry.",
+        "Factory construction only; no Plan execution, solver, rendering or native physics."
+      ],
+      "kwargs": {
+        "id": "transmission_line_catalogue",
+        "length": {
+          "quantity": {
+            "magnitude": 4.0,
+            "unit": "mm"
+          }
+        },
+        "n_sections": 40,
+        "rlgc": {
+          "rlgc": {
+            "conductors": [
+              "readout"
+            ],
+            "reference_conductor": "ground",
+            "resistance_per_length": {
+              "quantity": {
+                "magnitude": [
+                  [
+                    0.2
+                  ]
+                ],
+                "unit": "ohm/m"
+              }
+            },
+            "inductance_per_length": {
+              "quantity": {
+                "magnitude": [
+                  [
+                    410.0
+                  ]
+                ],
+                "unit": "nH/m"
+              }
+            },
+            "conductance_per_length": {
+              "quantity": {
+                "magnitude": [
+                  [
+                    0.0
+                  ]
+                ],
+                "unit": "S/m"
+              }
+            },
+            "capacitance_per_length": {
+              "quantity": {
+                "magnitude": [
+                  [
+                    165.0
+                  ]
+                ],
+                "unit": "pF/m"
+              }
+            }
+          }
+        }
+      },
+      "scope": "Only this one-conductor fixed-section case is constructed. Other conductor counts, parameterized RLGC and ElectricalResolution are not observed by this case."
+    }
+  ]
+}

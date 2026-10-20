@@ -3,13 +3,29 @@ title: "Engineer course setup"
 subtitle: "One locked environment and one clean kernel per Chapter"
 ---
 
-## Install the beta wheel
+## Install a matching published wheel
 
-Use CPython 3.12 and download the matching wheel from
-[GitHub Releases](https://github.com/OrPenStrike/scnsim/releases). The provided
-platforms are Linux x86_64 (manylinux 2.28) and macOS arm64 (deployment target
-macOS 12). These platform tags identify the binary target; they do not imply
-that every operating-system version or circuit workload has been exercised.
+`1.0.0.dev40` is an unreleased development candidate, and the 1.0 beta remains
+held. The exact-version CPython 3.12 development wheels delivered for
+`1.0.0.dev39` are historical and do not provide a dev40 installation. That
+prior wheel cohort targeted Linux x86_64 (`manylinux_2_28`), macOS arm64
+(minimum deployment target macOS 12), and Windows x86_64 (AMD64). These tags
+identify binary targets; they do not imply coverage of every operating-system
+version or circuit workload. Use a wheel from
+[GitHub Releases](https://github.com/OrPenStrike/scnsim/releases) only when an
+exact matching version has been published.
+
+For a Windows CPython 3.12 AMD64 consumer repository, its maintainer configures
+the exact matching prebuilt SCNSim wheel as the package source and commits the
+matching `uv.lock`. Once that source and lock are configured, run this from the
+consumer repository root:
+
+```powershell
+uv sync
+```
+
+The prior dev39 Windows CPU-JAX wheel evidence covered in-memory and Workspace
+operations. That historical evidence does not establish dev40 behavior.
 
 ```bash
 uv venv --python 3.12 .venv
@@ -30,9 +46,9 @@ It does not require a separate GUI figure manager.
 
 ## Work from the course source
 
-For the matching beta course, select the `v1.0.0b1` source when it is published.
-The `develop` branch follows ongoing development and can differ from a release.
-A source installation builds SCNSim's native extension and requires a C++17
+The `v1.0.0b1` beta course remains held; it is not a current install target. The
+`develop` branch follows ongoing development and can differ from a release. A
+source installation builds SCNSim's native extension and requires a C++17
 compiler; it is separate from installing a prebuilt wheel.
 
 From the selected source checkout, install the existing locked course tools

@@ -65,7 +65,7 @@ def _is_current_native_optimization_request(
         and isinstance(spec, Mapping)
         and spec.get("type") == "optimization"
         and isinstance(runtime, Mapping)
-        and set(runtime) == _RUNTIME_SEMANTIC_FIELDS
+        and set(runtime) == _JULIA_RUNTIME_SEMANTIC_FIELDS
         and runtime.get("algorithm_id") == _NATIVE_OPTIMIZATION_ALGORITHM_ID
     )
 
@@ -107,11 +107,8 @@ def _verify_request_document(
                 expected_spec = None
     else:
         expected_algorithm = julia_algorithms.get(operation, {}).get(spec.get("type") if isinstance(spec, dict) else None)
-        expected_spec = {
-            "solve_direct": "direct_solve",
-            "solve_hb": "hb_solve",
-            "optimize_direct": "optimization",
-        }.get(operation)
+        # The same closed operation/spec catalog owns both discriminators.
+        expected_spec = spec.get("type") if expected_algorithm is not None else None
     if (
         set(request) != {"schema", "schema_version", "plan_sha256", "operation", "view", "spec", "parameter_source", "runtime_semantic"}
         or request.get("schema") != "scnsim.request"

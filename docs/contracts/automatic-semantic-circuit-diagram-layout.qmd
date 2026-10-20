@@ -4,18 +4,24 @@ subtitle: "One physical declaration for numerical lowering and reviewable projec
 toc-depth: 3
 ---
 
-::: {.callout-warning}
-## CONVERGING contract — caller-declared manual layout
+::: {.callout-note}
+## ACCEPTED contract — caller-declared manual layout
 
 This document is the single target authority for diagram composition and
 certified caller-declared authoring projections. The compiled automatic diagram
 public API is retired in this successor; numerical compilation is unaffected.
 Common circuit assembly is owned by
-the [assembly contract](circuit-plan-assembly.qmd). The explicit-layout successor replaces authoring automatic completion; its
-implementation and actual rendering evidence remain separate from this target
-contract. This scope is not Human-accepted or stabilized. The
+the [assembly contract](circuit-plan-assembly.qmd). The explicit-layout
+successor replaces authoring automatic completion. The Human accepted this
+named manual-layout scope on 2026-10-15 with the answer
+`接受此手動電路圖契約，納入測試`, bound to implementation commit
+`3c5794790bb7b8539d9aead0cf7e67ae38ce5dcf` and tree
+`716277503f9b937caf6138c9e5f12127cf1f9f71`. This acceptance covers only the
+manual diagram contract; it does not accept numerical behavior, other authoring
+scopes, whole-course coverage, or release. Assigned tests are being implemented,
+so this scope is not yet stabilized. The
 [central evidence status](index.qmd#implementation-evidence-status) bounds
-current execution and delivery claims.
+execution and delivery claims separately.
 
 Accepted numerical operations, physical component models, units,
 workspace evidence, and Result meanings remain authoritative and are not
@@ -652,15 +658,16 @@ state, or an analysis `Result`. Successful audited rendering returns the
 
 The historical dev5/dev6 numerical meanings remain intact in the current
 Engineer course and Runtime Contract.
-Scoped execution evidence does not establish whole-course coverage or Human
-acceptance.
+This scope's acceptance does not establish whole-course coverage or acceptance
+of numerical behavior.
 
 ## Honest limits and supersession {#honest-limits}
 
-- This document is a `CONVERGING` contract for an explicit-layout successor, not Human acceptance, stabilization, release, or scientific-result
-  evidence.
-- Durable tests require explicit Human scope assignment; acceptance alone
-  does not authorize them. Current evidence limits are in the Contract map.
+- This document records the Human-accepted manual-layout scope above. The
+  explicitly assigned tests are in progress; stabilization and release are not
+  claimed. Current evidence limits are in the Contract map.
+- No other scope's test assignment, acceptance, or scientific-result evidence
+  is implied.
 - Superseded flat public authoring and catalog-hint APIs are historical
   evidence, not reachable compatibility authorities.
 - This target has no public generic netlist-to-intent inference, no

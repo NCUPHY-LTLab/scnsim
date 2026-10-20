@@ -1,0 +1,1734 @@
+{
+  "distribution": "scnsim",
+  "generator": "scripts/generate_agent_catalogue.py",
+  "resources": [
+    {
+      "id": "catalogue/api/acceptediterateselection",
+      "kind": "api",
+      "path": "resources/catalogue/api/acceptediterateselection.md",
+      "source_ref": "docs/reference/agent-catalogue/api/acceptediterateselection.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public AcceptedIterateSelection declaration, signature, members and responsibility.",
+      "title": "AcceptedIterateSelection public API"
+    },
+    {
+      "id": "catalogue/api/affinemap",
+      "kind": "api",
+      "path": "resources/catalogue/api/affinemap.md",
+      "source_ref": "docs/reference/agent-catalogue/api/affinemap.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public AffineMap declaration, signature, members and responsibility.",
+      "title": "AffineMap public API"
+    },
+    {
+      "id": "catalogue/api/analysisresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/analysisresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/analysisresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public AnalysisResult declaration, signature, members and responsibility.",
+      "title": "AnalysisResult public API"
+    },
+    {
+      "id": "catalogue/api/backendprotocolerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/backendprotocolerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/backendprotocolerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public BackendProtocolError declaration, signature, members and responsibility.",
+      "title": "BackendProtocolError public API"
+    },
+    {
+      "id": "catalogue/api/benchmarkresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/benchmarkresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/benchmarkresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public BenchmarkResult declaration, signature, members and responsibility.",
+      "title": "BenchmarkResult public API"
+    },
+    {
+      "id": "catalogue/api/biasstate",
+      "kind": "api",
+      "path": "resources/catalogue/api/biasstate.md",
+      "source_ref": "docs/reference/agent-catalogue/api/biasstate.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public BiasState declaration, signature, members and responsibility.",
+      "title": "BiasState public API"
+    },
+    {
+      "id": "catalogue/api/branchref",
+      "kind": "api",
+      "path": "resources/catalogue/api/branchref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/branchref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public BranchRef declaration, signature, members and responsibility.",
+      "title": "BranchRef public API"
+    },
+    {
+      "id": "catalogue/api/busref",
+      "kind": "api",
+      "path": "resources/catalogue/api/busref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/busref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public BusRef declaration, signature, members and responsibility.",
+      "title": "BusRef public API"
+    },
+    {
+      "id": "catalogue/api/circuitdiagramaudit",
+      "kind": "api",
+      "path": "resources/catalogue/api/circuitdiagramaudit.md",
+      "source_ref": "docs/reference/agent-catalogue/api/circuitdiagramaudit.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CircuitDiagramAudit declaration, signature, members and responsibility.",
+      "title": "CircuitDiagramAudit public API"
+    },
+    {
+      "id": "catalogue/api/circuitdiagramresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/circuitdiagramresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/circuitdiagramresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CircuitDiagramResult declaration, signature, members and responsibility.",
+      "title": "CircuitDiagramResult public API"
+    },
+    {
+      "id": "catalogue/api/circuitdiagramspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/circuitdiagramspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/circuitdiagramspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CircuitDiagramSpec declaration, signature, members and responsibility.",
+      "title": "CircuitDiagramSpec public API"
+    },
+    {
+      "id": "catalogue/api/circuitplan",
+      "kind": "api",
+      "path": "resources/catalogue/api/circuitplan.md",
+      "source_ref": "docs/reference/agent-catalogue/api/circuitplan.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CircuitPlan declaration, signature, members and responsibility.",
+      "title": "CircuitPlan public API"
+    },
+    {
+      "id": "catalogue/api/circuitrun",
+      "kind": "api",
+      "path": "resources/catalogue/api/circuitrun.md",
+      "source_ref": "docs/reference/agent-catalogue/api/circuitrun.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CircuitRun declaration, signature, members and responsibility.",
+      "title": "CircuitRun public API"
+    },
+    {
+      "id": "catalogue/api/cmaesspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/cmaesspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/cmaesspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CMAESSpec declaration, signature, members and responsibility.",
+      "title": "CMAESSpec public API"
+    },
+    {
+      "id": "catalogue/api/compilerinvarianterror",
+      "kind": "api",
+      "path": "resources/catalogue/api/compilerinvarianterror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/compilerinvarianterror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CompilerInvariantError declaration, signature, members and responsibility.",
+      "title": "CompilerInvariantError public API"
+    },
+    {
+      "id": "catalogue/api/componentinstance",
+      "kind": "api",
+      "path": "resources/catalogue/api/componentinstance.md",
+      "source_ref": "docs/reference/agent-catalogue/api/componentinstance.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ComponentInstance declaration, signature, members and responsibility.",
+      "title": "ComponentInstance public API"
+    },
+    {
+      "id": "catalogue/api/components",
+      "kind": "api",
+      "path": "resources/catalogue/api/components.md",
+      "source_ref": "docs/reference/agent-catalogue/api/components.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public components declaration, signature, members and responsibility.",
+      "title": "components public API"
+    },
+    {
+      "id": "catalogue/api/compositeplan",
+      "kind": "api",
+      "path": "resources/catalogue/api/compositeplan.md",
+      "source_ref": "docs/reference/agent-catalogue/api/compositeplan.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CompositePlan declaration, signature, members and responsibility.",
+      "title": "CompositePlan public API"
+    },
+    {
+      "id": "catalogue/api/configure_runtime",
+      "kind": "api",
+      "path": "resources/catalogue/api/configure_runtime.md",
+      "source_ref": "docs/reference/agent-catalogue/api/configure_runtime.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public configure_runtime declaration, signature, members and responsibility.",
+      "title": "configure_runtime public API"
+    },
+    {
+      "id": "catalogue/api/coordinateref",
+      "kind": "api",
+      "path": "resources/catalogue/api/coordinateref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/coordinateref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CoordinateRef declaration, signature, members and responsibility.",
+      "title": "CoordinateRef public API"
+    },
+    {
+      "id": "catalogue/api/costobjective",
+      "kind": "api",
+      "path": "resources/catalogue/api/costobjective.md",
+      "source_ref": "docs/reference/agent-catalogue/api/costobjective.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CostObjective declaration, signature, members and responsibility.",
+      "title": "CostObjective public API"
+    },
+    {
+      "id": "catalogue/api/couplingref",
+      "kind": "api",
+      "path": "resources/catalogue/api/couplingref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/couplingref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CouplingRef declaration, signature, members and responsibility.",
+      "title": "CouplingRef public API"
+    },
+    {
+      "id": "catalogue/api/currentdrive",
+      "kind": "api",
+      "path": "resources/catalogue/api/currentdrive.md",
+      "source_ref": "docs/reference/agent-catalogue/api/currentdrive.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public CurrentDrive declaration, signature, members and responsibility.",
+      "title": "CurrentDrive public API"
+    },
+    {
+      "id": "catalogue/api/diagonalrootresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagonalrootresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagonalrootresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagonalRootResult declaration, signature, members and responsibility.",
+      "title": "DiagonalRootResult public API"
+    },
+    {
+      "id": "catalogue/api/diagonalrootspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagonalrootspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagonalrootspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagonalRootSpec declaration, signature, members and responsibility.",
+      "title": "DiagonalRootSpec public API"
+    },
+    {
+      "id": "catalogue/api/diagramboxsize",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramboxsize.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramboxsize.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramBoxSize declaration, signature, members and responsibility.",
+      "title": "DiagramBoxSize public API"
+    },
+    {
+      "id": "catalogue/api/diagramcaption",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramcaption.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramcaption.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramCaption declaration, signature, members and responsibility.",
+      "title": "DiagramCaption public API"
+    },
+    {
+      "id": "catalogue/api/diagramcoupling",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramcoupling.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramcoupling.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramCoupling declaration, signature, members and responsibility.",
+      "title": "DiagramCoupling public API"
+    },
+    {
+      "id": "catalogue/api/diagramendpoint",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramendpoint.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramendpoint.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramEndpoint declaration, signature, members and responsibility.",
+      "title": "DiagramEndpoint public API"
+    },
+    {
+      "id": "catalogue/api/diagramjump",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramjump.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramjump.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramJump declaration, signature, members and responsibility.",
+      "title": "DiagramJump public API"
+    },
+    {
+      "id": "catalogue/api/diagramjunction",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramjunction.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramjunction.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramJunction declaration, signature, members and responsibility.",
+      "title": "DiagramJunction public API"
+    },
+    {
+      "id": "catalogue/api/diagramleader",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramleader.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramleader.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramLeader declaration, signature, members and responsibility.",
+      "title": "DiagramLeader public API"
+    },
+    {
+      "id": "catalogue/api/diagrampose",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagrampose.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagrampose.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramPose declaration, signature, members and responsibility.",
+      "title": "DiagramPose public API"
+    },
+    {
+      "id": "catalogue/api/diagramref",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramRef declaration, signature, members and responsibility.",
+      "title": "DiagramRef public API"
+    },
+    {
+      "id": "catalogue/api/diagramroute",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramroute.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramroute.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramRoute declaration, signature, members and responsibility.",
+      "title": "DiagramRoute public API"
+    },
+    {
+      "id": "catalogue/api/diagramside",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramside.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramside.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramSide declaration, signature, members and responsibility.",
+      "title": "DiagramSide public API"
+    },
+    {
+      "id": "catalogue/api/diagramunit",
+      "kind": "api",
+      "path": "resources/catalogue/api/diagramunit.md",
+      "source_ref": "docs/reference/agent-catalogue/api/diagramunit.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DiagramUnit declaration, signature, members and responsibility.",
+      "title": "DiagramUnit public API"
+    },
+    {
+      "id": "catalogue/api/directquantityresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/directquantityresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/directquantityresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DirectQuantityResult declaration, signature, members and responsibility.",
+      "title": "DirectQuantityResult public API"
+    },
+    {
+      "id": "catalogue/api/directresponseformationerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/directresponseformationerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/directresponseformationerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DirectResponseFormationError declaration, signature, members and responsibility.",
+      "title": "DirectResponseFormationError public API"
+    },
+    {
+      "id": "catalogue/api/directsolveresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/directsolveresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/directsolveresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DirectSolveResult declaration, signature, members and responsibility.",
+      "title": "DirectSolveResult public API"
+    },
+    {
+      "id": "catalogue/api/directsolvespec",
+      "kind": "api",
+      "path": "resources/catalogue/api/directsolvespec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/directsolvespec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public DirectSolveSpec declaration, signature, members and responsibility.",
+      "title": "DirectSolveSpec public API"
+    },
+    {
+      "id": "catalogue/api/electricalresolution",
+      "kind": "api",
+      "path": "resources/catalogue/api/electricalresolution.md",
+      "source_ref": "docs/reference/agent-catalogue/api/electricalresolution.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ElectricalResolution declaration, signature, members and responsibility.",
+      "title": "ElectricalResolution public API"
+    },
+    {
+      "id": "catalogue/api/electricnoderef",
+      "kind": "api",
+      "path": "resources/catalogue/api/electricnoderef.md",
+      "source_ref": "docs/reference/agent-catalogue/api/electricnoderef.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ElectricNodeRef declaration, signature, members and responsibility.",
+      "title": "ElectricNodeRef public API"
+    },
+    {
+      "id": "catalogue/api/eliminatedblocksolvefailure",
+      "kind": "api",
+      "path": "resources/catalogue/api/eliminatedblocksolvefailure.md",
+      "source_ref": "docs/reference/agent-catalogue/api/eliminatedblocksolvefailure.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public EliminatedBlockSolveFailure declaration, signature, members and responsibility.",
+      "title": "EliminatedBlockSolveFailure public API"
+    },
+    {
+      "id": "catalogue/api/evidenceintegrityerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/evidenceintegrityerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/evidenceintegrityerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public EvidenceIntegrityError declaration, signature, members and responsibility.",
+      "title": "EvidenceIntegrityError public API"
+    },
+    {
+      "id": "catalogue/api/executionpolicy",
+      "kind": "api",
+      "path": "resources/catalogue/api/executionpolicy.md",
+      "source_ref": "docs/reference/agent-catalogue/api/executionpolicy.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ExecutionPolicy declaration, signature, members and responsibility.",
+      "title": "ExecutionPolicy public API"
+    },
+    {
+      "id": "catalogue/api/explanationresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/explanationresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/explanationresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ExplanationResult declaration, signature, members and responsibility.",
+      "title": "ExplanationResult public API"
+    },
+    {
+      "id": "catalogue/api/fixedmeshspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/fixedmeshspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/fixedmeshspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public FixedMeshSpec declaration, signature, members and responsibility.",
+      "title": "FixedMeshSpec public API"
+    },
+    {
+      "id": "catalogue/api/geometryrealization",
+      "kind": "api",
+      "path": "resources/catalogue/api/geometryrealization.md",
+      "source_ref": "docs/reference/agent-catalogue/api/geometryrealization.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public GeometryRealization declaration, signature, members and responsibility.",
+      "title": "GeometryRealization public API"
+    },
+    {
+      "id": "catalogue/api/groundref",
+      "kind": "api",
+      "path": "resources/catalogue/api/groundref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/groundref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public GroundRef declaration, signature, members and responsibility.",
+      "title": "GroundRef public API"
+    },
+    {
+      "id": "catalogue/api/hbbatchresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/hbbatchresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/hbbatchresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public HBBatchResult declaration, signature, members and responsibility.",
+      "title": "HBBatchResult public API"
+    },
+    {
+      "id": "catalogue/api/hbcasefailure",
+      "kind": "api",
+      "path": "resources/catalogue/api/hbcasefailure.md",
+      "source_ref": "docs/reference/agent-catalogue/api/hbcasefailure.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public HBCaseFailure declaration, signature, members and responsibility.",
+      "title": "HBCaseFailure public API"
+    },
+    {
+      "id": "catalogue/api/hbcaseoutcome",
+      "kind": "api",
+      "path": "resources/catalogue/api/hbcaseoutcome.md",
+      "source_ref": "docs/reference/agent-catalogue/api/hbcaseoutcome.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public HBCaseOutcome declaration, signature, members and responsibility.",
+      "title": "HBCaseOutcome public API"
+    },
+    {
+      "id": "catalogue/api/hbcasespec",
+      "kind": "api",
+      "path": "resources/catalogue/api/hbcasespec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/hbcasespec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public HBCaseSpec declaration, signature, members and responsibility.",
+      "title": "HBCaseSpec public API"
+    },
+    {
+      "id": "catalogue/api/hbscatteringmatrixresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/hbscatteringmatrixresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/hbscatteringmatrixresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public HBScatteringMatrixResult declaration, signature, members and responsibility.",
+      "title": "HBScatteringMatrixResult public API"
+    },
+    {
+      "id": "catalogue/api/hbsolvespec",
+      "kind": "api",
+      "path": "resources/catalogue/api/hbsolvespec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/hbsolvespec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public HBSolveSpec declaration, signature, members and responsibility.",
+      "title": "HBSolveSpec public API"
+    },
+    {
+      "id": "catalogue/api/hbtruncation",
+      "kind": "api",
+      "path": "resources/catalogue/api/hbtruncation.md",
+      "source_ref": "docs/reference/agent-catalogue/api/hbtruncation.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public HBTruncation declaration, signature, members and responsibility.",
+      "title": "HBTruncation public API"
+    },
+    {
+      "id": "catalogue/api/hybridizedpolespec",
+      "kind": "api",
+      "path": "resources/catalogue/api/hybridizedpolespec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/hybridizedpolespec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public HybridizedPoleSpec declaration, signature, members and responsibility.",
+      "title": "HybridizedPoleSpec public API"
+    },
+    {
+      "id": "catalogue/api/hybridspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/hybridspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/hybridspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public HybridSpec declaration, signature, members and responsibility.",
+      "title": "HybridSpec public API"
+    },
+    {
+      "id": "catalogue/api/inductivebranchref",
+      "kind": "api",
+      "path": "resources/catalogue/api/inductivebranchref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inductivebranchref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InductiveBranchRef declaration, signature, members and responsibility.",
+      "title": "InductiveBranchRef public API"
+    },
+    {
+      "id": "catalogue/api/inmemoryanalysisresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/inmemoryanalysisresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inmemoryanalysisresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InMemoryAnalysisResult declaration, signature, members and responsibility.",
+      "title": "InMemoryAnalysisResult public API"
+    },
+    {
+      "id": "catalogue/api/inmemorybenchmarkresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/inmemorybenchmarkresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inmemorybenchmarkresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InMemoryBenchmarkResult declaration, signature, members and responsibility.",
+      "title": "InMemoryBenchmarkResult public API"
+    },
+    {
+      "id": "catalogue/api/inmemorydirectsolveresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/inmemorydirectsolveresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inmemorydirectsolveresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InMemoryDirectSolveResult declaration, signature, members and responsibility.",
+      "title": "InMemoryDirectSolveResult public API"
+    },
+    {
+      "id": "catalogue/api/inmemoryoptimizationresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/inmemoryoptimizationresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inmemoryoptimizationresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InMemoryOptimizationResult declaration, signature, members and responsibility.",
+      "title": "InMemoryOptimizationResult public API"
+    },
+    {
+      "id": "catalogue/api/inmemoryoptimizationstage",
+      "kind": "api",
+      "path": "resources/catalogue/api/inmemoryoptimizationstage.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inmemoryoptimizationstage.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InMemoryOptimizationStage declaration, signature, members and responsibility.",
+      "title": "InMemoryOptimizationStage public API"
+    },
+    {
+      "id": "catalogue/api/inmemoryoptimizationtrial",
+      "kind": "api",
+      "path": "resources/catalogue/api/inmemoryoptimizationtrial.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inmemoryoptimizationtrial.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InMemoryOptimizationTrial declaration, signature, members and responsibility.",
+      "title": "InMemoryOptimizationTrial public API"
+    },
+    {
+      "id": "catalogue/api/inmemoryparametersweepresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/inmemoryparametersweepresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inmemoryparametersweepresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InMemoryParameterSweepResult declaration, signature, members and responsibility.",
+      "title": "InMemoryParameterSweepResult public API"
+    },
+    {
+      "id": "catalogue/api/inmemorysensitivityresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/inmemorysensitivityresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inmemorysensitivityresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InMemorySensitivityResult declaration, signature, members and responsibility.",
+      "title": "InMemorySensitivityResult public API"
+    },
+    {
+      "id": "catalogue/api/inmemorystaticcapacitanceelementresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/inmemorystaticcapacitanceelementresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inmemorystaticcapacitanceelementresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InMemoryStaticCapacitanceElementResult declaration, signature, members and responsibility.",
+      "title": "InMemoryStaticCapacitanceElementResult public API"
+    },
+    {
+      "id": "catalogue/api/inmemorystaticcapacitanceresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/inmemorystaticcapacitanceresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inmemorystaticcapacitanceresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InMemoryStaticCapacitanceResult declaration, signature, members and responsibility.",
+      "title": "InMemoryStaticCapacitanceResult public API"
+    },
+    {
+      "id": "catalogue/api/invalidcandidatephysicalparameter",
+      "kind": "api",
+      "path": "resources/catalogue/api/invalidcandidatephysicalparameter.md",
+      "source_ref": "docs/reference/agent-catalogue/api/invalidcandidatephysicalparameter.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InvalidCandidatePhysicalParameter declaration, signature, members and responsibility.",
+      "title": "InvalidCandidatePhysicalParameter public API"
+    },
+    {
+      "id": "catalogue/api/invaliddiagonalroothint",
+      "kind": "api",
+      "path": "resources/catalogue/api/invaliddiagonalroothint.md",
+      "source_ref": "docs/reference/agent-catalogue/api/invaliddiagonalroothint.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InvalidDiagonalRootHint declaration, signature, members and responsibility.",
+      "title": "InvalidDiagonalRootHint public API"
+    },
+    {
+      "id": "catalogue/api/invalidoptimizationspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/invalidoptimizationspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/invalidoptimizationspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InvalidOptimizationSpec declaration, signature, members and responsibility.",
+      "title": "InvalidOptimizationSpec public API"
+    },
+    {
+      "id": "catalogue/api/inventoryresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/inventoryresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/inventoryresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public InventoryResult declaration, signature, members and responsibility.",
+      "title": "InventoryResult public API"
+    },
+    {
+      "id": "catalogue/api/jacobian",
+      "kind": "api",
+      "path": "resources/catalogue/api/jacobian.md",
+      "source_ref": "docs/reference/agent-catalogue/api/jacobian.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public Jacobian declaration, signature, members and responsibility.",
+      "title": "Jacobian public API"
+    },
+    {
+      "id": "catalogue/api/jvp",
+      "kind": "api",
+      "path": "resources/catalogue/api/jvp.md",
+      "source_ref": "docs/reference/agent-catalogue/api/jvp.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public JVP declaration, signature, members and responsibility.",
+      "title": "JVP public API"
+    },
+    {
+      "id": "catalogue/api/lbfgsbspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/lbfgsbspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/lbfgsbspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public LBFGSBSpec declaration, signature, members and responsibility.",
+      "title": "LBFGSBSpec public API"
+    },
+    {
+      "id": "catalogue/api/library",
+      "kind": "api",
+      "path": "resources/catalogue/api/library.md",
+      "source_ref": "docs/reference/agent-catalogue/api/library.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public Library declaration, signature, members and responsibility.",
+      "title": "Library public API"
+    },
+    {
+      "id": "catalogue/api/linediscretization",
+      "kind": "api",
+      "path": "resources/catalogue/api/linediscretization.md",
+      "source_ref": "docs/reference/agent-catalogue/api/linediscretization.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public LineDiscretization declaration, signature, members and responsibility.",
+      "title": "LineDiscretization public API"
+    },
+    {
+      "id": "catalogue/api/load_q2d_rlgc",
+      "kind": "api",
+      "path": "resources/catalogue/api/load_q2d_rlgc.md",
+      "source_ref": "docs/reference/agent-catalogue/api/load_q2d_rlgc.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public load_q2d_rlgc declaration, signature, members and responsibility.",
+      "title": "load_q2d_rlgc public API"
+    },
+    {
+      "id": "catalogue/api/matrixfamilyresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/matrixfamilyresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/matrixfamilyresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public MatrixFamilyResult declaration, signature, members and responsibility.",
+      "title": "MatrixFamilyResult public API"
+    },
+    {
+      "id": "catalogue/api/matrixview",
+      "kind": "api",
+      "path": "resources/catalogue/api/matrixview.md",
+      "source_ref": "docs/reference/agent-catalogue/api/matrixview.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public MatrixView declaration, signature, members and responsibility.",
+      "title": "MatrixView public API"
+    },
+    {
+      "id": "catalogue/api/measuredfragment",
+      "kind": "api",
+      "path": "resources/catalogue/api/measuredfragment.md",
+      "source_ref": "docs/reference/agent-catalogue/api/measuredfragment.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public MeasuredFragment declaration, signature, members and responsibility.",
+      "title": "MeasuredFragment public API"
+    },
+    {
+      "id": "catalogue/api/networkviewref",
+      "kind": "api",
+      "path": "resources/catalogue/api/networkviewref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/networkviewref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public NetworkViewRef declaration, signature, members and responsibility.",
+      "title": "NetworkViewRef public API"
+    },
+    {
+      "id": "catalogue/api/numericalresolutionunresolved",
+      "kind": "api",
+      "path": "resources/catalogue/api/numericalresolutionunresolved.md",
+      "source_ref": "docs/reference/agent-catalogue/api/numericalresolutionunresolved.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public NumericalResolutionUnresolved declaration, signature, members and responsibility.",
+      "title": "NumericalResolutionUnresolved public API"
+    },
+    {
+      "id": "catalogue/api/operatorelementrootresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/operatorelementrootresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/operatorelementrootresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OperatorElementRootResult declaration, signature, members and responsibility.",
+      "title": "OperatorElementRootResult public API"
+    },
+    {
+      "id": "catalogue/api/operatorelementrootspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/operatorelementrootspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/operatorelementrootspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OperatorElementRootSpec declaration, signature, members and responsibility.",
+      "title": "OperatorElementRootSpec public API"
+    },
+    {
+      "id": "catalogue/api/operatorpointresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/operatorpointresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/operatorpointresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OperatorPointResult declaration, signature, members and responsibility.",
+      "title": "OperatorPointResult public API"
+    },
+    {
+      "id": "catalogue/api/operatorresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/operatorresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/operatorresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OperatorResult declaration, signature, members and responsibility.",
+      "title": "OperatorResult public API"
+    },
+    {
+      "id": "catalogue/api/operatorspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/operatorspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/operatorspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OperatorSpec declaration, signature, members and responsibility.",
+      "title": "OperatorSpec public API"
+    },
+    {
+      "id": "catalogue/api/optimizationbest",
+      "kind": "api",
+      "path": "resources/catalogue/api/optimizationbest.md",
+      "source_ref": "docs/reference/agent-catalogue/api/optimizationbest.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OptimizationBest declaration, signature, members and responsibility.",
+      "title": "OptimizationBest public API"
+    },
+    {
+      "id": "catalogue/api/optimizationdomain",
+      "kind": "api",
+      "path": "resources/catalogue/api/optimizationdomain.md",
+      "source_ref": "docs/reference/agent-catalogue/api/optimizationdomain.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OptimizationDomain declaration, signature, members and responsibility.",
+      "title": "OptimizationDomain public API"
+    },
+    {
+      "id": "catalogue/api/optimizationprogress",
+      "kind": "api",
+      "path": "resources/catalogue/api/optimizationprogress.md",
+      "source_ref": "docs/reference/agent-catalogue/api/optimizationprogress.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OptimizationProgress declaration, signature, members and responsibility.",
+      "title": "OptimizationProgress public API"
+    },
+    {
+      "id": "catalogue/api/optimizationprogresscallbackerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/optimizationprogresscallbackerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/optimizationprogresscallbackerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OptimizationProgressCallbackError declaration, signature, members and responsibility.",
+      "title": "OptimizationProgressCallbackError public API"
+    },
+    {
+      "id": "catalogue/api/optimizationresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/optimizationresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/optimizationresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OptimizationResult declaration, signature, members and responsibility.",
+      "title": "OptimizationResult public API"
+    },
+    {
+      "id": "catalogue/api/optimizationspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/optimizationspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/optimizationspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OptimizationSpec declaration, signature, members and responsibility.",
+      "title": "OptimizationSpec public API"
+    },
+    {
+      "id": "catalogue/api/optimizationstage",
+      "kind": "api",
+      "path": "resources/catalogue/api/optimizationstage.md",
+      "source_ref": "docs/reference/agent-catalogue/api/optimizationstage.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OptimizationStage declaration, signature, members and responsibility.",
+      "title": "OptimizationStage public API"
+    },
+    {
+      "id": "catalogue/api/optimizationvariable",
+      "kind": "api",
+      "path": "resources/catalogue/api/optimizationvariable.md",
+      "source_ref": "docs/reference/agent-catalogue/api/optimizationvariable.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OptimizationVariable declaration, signature, members and responsibility.",
+      "title": "OptimizationVariable public API"
+    },
+    {
+      "id": "catalogue/api/outputcoordinate",
+      "kind": "api",
+      "path": "resources/catalogue/api/outputcoordinate.md",
+      "source_ref": "docs/reference/agent-catalogue/api/outputcoordinate.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public OutputCoordinate declaration, signature, members and responsibility.",
+      "title": "OutputCoordinate public API"
+    },
+    {
+      "id": "catalogue/api/parallelref",
+      "kind": "api",
+      "path": "resources/catalogue/api/parallelref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parallelref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParallelRef declaration, signature, members and responsibility.",
+      "title": "ParallelRef public API"
+    },
+    {
+      "id": "catalogue/api/parameterdefinitions",
+      "kind": "api",
+      "path": "resources/catalogue/api/parameterdefinitions.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parameterdefinitions.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterDefinitions declaration, signature, members and responsibility.",
+      "title": "ParameterDefinitions public API"
+    },
+    {
+      "id": "catalogue/api/parameterfield",
+      "kind": "api",
+      "path": "resources/catalogue/api/parameterfield.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parameterfield.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterField declaration, signature, members and responsibility.",
+      "title": "ParameterField public API"
+    },
+    {
+      "id": "catalogue/api/parameterpointaccessor",
+      "kind": "api",
+      "path": "resources/catalogue/api/parameterpointaccessor.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parameterpointaccessor.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterPointAccessor declaration, signature, members and responsibility.",
+      "title": "ParameterPointAccessor public API"
+    },
+    {
+      "id": "catalogue/api/parameterpointidentity",
+      "kind": "api",
+      "path": "resources/catalogue/api/parameterpointidentity.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parameterpointidentity.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterPointIdentity declaration, signature, members and responsibility.",
+      "title": "ParameterPointIdentity public API"
+    },
+    {
+      "id": "catalogue/api/parameterpointoutcome",
+      "kind": "api",
+      "path": "resources/catalogue/api/parameterpointoutcome.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parameterpointoutcome.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterPointOutcome declaration, signature, members and responsibility.",
+      "title": "ParameterPointOutcome public API"
+    },
+    {
+      "id": "catalogue/api/parameterref",
+      "kind": "api",
+      "path": "resources/catalogue/api/parameterref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parameterref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterRef declaration, signature, members and responsibility.",
+      "title": "ParameterRef public API"
+    },
+    {
+      "id": "catalogue/api/parameterset",
+      "kind": "api",
+      "path": "resources/catalogue/api/parameterset.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parameterset.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterSet declaration, signature, members and responsibility.",
+      "title": "ParameterSet public API"
+    },
+    {
+      "id": "catalogue/api/parameterspace",
+      "kind": "api",
+      "path": "resources/catalogue/api/parameterspace.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parameterspace.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterSpace declaration, signature, members and responsibility.",
+      "title": "ParameterSpace public API"
+    },
+    {
+      "id": "catalogue/api/parameterspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/parameterspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parameterspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterSpec declaration, signature, members and responsibility.",
+      "title": "ParameterSpec public API"
+    },
+    {
+      "id": "catalogue/api/parametersweepresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/parametersweepresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parametersweepresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterSweepResult declaration, signature, members and responsibility.",
+      "title": "ParameterSweepResult public API"
+    },
+    {
+      "id": "catalogue/api/parametersweepselection",
+      "kind": "api",
+      "path": "resources/catalogue/api/parametersweepselection.md",
+      "source_ref": "docs/reference/agent-catalogue/api/parametersweepselection.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ParameterSweepSelection declaration, signature, members and responsibility.",
+      "title": "ParameterSweepSelection public API"
+    },
+    {
+      "id": "catalogue/api/pinref",
+      "kind": "api",
+      "path": "resources/catalogue/api/pinref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/pinref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public PinRef declaration, signature, members and responsibility.",
+      "title": "PinRef public API"
+    },
+    {
+      "id": "catalogue/api/plansealederror",
+      "kind": "api",
+      "path": "resources/catalogue/api/plansealederror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/plansealederror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public PlanSealedError declaration, signature, members and responsibility.",
+      "title": "PlanSealedError public API"
+    },
+    {
+      "id": "catalogue/api/portrealizabilityerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/portrealizabilityerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/portrealizabilityerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public PortRealizabilityError declaration, signature, members and responsibility.",
+      "title": "PortRealizabilityError public API"
+    },
+    {
+      "id": "catalogue/api/portref",
+      "kind": "api",
+      "path": "resources/catalogue/api/portref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/portref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public PortRef declaration, signature, members and responsibility.",
+      "title": "PortRef public API"
+    },
+    {
+      "id": "catalogue/api/preparedfunction",
+      "kind": "api",
+      "path": "resources/catalogue/api/preparedfunction.md",
+      "source_ref": "docs/reference/agent-catalogue/api/preparedfunction.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public PreparedFunction declaration, signature, members and responsibility.",
+      "title": "PreparedFunction public API"
+    },
+    {
+      "id": "catalogue/api/projectedlbfgsspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/projectedlbfgsspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/projectedlbfgsspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ProjectedLBFGSSpec declaration, signature, members and responsibility.",
+      "title": "ProjectedLBFGSSpec public API"
+    },
+    {
+      "id": "catalogue/api/pumpaxis",
+      "kind": "api",
+      "path": "resources/catalogue/api/pumpaxis.md",
+      "source_ref": "docs/reference/agent-catalogue/api/pumpaxis.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public PumpAxis declaration, signature, members and responsibility.",
+      "title": "PumpAxis public API"
+    },
+    {
+      "id": "catalogue/api/pumpstate",
+      "kind": "api",
+      "path": "resources/catalogue/api/pumpstate.md",
+      "source_ref": "docs/reference/agent-catalogue/api/pumpstate.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public PumpState declaration, signature, members and responsibility.",
+      "title": "PumpState public API"
+    },
+    {
+      "id": "catalogue/api/quantityabsolute",
+      "kind": "api",
+      "path": "resources/catalogue/api/quantityabsolute.md",
+      "source_ref": "docs/reference/agent-catalogue/api/quantityabsolute.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public QuantityAbsolute declaration, signature, members and responsibility.",
+      "title": "QuantityAbsolute public API"
+    },
+    {
+      "id": "catalogue/api/quantitydifference",
+      "kind": "api",
+      "path": "resources/catalogue/api/quantitydifference.md",
+      "source_ref": "docs/reference/agent-catalogue/api/quantitydifference.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public QuantityDifference declaration, signature, members and responsibility.",
+      "title": "QuantityDifference public API"
+    },
+    {
+      "id": "catalogue/api/quantitysum",
+      "kind": "api",
+      "path": "resources/catalogue/api/quantitysum.md",
+      "source_ref": "docs/reference/agent-catalogue/api/quantitysum.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public QuantitySum declaration, signature, members and responsibility.",
+      "title": "QuantitySum public API"
+    },
+    {
+      "id": "catalogue/api/reconciliationevidence",
+      "kind": "api",
+      "path": "resources/catalogue/api/reconciliationevidence.md",
+      "source_ref": "docs/reference/agent-catalogue/api/reconciliationevidence.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ReconciliationEvidence declaration, signature, members and responsibility.",
+      "title": "ReconciliationEvidence public API"
+    },
+    {
+      "id": "catalogue/api/reductionpipeline",
+      "kind": "api",
+      "path": "resources/catalogue/api/reductionpipeline.md",
+      "source_ref": "docs/reference/agent-catalogue/api/reductionpipeline.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ReductionPipeline declaration, signature, members and responsibility.",
+      "title": "ReductionPipeline public API"
+    },
+    {
+      "id": "catalogue/api/reportpanel",
+      "kind": "api",
+      "path": "resources/catalogue/api/reportpanel.md",
+      "source_ref": "docs/reference/agent-catalogue/api/reportpanel.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ReportPanel declaration, signature, members and responsibility.",
+      "title": "ReportPanel public API"
+    },
+    {
+      "id": "catalogue/api/reportresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/reportresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/reportresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ReportResult declaration, signature, members and responsibility.",
+      "title": "ReportResult public API"
+    },
+    {
+      "id": "catalogue/api/reportspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/reportspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/reportspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ReportSpec declaration, signature, members and responsibility.",
+      "title": "ReportSpec public API"
+    },
+    {
+      "id": "catalogue/api/residuenormalizedcouplingspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/residuenormalizedcouplingspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/residuenormalizedcouplingspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ResidueNormalizedCouplingSpec declaration, signature, members and responsibility.",
+      "title": "ResidueNormalizedCouplingSpec public API"
+    },
+    {
+      "id": "catalogue/api/responseelementspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/responseelementspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/responseelementspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ResponseElementSpec declaration, signature, members and responsibility.",
+      "title": "ResponseElementSpec public API"
+    },
+    {
+      "id": "catalogue/api/result",
+      "kind": "api",
+      "path": "resources/catalogue/api/result.md",
+      "source_ref": "docs/reference/agent-catalogue/api/result.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public Result declaration, signature, members and responsibility.",
+      "title": "Result public API"
+    },
+    {
+      "id": "catalogue/api/resultidentity",
+      "kind": "api",
+      "path": "resources/catalogue/api/resultidentity.md",
+      "source_ref": "docs/reference/agent-catalogue/api/resultidentity.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ResultIdentity declaration, signature, members and responsibility.",
+      "title": "ResultIdentity public API"
+    },
+    {
+      "id": "catalogue/api/resultunavailableerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/resultunavailableerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/resultunavailableerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ResultUnavailableError declaration, signature, members and responsibility.",
+      "title": "ResultUnavailableError public API"
+    },
+    {
+      "id": "catalogue/api/rlgc",
+      "kind": "api",
+      "path": "resources/catalogue/api/rlgc.md",
+      "source_ref": "docs/reference/agent-catalogue/api/rlgc.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public RLGC declaration, signature, members and responsibility.",
+      "title": "RLGC public API"
+    },
+    {
+      "id": "catalogue/api/rlgcparameterspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/rlgcparameterspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/rlgcparameterspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public RLGCParameterSpec declaration, signature, members and responsibility.",
+      "title": "RLGCParameterSpec public API"
+    },
+    {
+      "id": "catalogue/api/rlgcscalarterm",
+      "kind": "api",
+      "path": "resources/catalogue/api/rlgcscalarterm.md",
+      "source_ref": "docs/reference/agent-catalogue/api/rlgcscalarterm.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public RLGCScalarTerm declaration, signature, members and responsibility.",
+      "title": "RLGCScalarTerm public API"
+    },
+    {
+      "id": "catalogue/api/rootsearchspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/rootsearchspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/rootsearchspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public RootSearchSpec declaration, signature, members and responsibility.",
+      "title": "RootSearchSpec public API"
+    },
+    {
+      "id": "catalogue/api/rootslopeunresolved",
+      "kind": "api",
+      "path": "resources/catalogue/api/rootslopeunresolved.md",
+      "source_ref": "docs/reference/agent-catalogue/api/rootslopeunresolved.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public RootSlopeUnresolved declaration, signature, members and responsibility.",
+      "title": "RootSlopeUnresolved public API"
+    },
+    {
+      "id": "catalogue/api/runtimeconfiguration",
+      "kind": "api",
+      "path": "resources/catalogue/api/runtimeconfiguration.md",
+      "source_ref": "docs/reference/agent-catalogue/api/runtimeconfiguration.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public RuntimeConfiguration declaration, signature, members and responsibility.",
+      "title": "RuntimeConfiguration public API"
+    },
+    {
+      "id": "catalogue/api/runtimepreparationerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/runtimepreparationerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/runtimepreparationerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public RuntimePreparationError declaration, signature, members and responsibility.",
+      "title": "RuntimePreparationError public API"
+    },
+    {
+      "id": "catalogue/api/scaffoldunavailableerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/scaffoldunavailableerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scaffoldunavailableerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ScaffoldUnavailableError declaration, signature, members and responsibility.",
+      "title": "ScaffoldUnavailableError public API"
+    },
+    {
+      "id": "catalogue/api/scalarrlgcmap",
+      "kind": "api",
+      "path": "resources/catalogue/api/scalarrlgcmap.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scalarrlgcmap.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ScalarRLGCMap declaration, signature, members and responsibility.",
+      "title": "ScalarRLGCMap public API"
+    },
+    {
+      "id": "catalogue/api/scatteringmatrixresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/scatteringmatrixresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scatteringmatrixresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ScatteringMatrixResult declaration, signature, members and responsibility.",
+      "title": "ScatteringMatrixResult public API"
+    },
+    {
+      "id": "catalogue/api/schematiclayout",
+      "kind": "api",
+      "path": "resources/catalogue/api/schematiclayout.md",
+      "source_ref": "docs/reference/agent-catalogue/api/schematiclayout.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SchematicLayout declaration, signature, members and responsibility.",
+      "title": "SchematicLayout public API"
+    },
+    {
+      "id": "catalogue/api/schematicpreparation",
+      "kind": "api",
+      "path": "resources/catalogue/api/schematicpreparation.md",
+      "source_ref": "docs/reference/agent-catalogue/api/schematicpreparation.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SchematicPreparation declaration, signature, members and responsibility.",
+      "title": "SchematicPreparation public API"
+    },
+    {
+      "id": "catalogue/api/schematicscopelayout",
+      "kind": "api",
+      "path": "resources/catalogue/api/schematicscopelayout.md",
+      "source_ref": "docs/reference/agent-catalogue/api/schematicscopelayout.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SchematicScopeLayout declaration, signature, members and responsibility.",
+      "title": "SchematicScopeLayout public API"
+    },
+    {
+      "id": "catalogue/api/scnsimcapabilityerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/scnsimcapabilityerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scnsimcapabilityerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SCNSimCapabilityError declaration, signature, members and responsibility.",
+      "title": "SCNSimCapabilityError public API"
+    },
+    {
+      "id": "catalogue/api/scnsimerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/scnsimerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scnsimerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SCNSimError declaration, signature, members and responsibility.",
+      "title": "SCNSimError public API"
+    },
+    {
+      "id": "catalogue/api/scnsimevidenceerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/scnsimevidenceerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scnsimevidenceerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SCNSimEvidenceError declaration, signature, members and responsibility.",
+      "title": "SCNSimEvidenceError public API"
+    },
+    {
+      "id": "catalogue/api/scnsimexecutionerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/scnsimexecutionerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scnsimexecutionerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SCNSimExecutionError declaration, signature, members and responsibility.",
+      "title": "SCNSimExecutionError public API"
+    },
+    {
+      "id": "catalogue/api/scnsimstateerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/scnsimstateerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scnsimstateerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SCNSimStateError declaration, signature, members and responsibility.",
+      "title": "SCNSimStateError public API"
+    },
+    {
+      "id": "catalogue/api/scnsimvalidationerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/scnsimvalidationerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scnsimvalidationerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SCNSimValidationError declaration, signature, members and responsibility.",
+      "title": "SCNSimValidationError public API"
+    },
+    {
+      "id": "catalogue/api/scopeinventory",
+      "kind": "api",
+      "path": "resources/catalogue/api/scopeinventory.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scopeinventory.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ScopeInventory declaration, signature, members and responsibility.",
+      "title": "ScopeInventory public API"
+    },
+    {
+      "id": "catalogue/api/scopemeasurement",
+      "kind": "api",
+      "path": "resources/catalogue/api/scopemeasurement.md",
+      "source_ref": "docs/reference/agent-catalogue/api/scopemeasurement.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public ScopeMeasurement declaration, signature, members and responsibility.",
+      "title": "ScopeMeasurement public API"
+    },
+    {
+      "id": "catalogue/api/sensitivityresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/sensitivityresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/sensitivityresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SensitivityResult declaration, signature, members and responsibility.",
+      "title": "SensitivityResult public API"
+    },
+    {
+      "id": "catalogue/api/sensitivityscales",
+      "kind": "api",
+      "path": "resources/catalogue/api/sensitivityscales.md",
+      "source_ref": "docs/reference/agent-catalogue/api/sensitivityscales.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SensitivityScales declaration, signature, members and responsibility.",
+      "title": "SensitivityScales public API"
+    },
+    {
+      "id": "catalogue/api/sensitivityspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/sensitivityspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/sensitivityspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SensitivitySpec declaration, signature, members and responsibility.",
+      "title": "SensitivitySpec public API"
+    },
+    {
+      "id": "catalogue/api/seriesref",
+      "kind": "api",
+      "path": "resources/catalogue/api/seriesref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/seriesref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SeriesRef declaration, signature, members and responsibility.",
+      "title": "SeriesRef public API"
+    },
+    {
+      "id": "catalogue/api/sparametertrace",
+      "kind": "api",
+      "path": "resources/catalogue/api/sparametertrace.md",
+      "source_ref": "docs/reference/agent-catalogue/api/sparametertrace.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SParameterTrace declaration, signature, members and responsibility.",
+      "title": "SParameterTrace public API"
+    },
+    {
+      "id": "catalogue/api/staticcapacitanceelementresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/staticcapacitanceelementresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/staticcapacitanceelementresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public StaticCapacitanceElementResult declaration, signature, members and responsibility.",
+      "title": "StaticCapacitanceElementResult public API"
+    },
+    {
+      "id": "catalogue/api/staticcapacitanceelementspec",
+      "kind": "api",
+      "path": "resources/catalogue/api/staticcapacitanceelementspec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/staticcapacitanceelementspec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public StaticCapacitanceElementSpec declaration, signature, members and responsibility.",
+      "title": "StaticCapacitanceElementSpec public API"
+    },
+    {
+      "id": "catalogue/api/staticcapacitanceresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/staticcapacitanceresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/staticcapacitanceresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public StaticCapacitanceResult declaration, signature, members and responsibility.",
+      "title": "StaticCapacitanceResult public API"
+    },
+    {
+      "id": "catalogue/api/staticcapacitancespec",
+      "kind": "api",
+      "path": "resources/catalogue/api/staticcapacitancespec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/staticcapacitancespec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public StaticCapacitanceSpec declaration, signature, members and responsibility.",
+      "title": "StaticCapacitanceSpec public API"
+    },
+    {
+      "id": "catalogue/api/subsystemplan",
+      "kind": "api",
+      "path": "resources/catalogue/api/subsystemplan.md",
+      "source_ref": "docs/reference/agent-catalogue/api/subsystemplan.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public SubsystemPlan declaration, signature, members and responsibility.",
+      "title": "SubsystemPlan public API"
+    },
+    {
+      "id": "catalogue/api/tapref",
+      "kind": "api",
+      "path": "resources/catalogue/api/tapref.md",
+      "source_ref": "docs/reference/agent-catalogue/api/tapref.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public TapRef declaration, signature, members and responsibility.",
+      "title": "TapRef public API"
+    },
+    {
+      "id": "catalogue/api/theme",
+      "kind": "api",
+      "path": "resources/catalogue/api/theme.md",
+      "source_ref": "docs/reference/agent-catalogue/api/theme.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public Theme declaration, signature, members and responsibility.",
+      "title": "Theme public API"
+    },
+    {
+      "id": "catalogue/api/traceresult",
+      "kind": "api",
+      "path": "resources/catalogue/api/traceresult.md",
+      "source_ref": "docs/reference/agent-catalogue/api/traceresult.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public TraceResult declaration, signature, members and responsibility.",
+      "title": "TraceResult public API"
+    },
+    {
+      "id": "catalogue/api/transferzerospec",
+      "kind": "api",
+      "path": "resources/catalogue/api/transferzerospec.md",
+      "source_ref": "docs/reference/agent-catalogue/api/transferzerospec.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public TransferZeroSpec declaration, signature, members and responsibility.",
+      "title": "TransferZeroSpec public API"
+    },
+    {
+      "id": "catalogue/api/twoterminaluse",
+      "kind": "api",
+      "path": "resources/catalogue/api/twoterminaluse.md",
+      "source_ref": "docs/reference/agent-catalogue/api/twoterminaluse.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public TwoTerminalUse declaration, signature, members and responsibility.",
+      "title": "TwoTerminalUse public API"
+    },
+    {
+      "id": "catalogue/api/units",
+      "kind": "api",
+      "path": "resources/catalogue/api/units.md",
+      "source_ref": "docs/reference/agent-catalogue/api/units.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public units declaration, signature, members and responsibility.",
+      "title": "units public API"
+    },
+    {
+      "id": "catalogue/api/unsupportedevidenceversionerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/unsupportedevidenceversionerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/unsupportedevidenceversionerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public UnsupportedEvidenceVersionError declaration, signature, members and responsibility.",
+      "title": "UnsupportedEvidenceVersionError public API"
+    },
+    {
+      "id": "catalogue/api/unsupportedruntimeplatformerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/unsupportedruntimeplatformerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/unsupportedruntimeplatformerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public UnsupportedRuntimePlatformError declaration, signature, members and responsibility.",
+      "title": "UnsupportedRuntimePlatformError public API"
+    },
+    {
+      "id": "catalogue/api/unsupportedsingularcapacitancefordiagonalrootv1",
+      "kind": "api",
+      "path": "resources/catalogue/api/unsupportedsingularcapacitancefordiagonalrootv1.md",
+      "source_ref": "docs/reference/agent-catalogue/api/unsupportedsingularcapacitancefordiagonalrootv1.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public UnsupportedSingularCapacitanceForDiagonalRootV1 declaration, signature, members and responsibility.",
+      "title": "UnsupportedSingularCapacitanceForDiagonalRootV1 public API"
+    },
+    {
+      "id": "catalogue/api/vjp",
+      "kind": "api",
+      "path": "resources/catalogue/api/vjp.md",
+      "source_ref": "docs/reference/agent-catalogue/api/vjp.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public VJP declaration, signature, members and responsibility.",
+      "title": "VJP public API"
+    },
+    {
+      "id": "catalogue/api/workspacecommitindeterminateerror",
+      "kind": "api",
+      "path": "resources/catalogue/api/workspacecommitindeterminateerror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/workspacecommitindeterminateerror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public WorkspaceCommitIndeterminateError declaration, signature, members and responsibility.",
+      "title": "WorkspaceCommitIndeterminateError public API"
+    },
+    {
+      "id": "catalogue/api/workspaceplanreplacederror",
+      "kind": "api",
+      "path": "resources/catalogue/api/workspaceplanreplacederror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/workspaceplanreplacederror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public WorkspacePlanReplacedError declaration, signature, members and responsibility.",
+      "title": "WorkspacePlanReplacedError public API"
+    },
+    {
+      "id": "catalogue/api/workspacerecoveryrequirederror",
+      "kind": "api",
+      "path": "resources/catalogue/api/workspacerecoveryrequirederror.md",
+      "source_ref": "docs/reference/agent-catalogue/api/workspacerecoveryrequirederror.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public WorkspaceRecoveryRequiredError declaration, signature, members and responsibility.",
+      "title": "WorkspaceRecoveryRequiredError public API"
+    },
+    {
+      "id": "catalogue/api/workspaceversioningdowngradeforbidden",
+      "kind": "api",
+      "path": "resources/catalogue/api/workspaceversioningdowngradeforbidden.md",
+      "source_ref": "docs/reference/agent-catalogue/api/workspaceversioningdowngradeforbidden.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Public WorkspaceVersioningDowngradeForbidden declaration, signature, members and responsibility.",
+      "title": "WorkspaceVersioningDowngradeForbidden public API"
+    },
+    {
+      "id": "catalogue/components/capacitor",
+      "kind": "component",
+      "path": "resources/catalogue/components/capacitor.md",
+      "source_ref": "docs/reference/agent-catalogue/components/capacitor.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct capacitor with its declared inputs and inspect actual public pins and branches.",
+      "title": "capacitor component factory"
+    },
+    {
+      "id": "catalogue/components/floating_parallel_linear_lc_resonator",
+      "kind": "component",
+      "path": "resources/catalogue/components/floating_parallel_linear_lc_resonator.md",
+      "source_ref": "docs/reference/agent-catalogue/components/floating_parallel_linear_lc_resonator.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct floating_parallel_linear_lc_resonator with its declared inputs and inspect actual public pins and branches.",
+      "title": "floating parallel linear lc resonator component factory"
+    },
+    {
+      "id": "catalogue/components/floating_parallel_single_junction_resonator",
+      "kind": "component",
+      "path": "resources/catalogue/components/floating_parallel_single_junction_resonator.md",
+      "source_ref": "docs/reference/agent-catalogue/components/floating_parallel_single_junction_resonator.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct floating_parallel_single_junction_resonator with its declared inputs and inspect actual public pins and branches.",
+      "title": "floating parallel single junction resonator component factory"
+    },
+    {
+      "id": "catalogue/components/floating_parallel_symmetric_squid_resonator",
+      "kind": "component",
+      "path": "resources/catalogue/components/floating_parallel_symmetric_squid_resonator.md",
+      "source_ref": "docs/reference/agent-catalogue/components/floating_parallel_symmetric_squid_resonator.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct floating_parallel_symmetric_squid_resonator with its declared inputs and inspect actual public pins and branches.",
+      "title": "floating parallel symmetric squid resonator component factory"
+    },
+    {
+      "id": "catalogue/components/grounded_parallel_linear_lc_resonator",
+      "kind": "component",
+      "path": "resources/catalogue/components/grounded_parallel_linear_lc_resonator.md",
+      "source_ref": "docs/reference/agent-catalogue/components/grounded_parallel_linear_lc_resonator.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct grounded_parallel_linear_lc_resonator with its declared inputs and inspect actual public pins and branches.",
+      "title": "grounded parallel linear lc resonator component factory"
+    },
+    {
+      "id": "catalogue/components/grounded_parallel_single_junction_resonator",
+      "kind": "component",
+      "path": "resources/catalogue/components/grounded_parallel_single_junction_resonator.md",
+      "source_ref": "docs/reference/agent-catalogue/components/grounded_parallel_single_junction_resonator.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct grounded_parallel_single_junction_resonator with its declared inputs and inspect actual public pins and branches.",
+      "title": "grounded parallel single junction resonator component factory"
+    },
+    {
+      "id": "catalogue/components/grounded_parallel_symmetric_squid_resonator",
+      "kind": "component",
+      "path": "resources/catalogue/components/grounded_parallel_symmetric_squid_resonator.md",
+      "source_ref": "docs/reference/agent-catalogue/components/grounded_parallel_symmetric_squid_resonator.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct grounded_parallel_symmetric_squid_resonator with its declared inputs and inspect actual public pins and branches.",
+      "title": "grounded parallel symmetric squid resonator component factory"
+    },
+    {
+      "id": "catalogue/components/inductor",
+      "kind": "component",
+      "path": "resources/catalogue/components/inductor.md",
+      "source_ref": "docs/reference/agent-catalogue/components/inductor.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct inductor with its declared inputs and inspect actual public pins and branches.",
+      "title": "inductor component factory"
+    },
+    {
+      "id": "catalogue/components/interdigitated_capacitor",
+      "kind": "component",
+      "path": "resources/catalogue/components/interdigitated_capacitor.md",
+      "source_ref": "docs/reference/agent-catalogue/components/interdigitated_capacitor.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct interdigitated_capacitor with its declared inputs and inspect actual public pins and branches.",
+      "title": "interdigitated capacitor component factory"
+    },
+    {
+      "id": "catalogue/components/josephson_junction",
+      "kind": "component",
+      "path": "resources/catalogue/components/josephson_junction.md",
+      "source_ref": "docs/reference/agent-catalogue/components/josephson_junction.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct josephson_junction with its declared inputs and inspect actual public pins and branches.",
+      "title": "Josephson junction component factory"
+    },
+    {
+      "id": "catalogue/components/resistor",
+      "kind": "component",
+      "path": "resources/catalogue/components/resistor.md",
+      "source_ref": "docs/reference/agent-catalogue/components/resistor.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct resistor with its declared inputs and inspect actual public pins and branches.",
+      "title": "resistor component factory"
+    },
+    {
+      "id": "catalogue/components/symmetric_squid",
+      "kind": "component",
+      "path": "resources/catalogue/components/symmetric_squid.md",
+      "source_ref": "docs/reference/agent-catalogue/components/symmetric_squid.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct symmetric_squid with its declared inputs and inspect actual public pins and branches.",
+      "title": "symmetric squid component factory"
+    },
+    {
+      "id": "catalogue/components/transmission_line",
+      "kind": "component",
+      "path": "resources/catalogue/components/transmission_line.md",
+      "source_ref": "docs/reference/agent-catalogue/components/transmission_line.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Construct transmission_line with its declared inputs and inspect actual public pins and branches.",
+      "title": "transmission line component factory"
+    },
+    {
+      "id": "catalogue/index",
+      "kind": "reference",
+      "path": "resources/catalogue/index.md",
+      "source_ref": "docs/reference/agent-catalogue/index.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Browse every declared public export and builtin component factory.",
+      "title": "SCNSim public catalogue"
+    },
+    {
+      "id": "catalogue/known-public-documents",
+      "kind": "reference",
+      "path": "resources/catalogue/known-public-documents.md",
+      "source_ref": "docs/reference/agent-catalogue/known-public-documents.md",
+      "status": "Generated current public reference; construction observations are limited to declared inputs.",
+      "summary": "Source-inventory list of public documents not packaged in installed knowledge.",
+      "title": "Known public documents outside this bundle"
+    }
+  ]
+}

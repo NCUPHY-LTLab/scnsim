@@ -1,0 +1,105 @@
+{
+  "distribution": "scnsim",
+  "resources": [
+    {
+      "id": "compilation-coordinates-and-network-views",
+      "kind": "concept",
+      "title": "Coordinates, Network Views, and retain",
+      "summary": "Choose ordered retained coordinates with retain and distinguish static zero-charge reduction from dynamic selected-network equations.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/compilation-coordinates-and-network-views.qmd",
+      "source_ref": "docs/concepts/compilation-coordinates-and-network-views.qmd"
+    },
+    {
+      "id": "engineer-setup",
+      "kind": "example",
+      "title": "Engineer course setup",
+      "summary": "Describes Engineer-course environment setup, wheel and source installation, and clean-kernel use.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/engineer-setup.qmd",
+      "source_ref": "examples/engineer/setup.qmd"
+    },
+    {
+      "id": "getting-started",
+      "kind": "start",
+      "title": "SCNSim first-task guide",
+      "summary": "Choose a component, bind a parameter, assemble a Plan, select a View and read a typed Result with units.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/getting-started.md",
+      "source_ref": "README.md#agent-knowledge-start"
+    },
+    {
+      "id": "requests-execution-and-result-ownership",
+      "kind": "concept",
+      "title": "From an Analysis Question to a Result",
+      "summary": "Connects a sealed Plan, selected View, typed Spec, operation, Result, and workspace evidence ownership.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/requests-execution-and-result-ownership.qmd",
+      "source_ref": "docs/concepts/requests-execution-and-result-ownership.qmd"
+    },
+    {
+      "id": "roots-and-branch-selection",
+      "kind": "guide",
+      "title": "Roots, Notches, and Branch Selection",
+      "summary": "Distinguishes response notches, roots, poles, transfer zeros, and branch-local quantities and derivatives.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/roots-and-branch-selection.qmd",
+      "source_ref": "docs/guides/roots-and-branch-selection.qmd"
+    },
+    {
+      "id": "sensitivity",
+      "kind": "guide",
+      "title": "Sensitivity of physical quantities",
+      "summary": "Shows current declarations for Jacobian, JVP, and VJP sensitivity requests and their ownership boundaries.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/sensitivity.qmd",
+      "source_ref": "docs/guides/sensitivity.qmd"
+    },
+    {
+      "id": "simulation-conventions",
+      "kind": "concept",
+      "title": "Simulation conventions and units",
+      "summary": "Use physical Quantities and Result unit conversion; distinguish frequency in Hz from angular frequency, phasor signs, matrix axes and loads.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/simulation-conventions.qmd",
+      "source_ref": "docs/concepts/simulation-conventions.qmd"
+    },
+    {
+      "id": "static-capacitance",
+      "kind": "guide",
+      "title": "Evaluate Static Capacitance on a View",
+      "summary": "Documents single-point static capacitance matrices, retained-coordinate reductions, element reads, and sensitivities.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/static-capacitance.qmd",
+      "source_ref": "docs/guides/static-capacitance.qmd"
+    },
+    {
+      "id": "component-authoring",
+      "kind": "concept",
+      "title": "Component Authoring Contract",
+      "summary": "Declare Library components, public pins and physical parameters; inspect primitive, Josephson, RLGC and reusable composite model boundaries.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/component-authoring.qmd",
+      "source_ref": "docs/component-authoring.qmd"
+    },
+    {
+      "id": "contracts/parameter-system",
+      "kind": "concept",
+      "title": "Parameter System Contract",
+      "summary": "Define independent parameters, bind refs to physical fields, and supply immutable ParameterSet points or ordered spaces.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/contracts/parameter-system.qmd",
+      "source_ref": "docs/contracts/parameter-system.qmd"
+    },
+    {
+      "id": "contracts/circuit-plan-assembly",
+      "kind": "concept",
+      "title": "Circuit Plan Assembly Contract",
+      "summary": "Assemble a circuit Plan using registered bodies, buses, series, parallel, branch, link, ground and root-owned Ports.",
+      "status": "CONVERGING; current develop guidance",
+      "path": "resources/contracts/circuit-plan-assembly.qmd",
+      "source_ref": "docs/contracts/circuit-plan-assembly.qmd"
+    }
+  ],
+  "catalogue_inventory": "docs/agent-catalogue-resources.json"
+}

@@ -79,21 +79,15 @@ jobs:
           print(scnsim.__version__)
           PY
 
-      # Other retained tests depend on superseded net/implicit-parameter or
-      # private snapshot APIs. They are preserved, not reported as passing.
-      # Keep the applicable public physical rejection regression hard-failing.
-      - name: Run retained RLGC validation regression
-        env:
-          PYTHONPATH: tests
+      - name: Discover the current purpose-based unittest suite
         run: >-
-          uv run --locked python -m unittest -v
-          test_dev5_stabilization.Dev5AuthoringTests.test_rlgc_rejects_nonphysical_or_noncanonical_matrices
+          uv run --locked python -m unittest discover -s tests -t . -v
 
       - name: Record convergence validation scope
         run: |
-          echo "### Structured candidate validation" >> "$GITHUB_STEP_SUMMARY"
-          echo "Existing RLGC rejection and HB classifier regressions run unchanged; current build/import, portable identity, Direct/pump-off HB/resolve, Notebook and site checks must pass." >> "$GITHUB_STEP_SUMMARY"
-          echo "Full V1 suite discovery is not a current PASS: its remaining tests depend on superseded assembly, implicit parameters, or private snapshot records. Those tests and their numerical assertions remain preserved pending accepted-contract migration; no compatibility API or blanket continue-on-error is used." >> "$GITHUB_STEP_SUMMARY"
+          echo "### Test coverage in this job" >> "$GITHUB_STEP_SUMMARY"
+          echo "This job discovers the current purpose-based unittest suite with SCNSIM_RUN_JULIA_TESTS unset. Julia-only groups reported as skipped here are not native execution coverage." >> "$GITHUB_STEP_SUMMARY"
+          echo "The runtime-preparation matrix provisions the pinned Julia runtime and discovers the same suite with its explicit Julia opt-in. The job results report actual failures; skips are not treated as passes." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and inspect the wheel
         run: |
@@ -854,10 +848,9 @@ jobs:
           runtime = prepare_runtime()
           assert runtime.julia_version == "1.12.6"
           PY
-          SCNSIM_RUN_JULIA_TESTS=1 PYTHONPATH=tests \
+          SCNSIM_RUN_JULIA_TESTS=1 \
             .venv-wheel/bin/python -W error::ResourceWarning \
-            -m unittest -v \
-            test_dev6_stabilization.Dev6PreflightTests.test_hb_numerical_classifier_keeps_linearization_and_response_stages_narrow
+            -m unittest discover -s tests -t . -v
           .venv-wheel/bin/python -W error::ResourceWarning - <<'PY'
           import sys
           from pathlib import Path

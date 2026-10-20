@@ -24,6 +24,20 @@ select a View automatically, or establish numerical accuracy from a plot.
 
 ## Phasors, Fourier transforms, and units {#phasors-and-units}
 
+Every public physical value uses the `scnsim.units` Pint registry. Start with
+`from scnsim import units as u`: `110 * u.fF` is a capacitance and
+`5.8 * u.nH` is an inductance. A plain numeric value does not supply those
+units. Quantity arrays keep their ordered axes; changing a display unit does
+not reorder or reduce a matrix.
+
+A typed Result projection can convert units explicitly, for example
+`matrix_result.matrix.to("farad")` or `root_result.frequency.to("GHz")`.
+Conversion preserves the physical quantity; it does not calculate a new
+Result or replace its source evidence. Derivative units are output units per
+input units, as described in the [Sensitivity guide](../guides/sensitivity.qmd).
+Parameter unit declarations and immutable operation-time values belong to the
+[Parameter System](../contracts/parameter-system.qmd).
+
 SCNSim uses the real signal represented by
 
 $$
