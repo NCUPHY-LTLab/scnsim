@@ -881,7 +881,8 @@ def read_physical_optimization_success(
 
     task_id = descriptor.get("task_id")
     request_sha256 = descriptor.get("request_sha256")
-    if not isinstance(task_id, str) or not isinstance(request_sha256, str):
+    if (not isinstance(task_id, str) or not isinstance(request_sha256, str)
+            or descriptor.get("environment", {}).get("environment_sha256") is None):
         raise _integrity("Physical Optimization task identity is malformed.")
     if selection is not None:
         if (selection.get("event") != "request_success_selected"
@@ -1115,6 +1116,7 @@ def read_physical_optimization_success(
     checkpoint_available = committed_checkpoint is not None
     return {
         "task_id": task_id, "attempt_id": attempt_id,
+        "environment_sha256": descriptor["environment"]["environment_sha256"],
         "attempt_sha256": attempt_sha256, "result_sha256": result_ref["sha256"],
         "result_ref": dict(result_ref), "projection": {"terminal": terminal},
         "selection": selection_record, "fixed_reader": reader,
