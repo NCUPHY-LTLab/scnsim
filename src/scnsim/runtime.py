@@ -488,7 +488,7 @@ class CircuitRun:
                     "and manually provided Julia 1.12.6; JAX has no fallback.", stage="runtime_prepare")
 
     @contextmanager
-    def _execution_scope(self, method, backend, precision, start_tick_ns, timing=None):
+    def _execution_scope(self, method, backend, precision, start_tick_ns, timing=None, *, prepare_before_native=None):
         from .diagnostics.operations import OperationRecorder
         backend, precision = self._selected_backend(backend, precision)
         recorder = OperationRecorder(self._binding, kind=method, backend=backend,
@@ -497,12 +497,23 @@ class CircuitRun:
         with operation_lease(self._binding, recorder.operation_id) as lease:
             with ExitStack() as resources:
                 native_supervisor = None
-                if backend == "julia":
+                # Register deferred native cleanup before the recorder so its
+                # original recorder -> guardian -> lease teardown stays intact.
+                native_resources = (resources.enter_context(ExitStack())
+                                    if prepare_before_native is not None else resources)
+                if backend == "julia" and prepare_before_native is None:
                     from .execution.native_supervisor import NativeSupervisor
-                    native_supervisor = resources.enter_context(NativeSupervisor(
+                    native_supervisor = native_resources.enter_context(NativeSupervisor(
                         operation_id=recorder.operation_id, lease_fds=lease.descriptors,
                     ))
                 with recorder as trace:
+                    if prepare_before_native is not None:
+                        prepare_before_native(backend, precision, trace)
+                        if backend == "julia":
+                            from .execution.native_supervisor import NativeSupervisor
+                            native_supervisor = native_resources.enter_context(NativeSupervisor(
+                                operation_id=recorder.operation_id, lease_fds=lease.descriptors,
+                            ))
                     yield backend, precision, trace, lease, native_supervisor
 
     @overload
@@ -562,13 +573,25 @@ class CircuitRun:
                                             timing=timing, started_ns=started_ns)
             return self._solve_memory(ref, spec, parameters=parameters, backend=backend,
                                       precision=precision, timing=timing, started_ns=started_ns)
-        with self._execution_scope("solve", backend, precision, started_ns, timing) as (backend, precision, trace, lease, native_supervisor):
-            self._require_ref(ref)
-            self._require_backend_spec(backend, precision, spec)
-            operation = "solve_hb" if isinstance(spec, HBSolveSpec) else "solve_direct"
-            with trace.span("preparation"):
-                prepared = self._prepare_analysis(operation, ref, spec, parameters,
-                                                  backend=backend, precision=precision)
+        prepared: PreparedAnalysis
+        prepare_before_native = None
+        if isinstance(spec, HBSolveSpec):
+            def prepare_before_native(backend, precision, trace):
+                nonlocal prepared
+                self._require_ref(ref)
+                self._require_backend_spec(backend, precision, spec)
+                with trace.span("preparation"):
+                    prepared = self._prepare_analysis("solve_hb", ref, spec, parameters,
+                                                      backend=backend, precision=precision)
+        with self._execution_scope("solve", backend, precision, started_ns, timing,
+                                   prepare_before_native=prepare_before_native) as (backend, precision, trace, lease, native_supervisor):
+            if prepare_before_native is None:
+                self._require_ref(ref)
+                self._require_backend_spec(backend, precision, spec)
+                operation = "solve_hb" if isinstance(spec, HBSolveSpec) else "solve_direct"
+                with trace.span("preparation"):
+                    prepared = self._prepare_analysis(operation, ref, spec, parameters,
+                                                      backend=backend, precision=precision)
             return self._execute(prepared, bound_spec=spec, trace=trace, operation_lease=lease,
                                  native_supervisor=native_supervisor)
 

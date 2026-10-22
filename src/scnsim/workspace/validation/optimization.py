@@ -969,16 +969,6 @@ def _verify_candidate_outcome(
     ):
         raise _integrity("Optimization candidate envelope is open or malformed.")
     _verify_parameter_set_document(value.get("parameters"), require_empty_authorization=True)
-    _verify_extrapolation_evidence(
-        value.get("extrapolation_evidence"),
-        allowed_sources={"none", "optimization_spec"},
-        required_rows=_required_extrapolation_rows(
-            plan,
-            value["parameters"],
-            authorization_source="optimization_spec",
-            optimization_authorizations=optimization_authorizations,
-        ),
-    )
     outcome = value.get("outcome")
     if not isinstance(outcome, dict):
         raise _integrity("Optimization candidate outcome is malformed.")
@@ -1120,6 +1110,23 @@ def _verify_candidate_outcome(
             raise _integrity("Population candidate uses a baseline-only or unknown failure phase.")
     else:
         raise _integrity("Optimization candidate outcome discriminator is unknown.")
+    # Validate the closed failure and its fan-out context before admitting
+    # the recorded rejection's unauthorized affine-support evidence.
+    _verify_extrapolation_evidence(
+        value.get("extrapolation_evidence"),
+        allowed_sources={"none", "optimization_spec"},
+        required_rows=_required_extrapolation_rows(
+            plan,
+            value["parameters"],
+            authorization_source="optimization_spec",
+            optimization_authorizations=optimization_authorizations,
+            require_authorized=not (
+                outcome["status"] == "failure"
+                and outcome["failure"]["kind"] == "invalid_candidate_physical_parameter"
+                and outcome["failure"]["stage"] == "affine_support"
+            ),
+        ),
+    )
 
 def _verify_optimization_winner(
     result: Mapping[str, object],

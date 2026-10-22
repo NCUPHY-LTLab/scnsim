@@ -1050,9 +1050,8 @@ function finalized_attempt_ledgers(entry::String, request_sha::String, current_a
     return result
 end
 
-function sibling_ledgers(staging::String, request_sha::String, attempt_sha::String,
+function sibling_ledgers(attempt_root::String, request_sha::String, attempt_sha::String,
         resume_sha::String, checkpoint_sha::String, checkpoint_seal_sha::String)
-    attempt_root = dirname(staging)
     isdir(attempt_root) || fail("evidence", "evidence_integrity", "optimization_replay", "artifact", "attempt directory is absent")
     discovered = Dict{String,Dict{String,Any}}()
     for entry in readdir(attempt_root; join = true)
@@ -1599,7 +1598,7 @@ function optimize_direct(request, plan, request_sha::String, attempt_sha::String
         "discretization" => get(baseline, "discretization", nothing),
     )
     replay_chain = resume_ledger_sha === nothing ? Dict{String,Any}[] :
-        sibling_ledgers(staging, request_sha, attempt_sha, String(resume_ledger_sha),
+        sibling_ledgers(joinpath(request_directory, "attempts"), request_sha, attempt_sha, String(resume_ledger_sha),
             checkpoint_sha, checkpoint_seal_sha)
     length(replay_chain) <= generations ||
         fail("evidence", "evidence_integrity", "optimization_replay", "artifact", "resume ledger chain exceeds this request's complete generation count")
