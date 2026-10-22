@@ -1006,7 +1006,7 @@ class PhysicalAnalysis:
                               operation):
         """Run one exact frequency bucket and return its synchronized outcome."""
         from ..numerics.native_sparse import SparseEquationCheck
-        from ..numerics.evidence import native_primal_exception
+        from ..numerics.evidence import native_error_may_raise, native_primal_exception
 
         jnp = self.backend.jax.numpy
         view_index = rows[0]['view_index']
@@ -1039,9 +1039,10 @@ class PhysicalAnalysis:
                          'first_source_index': rows[0]['source_index'],
                          **(self._native_slot_admission or {})},
             )
-        exception = native_primal_exception(outcome.errors)
-        if exception is not None and not isinstance(exception, SparseEquationCheck):
-            outcome.errors.throw()
+        if native_error_may_raise(outcome.errors):
+            exception = native_primal_exception(outcome.errors)
+            if exception is not None and not isinstance(exception, SparseEquationCheck):
+                outcome.errors.throw()
         return outcome
 
     def _native_frequency_slots(self, native):
@@ -1168,7 +1169,8 @@ class PhysicalAnalysis:
                     outcomes = map(execute_item, window)
 
                 for rows, outcome in zip(window, outcomes, strict=True):
-                    certificates = sparse_certificates(outcome.errors)
+                    certificates = (None if raw_failure_certificates else
+                                    sparse_certificates(outcome.errors))
                     local_check = np.asarray(outcome.outcomes.check_status)
                     local_certificate = np.asarray(outcome.outcomes.certificate_status)
                     local_check_positions = np.asarray(outcome.outcomes.check_position)
@@ -1183,13 +1185,16 @@ class PhysicalAnalysis:
                         if not raw_failure_certificates:
                             executed_rows.append(row)
                         if raw_failure_certificates:
-                            certificate_rows = (
-                                tuple(self._native_certificate_lane(certificate, lane)
-                                      for certificate in certificates)
-                                if lane_failed else ()
-                            )
                             if lane_failed:
+                                if certificates is None:
+                                    certificates = sparse_certificates(outcome.errors)
+                                certificate_rows = tuple(
+                                    self._native_certificate_lane(certificate, lane)
+                                    for certificate in certificates
+                                )
                                 failed_rows.append(row)
+                            else:
+                                certificate_rows = ()
                         else:
                             certificate_rows = tuple(
                                 self._native_certificate_row(certificate, lane)
