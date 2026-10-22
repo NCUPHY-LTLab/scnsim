@@ -162,6 +162,8 @@ class NativeFrequencyProgram:
     re: Any
     W: Any
     small: Any
+    dut: Any
+    dut_slots: tuple
 
     @classmethod
     def create(cls, view_program):
@@ -170,9 +172,55 @@ class NativeFrequencyProgram:
         blocks = tuple(_block(assembly.pattern, left, right)
                        for left, right in ((r, r), (r, e), (e, r), (e, e)))
         q = len(view_program.terminal_ids)
+        # KKT topology follows actual B support; its numeric B/P weights stay traced.
+        from ..compilation.program import SparsePattern, _indices
+        n = assembly.pattern.shape[0]
+        br = np.repeat(np.unique(view_program.patterns[3].rows), q)
+        bc = np.tile(np.arange(q), len(np.unique(view_program.patterns[3].rows)))
+        pattern, slots = SparsePattern.from_coo((n + q, n + q),
+            np.concatenate((assembly.pattern.rows, br, n + bc)),
+            np.concatenate((assembly.pattern.cols, n + bc, br)))
+        hcount, bcount = len(assembly.pattern.rows), len(br)
+        mapping = tuple(_indices(value) for value in
+            (slots[:hcount], slots[hcount:hcount+bcount], slots[hcount+bcount:], br, bc))
         return cls(view_program, assembly, blocks,
                    SparseEquation(blocks[3][0], 'MMD_AT_PLUS_A'), SparseEquation(blocks[1][0]),
-                   SparseEquation(assembly.pattern), SparseEquation(_full_pattern(q)))
+                   SparseEquation(assembly.pattern), SparseEquation(_full_pattern(q)),
+                   SparseEquation(pattern), mapping)
+
+    def _load_values(self, view, matrix, template):
+        import jax.numpy as jnp
+        cols = jnp.asarray(self.view_program.patterns[3].cols)
+        entries = view.model.B[:, None] * matrix[cols[:, None], cols[None, :]] * view.model.B[None, :]
+        return jnp.zeros_like(template).at[jnp.asarray(self.assembly.load_slots).ravel()].add(entries.ravel())
+
+    def _dut_response(self, assembled, view, omega, solve, *, frequency_jet=False):
+        """One source-free DtN: [H,-B;B.T,0][V;I]=[0;eye].
+
+        Only omitted/PTC loads Go enter H. H itself need not be invertible;
+        the existing checked saddle equation owns its actual solvability.
+        Runtime T/B/P/Go remain in this equation for parameter AD.
+        """
+        import jax.numpy as jnp
+        dtype = omega.dtype
+        divisor = -jnp.asarray(1j, dtype=dtype) * omega
+        H = assembled.values / divisor + self._load_values(view, view.Go, assembled.values)
+        Hp = (assembled.frequency_values * divisor + jnp.asarray(1j, dtype=dtype) * assembled.values) / (divisor * divisor)
+        B = _dense(self.view_program.patterns[3], view.model.B).astype(dtype) @ view.selected_map.T
+        hs, upper, lower, rows, cols = (jnp.asarray(value) for value in self.dut_slots)
+        values = jnp.zeros((len(self.dut.pattern.rows),), dtype=dtype)
+        values = values.at[hs].add(H).at[upper].add(-B[rows, cols]).at[lower].add(B[rows, cols])
+        n, q = B.shape
+        rhs = jnp.concatenate((jnp.zeros((n, q), dtype=dtype), jnp.eye(q, dtype=dtype)))
+        U = solve(self.dut, values, rhs, 15)
+        Y = U[n:]
+        Yp = jnp.zeros_like(Y)
+        if frequency_jet:
+            # B has no omega dependence. This is the same saddle factorization
+            # authority for A U'=-(H' V,0), not an inverse of H or finite difference.
+            tangent_rhs = jnp.concatenate((-self.W.matmul(Hp, U[:n]), jnp.zeros((q, q), dtype=dtype)))
+            Yp = solve(self.dut, values, tangent_rhs, 15, frequency=True)[n:]
+        return assembled, Y, Yp, H, Hp, B
 
     def selected_jet(self, operands, view, omega, *, dependency=()):
         """Loaded Q/Schur and analytic frequency jet for the SAME candidate.
@@ -256,9 +304,7 @@ class NativeFrequencyProgram:
                 Hp = (state.Qp_values * divisor + jnp.asarray(1j, dtype=dtype) * state.Q_values) / (divisor * divisor)
             return NativeTransferFamilyJet(V, Vp, Y, Yp, H, Hp, state.bound_values,
                 state.check_status, code, tuple(certs), state)
-        assembled = self.assembly.assemble_prepared(operands, omega, view_status=view.status,
-                                                    loaded=False, compensated=False)
-        checks, code = assembled.status, jnp.int32(0)
+        checks, code = view.status, jnp.int32(0)
         certs = []
         q = len(self.view_program.terminal_ids)
         eye = jnp.eye(q, dtype=dtype)
@@ -273,26 +319,15 @@ class NativeFrequencyProgram:
             return admit(checked_dense_solve(self.small, matrix.astype(dtype), rhs.astype(dtype),
                 stage=stage, prior_status=prior(), role='frequency_tangent' if frequency else 'primal',
                 derivative_order=1 if frequency else 0, dependency=dependency))
-        def sparse(values, rhs, stage, *, frequency=False):
-            return admit(checked_sparse_solve(self.W, values, rhs.astype(dtype), stage=stage,
+        def sparse(equation, values, rhs, stage, *, frequency=False):
+            return admit(checked_sparse_solve(equation, values, rhs.astype(dtype), stage=stage,
                 prior_status=prior(), role='frequency_tangent' if frequency else 'primal',
                 derivative_order=1 if frequency else 0, dependency=dependency))
-        Rinv = small(view.Rk, eye, 1)
-        pattern = self.view_program.patterns[3]
-        B = _dense(pattern, view.model.B).astype(dtype)
-        Bk = B @ view.selected_map.T
-        cols = jnp.asarray(pattern.cols)
-        def stamp(matrix):
-            entries = view.model.B[:, None] * matrix[cols[:, None], cols[None, :]] * view.model.B[None, :]
-            return jnp.zeros_like(assembled.values).at[jnp.asarray(self.assembly.load_slots).ravel()].add(entries.ravel())
-        H = assembled.values / divisor + stamp(view.Go)
-        Hp = (assembled.frequency_values * divisor + jnp.asarray(1j, dtype=dtype) * assembled.values) / (divisor * divisor)
-        W = H + stamp(view.selected_map.T @ Rinv @ view.selected_map)
-        X = sparse(W, Bk, 5)
-        Ysrc = small(Bk.T @ X, eye, 6)
-        Y = Ysrc - Rinv
-        Xp = sparse(W, -self.W.matmul(Hp, X), 5, frequency=True)
-        Yp = -Ysrc @ (Bk.T @ Xp) @ Ysrc
+        # Assembly checks must precede every governing equation check.
+        assembled = self.assembly.assemble_prepared(operands, omega, view_status=view.status,
+                                                    loaded=False, compensated=False)
+        checks = assembled.status
+        _, Y, Yp, H, Hp, Bk = self._dut_response(assembled, view, omega, sparse, frequency_jet=True)
         empty = jnp.zeros_like(Y)
         V, Vp = Y, Yp
         if family == 'Z':
@@ -303,8 +338,10 @@ class NativeFrequencyProgram:
             normalized = view.Dk @ Y @ view.Dk
             P, N = eye + normalized, eye - normalized
             V = small(P, N, 8)
+            Rinv = small(view.Rk, eye, 1)
             Dinv = small(view.Dk, eye, 1)
-            voltage = sparse(W, jnp.asarray(2, dtype=dtype) * Bk @ Dinv, 9)
+            W = H + self._load_values(view, view.selected_map.T @ Rinv @ view.selected_map, H)
+            voltage = sparse(self.W, W, jnp.asarray(2, dtype=dtype) * Bk @ Dinv, 9)
             source = small(view.Dk, Bk.T @ voltage, 9) - eye
             numerator = jnp.max(jnp.abs(source - V), initial=0)
             denominator = 1 + jnp.max(jnp.abs(source), initial=0) + jnp.max(jnp.abs(V), initial=0)
@@ -385,17 +422,17 @@ class NativeFrequencyProgram:
 
     @staticmethod
     def certificate_layout(*, families, capability):
-        """Static logical roles parallel to returned primal certificates."""
+        """Static logical roles parallel to the actual returned primal equations."""
         families = frozenset(families)
         roles = []
         if families - {'operator'} and capability:
-            roles.extend((('reference_inverse', 1), ('source_voltage', 5), ('source_admittance', 6)))
+            roles.append(('dut_voltage_constraint', 15))
             if 'Z' in families:
                 roles.append(('impedance', 7))
             if 'S' in families:
-                roles.extend((('scattering', 8), ('normalizer_inverse', 1),
-                              ('reconciliation_voltage', 9), ('reconciliation_scattering', 9),
-                              ('source_reconciliation', 9)))
+                roles.extend((('scattering', 8), ('reference_inverse', 1),
+                              ('normalizer_inverse', 1), ('reconciliation_voltage', 9),
+                              ('reconciliation_scattering', 9), ('source_reconciliation', 9)))
         if 'operator' in families or (families - {'operator'} and not capability):
             roles.append(('selected_elimination', 3))
         if 'Z' in families and not capability:
@@ -474,24 +511,15 @@ class NativeFrequencyProgram:
             assembled = self.assembly.assemble_prepared(operands, omega, view_status=view.status,
                                                         loaded=False, compensated=False)
             check(assembled.status)
-            Rinv = small(view.Rk, eye, 1)
-            B = _dense(self.view_program.patterns[3], view.model.B).astype(dtype)
-            Bk = B @ view.selected_map.T
-            effective = view.selected_map.T @ Rinv @ view.selected_map + view.Go
-            pattern = self.view_program.patterns[3]
-            cols = jnp.asarray(pattern.cols)
-            stamp = view.model.B[:, None] * effective[cols[:, None], cols[None, :]] * view.model.B[None, :]
-            load = jnp.zeros_like(assembled.values).at[jnp.asarray(self.assembly.load_slots).ravel()].add(stamp.ravel())
-            W = assembled.values / (-jnp.asarray(1j, dtype=dtype) * omega) + load
-            X = sparse(self.W, W, Bk, 5)
-            Ysrc = small(Bk.T @ X, eye, 6)
-            Y = Ysrc - Rinv
+            _, Y, _, H, _, Bk = self._dut_response(assembled, view, omega, sparse)
             if 'Z' in families:
                 Z = small(Y, eye, 7)
             if 'S' in families:
                 normalized = view.Dk @ Y @ view.Dk
                 S = small(eye + normalized, eye - normalized, 8)
+                Rinv = small(view.Rk, eye, 1)
                 Dinv = small(view.Dk, eye, 1)
+                W = H + self._load_values(view, view.selected_map.T @ Rinv @ view.selected_map, H)
                 # Preserve the actual S stage-before-source boundary. This is
                 # a second callback with a second call-local W factor.
                 voltage = sparse(self.W, W, jnp.asarray(2, dtype=dtype) * Bk @ Dinv, 9)

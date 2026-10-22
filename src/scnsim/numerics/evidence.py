@@ -90,7 +90,7 @@ def require_primal(outcome):
     if status:
         kind, stage = FAILURES[status]
         for _, result in (*aux.branch_results, *aux.quantity_results):
-            if status >= 11 and result.failure is not None and result.failure.kind == kind:
+            if status in (11, 12, 13, 14) and result.failure is not None and result.failure.kind == kind:
                 raise numerical_error(result.failure)
         from dataclasses import fields, is_dataclass
         def certificate_record(certificate):

@@ -199,3 +199,29 @@ class RootCertificateTests(unittest.TestCase):
             self.assertEqual(caught.exception.stage, "residue_coupling")
 
 
+    def test_diagonal_and_coupling_lossless_anchor_imaginary_sign_preserves_frequency_bits(self):
+        plan, coordinates = _two_coordinate_plan()
+        with ExitStack() as owners:
+            run = CircuitRun(plan=plan, storage="memory", backend="jax", precision="float64")
+            owners.callback(run.close)
+            view = run.original.reduce(ReductionPipeline().retain(*coordinates))
+            observed = {name: [] for name in ("diagonal", "coupling")}
+            for anchor in _ANCHORS:
+                diagonal = run.evaluate(view, DiagonalRootSpec(coordinate=coordinates[0], root_hint=anchor * u.GHz))
+                coupling = run.evaluate(view, ResidueNormalizedCouplingSpec(
+                    branch_a=DiagonalRootSpec(coordinate=coordinates[0], root_hint=anchor * u.GHz),
+                    branch_b=DiagonalRootSpec(coordinate=coordinates[1], root_hint=anchor * u.GHz),
+                    frequency=5.5 * u.GHz))
+                observed["diagonal"].append(_frequency_bits(diagonal.frequency.to("hertz").magnitude))
+                roots = coupling.evaluation.branch_roots_rad_s
+                observed["coupling"].append(tuple(_frequency_bits(complex(w).real / (2 * math.pi)) for w in roots))
+            def encoded(value):
+                return [item.hex() for item in value] if isinstance(value, tuple) else value.hex()
+            print("PASSIVE_ANCHORS " + json.dumps({name: [encoded(value) for value in values]
+                                                   for name, values in observed.items()}), flush=True)
+            for name, values in observed.items():
+                for ordinal, value in enumerate(values):
+                    with self.subTest(quantity=name, anchor=_ANCHORS[ordinal]):
+                        self.assertEqual(value, values[0], {name: [encoded(item) for item in values]})
+
+

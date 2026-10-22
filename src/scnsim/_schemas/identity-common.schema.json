@@ -1372,7 +1372,7 @@
       "properties": {
         "type": { "const": "diagonal_root" },
         "coordinate": { "$ref": "#/$defs/identifier" },
-        "root_hint": { "allOf": [{ "$ref": "#/$defs/quantity" }, { "properties": { "si_unit": { "const": "hertz" }, "dimensionality": { "const": "inverse_time" } } }] },
+        "root_hint": { "$ref": "#/$defs/frequencyAnchor" },
         "search": { "$ref": "#/$defs/rootSearchSpec" }
       }
     },

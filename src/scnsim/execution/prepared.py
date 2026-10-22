@@ -379,9 +379,7 @@ def _encode_root(
     return {
         "type": "diagonal_root",
         "coordinate": _bound_coordinate_id(spec.coordinate, coordinate_bindings),
-        "root_hint": quantity_envelope(
-            spec.root_hint, si_unit="hertz", registry=units.registry
-        ),
+        "root_hint": _frequency_anchor_envelope(spec.root_hint),
         **_encoded_root_search(spec),
     }
 
