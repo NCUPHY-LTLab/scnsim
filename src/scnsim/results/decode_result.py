@@ -366,6 +366,8 @@ def _decode_result_operation(
             lambda record: record,
             generation_rows=lambda block: block["candidates"],
             candidate_ordinal=lambda row: row["evaluation_ordinal"],
+            # The native reader has verified the complete sealed ledger envelope.
+            generation_projection=lambda block: block,
         )
         return _verified_result(
             OptimizationResult,

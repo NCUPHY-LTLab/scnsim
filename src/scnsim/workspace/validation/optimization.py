@@ -473,7 +473,8 @@ def _verify_checkpoint_baseline_point(
         or not isinstance(spec.get("variables"), list)
     ):
         raise _integrity("Optimization checkpoint lacks one sealed baseline point.")
-    expected_parameters = source["parameters"]
+    # The sealed request owns authorization; candidate baselines own only values.
+    expected_parameters = {**source["parameters"], "allow_extrapolation": []}
     parameters = baseline.get("parameters")
     if parameters != expected_parameters or not isinstance(parameters, Mapping):
         raise _integrity("Optimization checkpoint baseline differs from the sealed request point.")

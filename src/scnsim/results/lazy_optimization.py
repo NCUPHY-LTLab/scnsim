@@ -23,19 +23,22 @@ def _sequence_index(value: int | slice, length: int) -> int | range:
 class LazyGenerationSequence(Sequence[Mapping[str, object]]):
     """Read and decode one sealed generation only when it is selected."""
 
-    __slots__ = ("_reader", "_length", "_candidate", "_generation_rows", "_candidate_ordinal")
+    __slots__ = ("_reader", "_length", "_candidate", "_generation_rows", "_candidate_ordinal",
+                 "_generation_projection")
 
     def __init__(self, reader: object, length: int,
                  candidate: Callable[[Mapping[str, object]], Mapping[str, object]], *,
                  generation_rows: Callable[[Mapping[str, object]], Sequence[Mapping[str, object]]] =
                  lambda block: block["rows"],
                  candidate_ordinal: Callable[[Mapping[str, object]], int] =
-                 lambda row: row["occurrence"]["evaluation_ordinal"]):
+                 lambda row: row["occurrence"]["evaluation_ordinal"],
+                 generation_projection: Callable[[Mapping[str, object]], Mapping[str, object]] | None = None):
         object.__setattr__(self, "_reader", reader)
         object.__setattr__(self, "_length", length)
         object.__setattr__(self, "_candidate", candidate)
         object.__setattr__(self, "_generation_rows", generation_rows)
         object.__setattr__(self, "_candidate_ordinal", candidate_ordinal)
+        object.__setattr__(self, "_generation_projection", generation_projection)
 
     def __setattr__(self, name: str, value: object) -> None:
         raise AttributeError("lazy optimization sequences are immutable")
@@ -48,6 +51,8 @@ class LazyGenerationSequence(Sequence[Mapping[str, object]]):
         if isinstance(index, range):
             return tuple(self[item] for item in index)
         block = self._reader.read_generation(index)
+        if self._generation_projection is not None:
+            return _freeze(self._generation_projection(block))
         candidates = []
         for row in self._generation_rows(block):
             ordinal = self._candidate_ordinal(row)

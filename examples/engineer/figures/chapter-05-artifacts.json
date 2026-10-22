@@ -121,9 +121,9 @@
     "source_receipt_sha256": "ca4bd9f7ca712912fb641fef063636830b9d0e98ba2b31b6f97acf55875326d0"
   },
   "publication_binding": {
-    "binding_sha256": "8ad9a58f81de22c847bd438a60ee69eebbbb25312efecc5fe0e876bfef8ba855",
+    "binding_sha256": "c3360a9ce2f4e25351463d82f28fa396adf64ed8b84ed06089c2bfc457475178",
     "generator_sha256": "0be52d3ea3cb2fc8ec99f8eb2afa50b0e04e6ac2ada7e13553a07b000c1d11ce",
-    "source_tree_sha256": "70db67126d74bbb8bc74f5da0b4f631884d5bcb5ee467935d68e6d9742354543"
+    "source_tree_sha256": "39344eaab595ac365978e4a7b6ab341084f94f75f4c985d074d58b4ee81c4fef"
   },
   "publication_rebind": {
     "deltas": {
@@ -151,17 +151,17 @@
         "before_sha256": "0be52d3ea3cb2fc8ec99f8eb2afa50b0e04e6ac2ada7e13553a07b000c1d11ce"
       },
       "source_files": {
-        "src/scnsim/_julia/src/optimization.jl": {
-          "after_sha256": "a1b7d1b3638559538e34f5328f173a90e3b8c6139683bb26dbd11031e983dbf1",
-          "before_sha256": "e1c3a49ce09a5397cfc6b1bf22b4e612a09f3dc36c27646d921ac53298eb48ba"
+        "src/scnsim/results/decode_result.py": {
+          "after_sha256": "869be532e0de987d4f0aab512823d4c8648a10893bcc483dcf110e7f65ff1b12",
+          "before_sha256": "cf3adf22f449869b75ed66d12d803b2d228836adbb1315364ecfac1145602240"
         },
-        "src/scnsim/runtime.py": {
-          "after_sha256": "f3fc3fd30631f99ac33ac0f783ffee5e60c802e8b7f48427821fca6ab085b748",
-          "before_sha256": "d78c0aad4250497f2b78ef1db286afe0f04f01c05f0d500c349d1d48ae9e82d8"
+        "src/scnsim/results/lazy_optimization.py": {
+          "after_sha256": "c09ef81cd1871d9b127aa8cf233f1c5e87fbc7a9d44224124255601750cefcef",
+          "before_sha256": "57eb46502d3d039ca8af43f3b8c0a81a82f0687db1c3da6a7b40eb8c279c56aa"
         },
         "src/scnsim/workspace/validation/optimization.py": {
-          "after_sha256": "2186260abe5434299e1d6b1495f4bed978b19134a9e217e49b8e201661c435fa",
-          "before_sha256": "0e8599166c282f161c6fb02a877e67e26e977b0b677e4b2b45272b33be3f2ab8"
+          "after_sha256": "2d86c3429226fe480577cc2c61b06b442ff2448bd79f32a5e9e200f5083f33bd",
+          "before_sha256": "2186260abe5434299e1d6b1495f4bed978b19134a9e217e49b8e201661c435fa"
         }
       },
       "teaching_sources": {}
@@ -177,23 +177,23 @@
       "prior_publication_artifacts": {
         "05-reusable-composite.svg": "fe6a5f108d8bf8a06f8bc92383d57f96fca7358fe948bc32fdfda385d2ef1828"
       },
-      "prior_publication_binding_sha256": "d236d0d7ab493dbd2fb4c230f6ad714de5c4e71aebfbddae6ad6ee647e7e2b88",
+      "prior_publication_binding_sha256": "8ad9a58f81de22c847bd438a60ee69eebbbb25312efecc5fe0e876bfef8ba855",
       "prior_redrawn_artifacts": {},
       "source_tree_sha256": "f9dfbf48f5c917d8af9f4983c45169e5ed68bf039c9954ad756dbf786d6f0816"
     },
     "kind": "reviewed_source_only_transition",
     "numerical_evidence_reused": true,
-    "prior_manifest_sha256": "0f7e370da0789b1651a9d109a5a15111a30046eb6928766627a34bbbf2de6dc2",
-    "prior_publication_binding_sha256": "d236d0d7ab493dbd2fb4c230f6ad714de5c4e71aebfbddae6ad6ee647e7e2b88",
-    "prior_publication_rebind_sha256": "66483b9d84c8be43422f7eef39c2eaa21388184ef2b1bb5391e935e5afa0c706",
+    "prior_manifest_sha256": "05e2623a7dad5c69c4aaf9ac35ef4371064bf941277b30ccb91aa530470f5a79",
+    "prior_publication_binding_sha256": "8ad9a58f81de22c847bd438a60ee69eebbbb25312efecc5fe0e876bfef8ba855",
+    "prior_publication_rebind_sha256": "f15ff582cb9157cd6a616448a2d948c2f974c6b93434c21dccb71f00c886cf1d",
     "prior_published_artifacts_retained": true,
     "publication_artifacts": {
       "05-reusable-composite.svg": "fe6a5f108d8bf8a06f8bc92383d57f96fca7358fe948bc32fdfda385d2ef1828"
     },
-    "publication_binding_sha256": "8ad9a58f81de22c847bd438a60ee69eebbbb25312efecc5fe0e876bfef8ba855",
+    "publication_binding_sha256": "c3360a9ce2f4e25351463d82f28fa396adf64ed8b84ed06089c2bfc457475178",
     "redrawn_artifacts": {},
     "schema": "scnsim.engineer_publication_rebind.v3",
-    "transition_id": "scnsim.r1.ci_restoration.20261022"
+    "transition_id": "scnsim.r1.julia_ci_restoration02.20261022"
   },
   "schema": "scnsim.engineer_chapter5_artifacts.v1"
 }
