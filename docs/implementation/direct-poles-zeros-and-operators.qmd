@@ -205,15 +205,53 @@ $$
 Y'_{\mathrm{circ}}(\omega)=-iC-\frac{i}{\omega^2}K.
 $$
 
-The selected public $Y_{\mathrm{net}}$ follows the exact omitted-load,
-selected-source-boundary, and de-embedding order in the Runtime Contract;
-$Z_{\mathrm{net}}$ and matrix-reference power-wave $S$ are formed from that
-same $Y_{\mathrm{net}}$. An S-family quantity therefore requires a completely
-Port-realizable terminal view and its real-SPD $R_k$. A Y/Z-family quantity may
-use an ordered retained power-conjugate voltage/current coordinate without
-inventing a wave reference. In all families, `input_coordinate` is the matrix
-column and `output_coordinate` is the matrix row. Both must occur exactly once
-in the final selected order.
+The public DUT admittance excludes selected source resistors. With the
+actual transformed logical-Port incidence $B_0$, omitted-load conductance
+$G_o$, and selected map $P$, define
+
+$$
+H=Y_{\mathrm{circ,node}}+B_0G_oB_0^T,\qquad B=B_0P^T.
+$$
+
+The native route solves one checked sparse voltage-constraint system,
+
+$$
+\begin{bmatrix}H&-B\\B^T&0\end{bmatrix}
+\begin{bmatrix}V\\I\end{bmatrix}
+=\begin{bmatrix}0\\\mathbb{1}\end{bmatrix},
+\qquad Y_{\mathrm{net}}=I.
+$$
+
+Here each RHS applies one unit terminal voltage. Actual DUT loss and omitted
+matched loads remain in $H$, including the recorded PTC load mask. The selected
+source shunt $BR_k^{-1}B^T$ is absent. This avoids subtracting a source
+conductance from a nearly equal computed admittance to recover weak DUT loss.
+It also avoids requiring $H$ itself to be invertible. For full-column-rank $B$,
+the constrained system is nonsingular exactly when $N^THN$ is nonsingular,
+where the columns of $N$ span $\ker B^T$; no numerical nullspace is constructed.
+
+$Z_{\mathrm{net}}$ and matrix-reference power-wave $S$ use this same
+$Y_{\mathrm{net}}$. The existing S source-reconciliation solve remains after
+the S solve and includes the real selected source shunt. Operator and pole
+procedures keep their loaded $Q$ boundary; they do not use this source-free
+DUT equation.
+
+Direct matrix S/Y/Z and S-family scalars require a Port-realizable terminal
+View and its real-SPD $R_k$. Scalar Y/Z may instead use ordered retained
+power-conjugate voltage/current coordinates without a wave reference. That
+coordinate route uses the loaded selected Schur operator divided by $-i\omega$;
+Z uses its checked inverse solve. In every family, `input_coordinate` is the
+matrix column and `output_coordinate` is the matrix row. Both must occur
+exactly once in the final selected order.
+
+Parameter derivatives differentiate the same actual $H$ and $B$, including
+transformation, incidence, selection and omitted-load weights. If $U=(V,I)^T$,
+the tangent RHS is $(-dH\,V+dB\,I,-dB^TV)^T$. The analytic frequency jet uses
+$(-H'V,0)^T$ because $B$ is frequency independent. These are checked solves
+with the same constrained coefficient matrix, rather than finite differences.
+The primal certificate role is `dut_voltage_constraint`; its existing generic
+certificate fields record the actual saddle equation. No source-admittance
+certificate is fabricated for a subtraction that is no longer performed.
 
 All declared ordinary frequencies are finite positive frequency Quantities.
 SCNSim converts them once by $\omega=2\pi f$. A real root-like anchor $f_a$
@@ -486,15 +524,16 @@ $$
 Let $H(\omega)$ be the complete source-resistor-de-embedded, PTC/transformed
 intrinsic node admittance after omitted matched loads but before the selected
 source boundary. This is the Runtime Contract quantity
-$Y_{\mathrm{circ,node}}+B_pG_{o,p}B_p^T$. The terminal identity
+$Y_{\mathrm{circ,node}}+B_pG_{o,p}B_p^T$. For a coordinate-selection boundary, the terminal identity is
 
 $$
 Y_{\mathrm{net}}=H_{RR}-H_{RE}H_{EE}^{-1}H_{ER}.
 $$
 
-is evaluated through the Runtime Contract's selected-source solve and
-de-embedding chain, with the same certificates; it is not a second boundary
-order.
+The constrained DUT solve evaluates the same boundary without adding and then
+subtracting selected source conductance. General power-conjugate terminal
+maps use the constrained system above; the displayed coordinate Schur formula
+does not assume that an arbitrary incidence map is a coordinate selector.
 
 The zero bundle carries an explicit analytic numerator/denominator identity:
 

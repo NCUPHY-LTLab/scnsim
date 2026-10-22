@@ -506,10 +506,13 @@ class DiagonalRootSpec:
         object.__setattr__(self, "search", search)
         _coordinate_id(coordinate)
         try:
-            units.require_positive_quantity(root_hint, "hertz", name="root_hint")
+            if isinstance(root_hint, Quantity) and np.iscomplexobj(root_hint.magnitude):
+                _validate_frequency_anchor(root_hint, name="root_hint")
+            else:
+                units.require_positive_quantity(root_hint, "hertz", name="root_hint")
         except Exception as exc:
             raise InvalidDiagonalRootHint(
-                "root_hint must be a finite positive frequency Quantity",
+                "root_hint must be a finite frequency Quantity with a positive real part",
                 stage="spec_validation",
             ) from exc
         object.__setattr__(self, "coordinate", coordinate)

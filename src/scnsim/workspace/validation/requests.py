@@ -1088,9 +1088,11 @@ def _verify_v1_evaluation_spec(
         invalid = coordinate not in terminal or (residue_branch and len(terminal) < 2)
         if set(spec) - {"search"} != {"type", "coordinate", "root_hint"} or invalid:
             raise _integrity("Diagonal-root Spec is incompatible with its final View.")
-        _verify_quantity_role(spec.get("root_hint"), complex_value=False, unit="hertz", dimensionality="inverse_time")
-        if _f64_value(spec["root_hint"]["si_value_f64"]) <= 0.0:
-            raise _integrity("Diagonal-root hint must be positive.")
+        _verify_frequency_anchor(spec.get("root_hint"))
+        hint = spec["root_hint"]
+        real_key = "si_value_f64" if hint["type"] == "quantity_f64" else "real_si_f64"
+        if _f64_value(hint[real_key]) <= 0.0:
+            raise _integrity("Diagonal-root hint must have a positive real part.")
     elif kind == "operator_element_root":
         if set(spec) - {"search"} != {"type", "row", "column", "root_hint"} or spec.get("row") not in terminal or spec.get("column") not in terminal:
             raise _integrity("Operator-element-root Spec is incompatible with its final View.")

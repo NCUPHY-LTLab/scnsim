@@ -249,7 +249,6 @@ This avoids dividing by a scale that disappears when physical contributions
 cancel near the root. The SVD rank, nonzero slope, checked elimination,
 Newton correction, and coupling-denominator requirements remain in force.
 
-
 For diagonal roots, Hybrid poles, and their residue-coupling branches, the
 passive-imaginary test is $\operatorname{Im}\omega\le\tau(n)|\omega|$.
 Here $n$ is the full realized finite-node count and
@@ -259,3 +258,11 @@ leaves the returned complex root unchanged, including its tiny imaginary
 part. It changes neither the Newton stopping rule nor its 32-step limit.
 An operator-element root or transfer zero does not acquire a passive-pole
 restriction from this policy.
+
+For the JAX quantity program, a diagonal `root_hint` may be a real or complex
+finite frequency Quantity with a positive real part, just as a Hybrid `anchor`
+may. Its authored
+imaginary component remains in the existing complex-frequency request
+encoding and initializes Newton directly. A residue-coupling branch uses
+that same diagonal declaration; it does not replace the complex hint with
+its real part.

@@ -24,6 +24,7 @@ FAILURES = {
     12: ('numerical_resolution_unresolved', 'newton_certificate'),
     13: ('root_slope_unresolved', 'slope_certificate'),
     14: ('numerical_resolution_unresolved', 'newton'),
+    15: ('direct_response_formation', 'dut_voltage_constraint'),
 }
 
 
