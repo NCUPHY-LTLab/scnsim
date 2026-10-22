@@ -173,9 +173,9 @@
     }
   },
   "publication_binding": {
-    "binding_sha256": "cbcf92e837d6ccd3087b0767f7f3ddad82865195e44408bb17a7c2b090365688",
+    "binding_sha256": "4ffac519bc5b5100f7db90f193973a251e4e1621b6b3f4aa586944c13e7390d2",
     "generator_sha256": "1cbbaa1facb9f43ccd06f030bad4d53eea088fb227aabbf07385ebf7f1777421",
-    "source_tree_sha256": "4abeaa091813da318288c1187adeae232f01c3c407829ffacbb94981f64166e8"
+    "source_tree_sha256": "3ba16ec4727d56f910bdb10a9bb652c38b3a18549a8da6c4ac7be29da0169489"
   },
   "publication_rebind": {
     "deltas": {
@@ -220,8 +220,8 @@
           "before_sha256": "44d66606de8c7d5f45cb0ba011b88965f43e1440b0c56e2c43ec0059d68c7e55"
         },
         "src/scnsim/numerics/evidence.py": {
-          "after_sha256": "ba93de6254989f8c7c7f2ba1e4349e5d19d41543da4315d5032f810b11cb1f9d",
-          "before_sha256": "34156f9f8841e6351caa700b74eaba3208cfe20d8b43b656839f9ff4a6ad4076"
+          "after_sha256": "6b274362a148acacc86bd42982f12e5edb874a0a1c9cec4e2dc424888a59a64c",
+          "before_sha256": "f6dab40e92a493f71e7b0ae754a53591f93ea3574b9e1b7b311b74be55a398b8"
         },
         "src/scnsim/numerics/jax_core.py": {
           "after_sha256": "03190a08fcdf90b7483d23ad99e74561f8587063cb7c3d00c4a782bb523036c0",
@@ -261,15 +261,15 @@
         "06-tapped-feedline-t.md": "2445ed4432967205d1bca80ec52d930fde42e8c5ebc8ecaaf826fc67d57161d2",
         "06-tapped-feedline-t.svg": "293d3a9aa5c1b5c35f821429b32f838de2e302ed2ac8cad5019f139ea131ac7c"
       },
-      "prior_publication_binding_sha256": "1ff868d65ce72712d1ab417217221dc7bb8b221a8e2e36c106c1edc8c9c1f7f8",
+      "prior_publication_binding_sha256": "8674e30e5c1c644edcdb3d4f135233ee10dc51853d509b31dea7631a37b54c03",
       "prior_redrawn_artifacts": {},
       "source_tree_sha256": "f9dfbf48f5c917d8af9f4983c45169e5ed68bf039c9954ad756dbf786d6f0816"
     },
     "kind": "reviewed_source_only_transition",
     "numerical_evidence_reused": true,
-    "prior_manifest_sha256": "b844912c56e2201452450ad8a7ec308a2659b747b17179683b2ab318866e24b5",
-    "prior_publication_binding_sha256": "1ff868d65ce72712d1ab417217221dc7bb8b221a8e2e36c106c1edc8c9c1f7f8",
-    "prior_publication_rebind_sha256": "45ca3e669859feb72da812d9f0a028a8bbd70b6b813887b8b4a92063a3ecc1d8",
+    "prior_manifest_sha256": "6244c7fbf39254e2b7a3f72d01fc1e323cb53d566a96b203cd90cce0379983f5",
+    "prior_publication_binding_sha256": "8674e30e5c1c644edcdb3d4f135233ee10dc51853d509b31dea7631a37b54c03",
+    "prior_publication_rebind_sha256": "47dbd353e9dfead2a632c7c031acd3bfad5ec85dcdf40209ab069ed266f7d322",
     "prior_published_artifacts_retained": true,
     "publication_artifacts": {
       "06-four-arm-cross.svg": "dc535b3200f3c4c1ab65ee674735ae14ff0e91ab0bf32d78aff4a0c14c9a934b",
@@ -278,10 +278,10 @@
       "06-tapped-feedline-t.md": "2445ed4432967205d1bca80ec52d930fde42e8c5ebc8ecaaf826fc67d57161d2",
       "06-tapped-feedline-t.svg": "293d3a9aa5c1b5c35f821429b32f838de2e302ed2ac8cad5019f139ea131ac7c"
     },
-    "publication_binding_sha256": "cbcf92e837d6ccd3087b0767f7f3ddad82865195e44408bb17a7c2b090365688",
+    "publication_binding_sha256": "4ffac519bc5b5100f7db90f193973a251e4e1621b6b3f4aa586944c13e7390d2",
     "redrawn_artifacts": {},
     "schema": "scnsim.engineer_publication_rebind.v3",
-    "transition_id": "scnsim.r1.numerical_p0.ccd.20261022"
+    "transition_id": "scnsim.r1.numerical_p0_merge.f0fe.20261023"
   },
   "schema": "scnsim.engineer_chapter6_artifacts.v1"
 }

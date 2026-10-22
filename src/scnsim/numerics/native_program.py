@@ -138,16 +138,104 @@ class NativeChunkOutcome(NamedTuple):
     errors: Any
     check_status: Any
     certificate_status: Any
+    executed: Any
 
 
-def _compile_chunk(function, bucket):
+def _empty_chunk_outcome(function, candidate, omega, prior_check,
+                         prior_certificate, jnp):
+    """Build typed no-op outputs for one already-functionalized tail lane."""
+    import jax
+    from jax._src import checkify
+
+    def abstract(value):
+        aval = native_operand_abstract(value)
+        return jax.ShapeDtypeStruct(tuple(aval.shape), aval.dtype, weak_type=aval.weak_type)
+
+    candidate_shape = jax.tree.map(abstract, candidate)
+    omega_aval = abstract(omega)
+    error_shape, outcome_shape = jax.eval_shape(
+        function, candidate_shape, omega_aval,
+        abstract(prior_check), abstract(prior_certificate),
+    )
+
+    def zeros(value):
+        if not isinstance(value, jax.ShapeDtypeStruct):
+            raise TypeError('ordered tail outcome must contain only typed array leaves')
+        return jnp.zeros(value.shape, dtype=value.dtype)
+
+    def inactive_code(value):
+        if not isinstance(value, jax.ShapeDtypeStruct):
+            raise TypeError('ordered tail Error codes must contain only typed array leaves')
+        # Keep skipped lanes absent to the pinned sparse-certificate decoder.
+        return jnp.full(value.shape, checkify._INACTIVE_CODE, dtype=value.dtype)
+
+    empty_error = error_shape._replace(
+        _pred=jax.tree.map(zeros, error_shape._pred),
+        _code={effect: inactive_code(value)
+               for effect, value in error_shape._code.items()},
+        _payload=jax.tree.map(zeros, error_shape._payload),
+    )
+    return empty_error, jax.tree.map(zeros, outcome_shape)
+
+
+def _compile_chunk(function, bucket, *, ordered_tail=False):
     # Capture only the admitted immutable point equation and static bucket.
-    # Frequencies in this already-in-flight window are independent lanes. Each
-    # lane keeps W -> Y/Z/S checks -> source W -> reconciliation in that order;
-    # its functionalized Error is output DATA, never one overwritten effect.
-    # A lane may already perform work when an earlier lane later fails. The
-    # ordered reducers below report that truth and prevent NEW outer windows.
     from .native_sparse import checked_native
+    if ordered_tail:
+        # The tail retains the old one-row stop boundary. A checked scan carries
+        # both reducers and the active bit; the cond's no-op branch creates no
+        # frequency result or equation evidence after the first failure.
+        def chunk(candidate, omega, prior_check_status=0, prior_certificate_status=0):
+            import jax
+            import jax.numpy as jnp
+            from .jax_core import first
+            if omega.shape != (bucket,):
+                raise ValueError('native chunk operand shape differs from its declared bucket')
+            initial = (jnp.asarray(prior_check_status, dtype=jnp.int32),
+                       jnp.asarray(prior_certificate_status, dtype=jnp.int32))
+
+            def checked_step(point, frequency, prior_check, prior_certificate, active):
+                empty_result = _empty_chunk_outcome(
+                    checked, point, frequency, prior_check, prior_certificate, jnp,
+                )
+                return jax.lax.cond(
+                    active,
+                    lambda operands: checked(*operands),
+                    lambda _: empty_result,
+                    (point, frequency, prior_check, prior_certificate),
+                )
+
+            # Functionalize only the original scalar equation. Wrapping the
+            # scan/cond would add control-flow prefixes to sparse-site metadata.
+            checked = checked_native(function)
+            checked_ordered_step = checked_step
+
+            def step(carry, frequency):
+                prior_check, prior_certificate, active = carry
+                error, outcome = checked_ordered_step(
+                    candidate, frequency, prior_check, prior_certificate, active,
+                )
+                checks = first(prior_check, outcome.check_status != 0, outcome.check_status)
+                certificates = first(prior_certificate,
+                                     outcome.certificate_status != 0,
+                                     outcome.certificate_status)
+                error_failed = jnp.asarray(False)
+                for predicate in error._pred.values():
+                    error_failed = error_failed | jnp.any(predicate)
+                next_active = (active & (checks == 0) & (certificates == 0)
+                               & ~error_failed)
+                return (checks, certificates, next_active), (error, outcome, active)
+
+            active = (initial[0] == 0) & (initial[1] == 0)
+            final, (errors, outcomes, executed) = jax.lax.scan(
+                step, (*initial, active), omega,
+            )
+            return NativeChunkOutcome(outcomes, errors, final[0], final[1], executed)
+        return chunk
+
+    # Full policy buckets keep their established independent lanes. Their
+    # functionalized Errors are output data, not overwritten effects; reducers
+    # fold lanes in order and prevent submission of later outer windows.
     checked = checked_native(function)
     def chunk(candidate, omega, prior_check_status=0, prior_certificate_status=0):
         import jax
@@ -167,7 +255,8 @@ def _compile_chunk(function, bucket):
             return (checks, certificates), None
         final, _ = jax.lax.scan(fold, initial,
             (outcomes.check_status, outcomes.certificate_status))
-        return NativeChunkOutcome(outcomes, errors, *final)
+        executed = jnp.ones((bucket,), dtype=jnp.bool_)
+        return NativeChunkOutcome(outcomes, errors, *final, executed)
     return chunk
 
 
@@ -408,13 +497,14 @@ class NativePhysicalCore:
         if isinstance(bucket, (bool, np.bool_)) or not isinstance(bucket, (int, np.integer)) or bucket <= 0:
             raise ValueError('native chunk bucket requires a positive static integer')
         bucket = int(bucket)
-        if transform != 'value':
-            raise TypeError('native chunk_function supports value; use response_ad_chunk for response derivatives')
+        if transform not in ('value', 'ordered_tail'):
+            raise TypeError('native chunk_function supports value or ordered_tail; use response_ad_chunk for response derivatives')
         key = ('chunk', view_index, tuple(sorted(demand)), bucket, transform)
         with self._lock:
             function = self._functions.get(key)
             if function is None:
-                function = _compile_chunk(self.frequency_function(view_index, demand), bucket)
+                function = _compile_chunk(self.frequency_function(view_index, demand), bucket,
+                                          ordered_tail=transform == 'ordered_tail')
                 self._functions[key] = function
             return function
 

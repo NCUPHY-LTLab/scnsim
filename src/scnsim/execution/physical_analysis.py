@@ -840,7 +840,7 @@ class PhysicalAnalysis:
         return record
 
     def _native_work_batches(self, native):
-        """Yield policy-sized ordered frequency batches and single-lane tails."""
+        """Yield policy-sized batches followed by ordered power-of-two tails."""
         rows = tuple(native.work_layout)
         if not rows:
             raise RuntimeError('native program has no requested frequency work')
@@ -857,14 +857,17 @@ class PhysicalAnalysis:
             yield from self._native_batches_for_group(group)
 
     def _native_batches_for_group(self, rows):
+        """Yield full policy buckets followed by ordered power-of-two tails."""
         main_bucket = self.execution_policy.frequency_chunk_size
         offset = 0
         while len(rows) - offset >= main_bucket:
             yield tuple(rows[offset:offset + main_bucket])
             offset += main_bucket
         while offset < len(rows):
-            yield (rows[offset],)
-            offset += 1
+            remaining = len(rows) - offset
+            bucket = 1 << (remaining.bit_length() - 1)
+            yield tuple(rows[offset:offset + bucket])
+            offset += bucket
 
     @staticmethod
     def _native_certificate_row(certificate, lane):
@@ -1003,24 +1006,30 @@ class PhysicalAnalysis:
                               operation):
         """Run one exact frequency bucket and return its synchronized outcome."""
         from ..numerics.native_sparse import SparseEquationCheck
-        from ..numerics.evidence import native_primal_exception
+        from ..numerics.evidence import native_error_may_raise, native_primal_exception
 
         jnp = self.backend.jax.numpy
         view_index = rows[0]['view_index']
         demand = tuple(rows[0]['demand'])
         bucket = len(rows)
         with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
+            # Gather exact work order on the host before one typed device conversion.
+            omega_indices = np.fromiter(
+                (row['omega_index'] for row in rows), dtype=np.intp, count=bucket,
+            )
             omega = jnp.asarray(
-                [omega_source[row['omega_index']] for row in rows],
+                omega_source[omega_indices],
                 dtype=self.backend.complex_dtype,
             )
             prior_check = jnp.asarray(prior_check_status, dtype=np.int32)
             prior_certificate = jnp.asarray(prior_certificate_status, dtype=np.int32)
         operands = (candidate, omega, prior_check, prior_certificate)
-        function = native.chunk_function(view_index, demand, bucket, transform='value')
+        transform = ('ordered_tail'
+                     if bucket < self.execution_policy.frequency_chunk_size else 'value')
+        function = native.chunk_function(view_index, demand, bucket, transform=transform)
         compile_key = native.variant_key(
             'chunk', device=self.backend.device, operands=operands,
-            view_index=view_index, demand=demand, bucket=bucket, transform='value',
+            view_index=view_index, demand=demand, bucket=bucket, transform=transform,
         )
         candidate_scope = (nullcontext() if self.operation_resources is None else
                            self.operation_resources.candidate_compute())
@@ -1034,9 +1043,10 @@ class PhysicalAnalysis:
                          'first_source_index': rows[0]['source_index'],
                          **(self._native_slot_admission or {})},
             )
-        exception = native_primal_exception(outcome.errors)
-        if exception is not None and not isinstance(exception, SparseEquationCheck):
-            outcome.errors.throw()
+        if native_error_may_raise(outcome.errors):
+            exception = native_primal_exception(outcome.errors)
+            if exception is not None and not isinstance(exception, SparseEquationCheck):
+                outcome.errors.throw()
         return outcome
 
     def _native_frequency_slots(self, native):
@@ -1163,37 +1173,55 @@ class PhysicalAnalysis:
                     outcomes = map(execute_item, window)
 
                 for rows, outcome in zip(window, outcomes, strict=True):
-                    if not raw_failure_certificates:
-                        executed_rows.extend(rows)
-                    certificates = sparse_certificates(outcome.errors)
+                    certificates = (None if raw_failure_certificates else
+                                    sparse_certificates(outcome.errors))
+                    family_arrays = {}
                     local_check = np.asarray(outcome.outcomes.check_status)
                     local_certificate = np.asarray(outcome.outcomes.certificate_status)
                     local_check_positions = np.asarray(outcome.outcomes.check_position)
                     local_certificate_positions = np.asarray(outcome.outcomes.certificate_position)
+                    executed = np.asarray(outcome.executed, dtype=np.bool_)
+
+                    def family_array(family):
+                        # Materialize each requested family once, on first use.
+                        if family not in family_arrays:
+                            family_arrays[family] = np.asarray(
+                                getattr(outcome.outcomes, family)
+                            )
+                        return family_arrays[family]
+
                     for lane, row in enumerate(rows):
+                        if not executed[lane]:
+                            continue
                         check_value = int(local_check[lane])
                         certificate_value = int(local_certificate[lane])
                         lane_failed = bool(check_value or certificate_value)
+                        if not raw_failure_certificates:
+                            executed_rows.append(row)
                         if raw_failure_certificates:
-                            certificate_rows = (
-                                tuple(self._native_certificate_lane(certificate, lane)
-                                      for certificate in certificates)
-                                if lane_failed else ()
-                            )
                             if lane_failed:
+                                if certificates is None:
+                                    certificates = sparse_certificates(outcome.errors)
+                                certificate_rows = tuple(
+                                    self._native_certificate_lane(certificate, lane)
+                                    for certificate in certificates
+                                )
                                 failed_rows.append(row)
+                            else:
+                                certificate_rows = ()
                         else:
                             certificate_rows = tuple(
                                 self._native_certificate_row(certificate, lane)
                                 for certificate in certificates
                             )
                         consume_work(
-                            row, outcome.outcomes, lane,
+                            row, lane,
                             check_value=check_value,
                             certificate_value=certificate_value,
                             check_position=int(local_check_positions[lane]),
                             certificate_position=int(local_certificate_positions[lane]),
                             certificates=certificate_rows,
+                            family_array=family_array,
                         )
                         if check_position == -1 and check_value != 0:
                             check_position = row['source_index']
@@ -1249,12 +1277,13 @@ class PhysicalAnalysis:
             if any(set(row['demand']) != {'S', 'Y', 'Z'} for row in work_rows):
                 raise RuntimeError('native Direct work must share S, Y, and Z at each frequency')
 
-        def consume_work(row, outcomes, lane, *, check_value, certificate_value,
-                         check_position, certificate_position, certificates):
+        def consume_work(row, lane, *, check_value, certificate_value,
+                         check_position, certificate_position, certificates,
+                         family_array):
             if in_memory:
                 record = {
                     'families': {
-                        family: np.asarray(getattr(outcomes, family))[lane]
+                        family: family_array(family)[lane]
                         for family in ('S', 'Y', 'Z')
                     },
                 }
@@ -1270,7 +1299,7 @@ class PhysicalAnalysis:
                 'certificate_position': certificate_position,
                 'certificates': certificates,
                 'families': {
-                    family: array_record(np.asarray(getattr(outcomes, family))[lane])
+                    family: array_record(family_array(family)[lane])
                     for family in ('S', 'Y', 'Z')
                 },
             })
@@ -1427,8 +1456,9 @@ class PhysicalAnalysis:
             if any(set(row['demand']) - {'S', 'Y', 'Z', 'operator'} for row in work_rows):
                 raise TypeError('native Sweep provider returned an undeclared matrix family')
 
-        def consume_work(row, outcomes, lane, *, check_value, certificate_value,
-                         check_position, certificate_position, certificates):
+        def consume_work(row, lane, *, check_value, certificate_value,
+                         check_position, certificate_position, certificates,
+                         family_array):
             self.result_sink.stage_native_work(namespace, row['work_index'], {
                 'work_index': row['work_index'],
                 'source_index': row['source_index'],
@@ -1440,7 +1470,7 @@ class PhysicalAnalysis:
                 'certificate_position': certificate_position,
                 'certificates': certificates,
                 'families': {
-                    family: self._store_array(getattr(outcomes, family)[lane])
+                    family: self._store_array(family_array(family)[lane])
                     for family in row['demand']
                 },
             })

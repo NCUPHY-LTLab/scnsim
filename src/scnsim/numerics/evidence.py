@@ -121,6 +121,19 @@ def native_primal_exception(error):
     return exception
 
 
+def native_error_may_raise(error):
+    """Avoid eager exception projection for uniformly false native checks.
+
+    A synchronized checkify Error with uniformly shaped, all-false predicates
+    cannot raise. Any true predicate or heterogeneous predicate shapes keep the
+    existing full exception projection path.
+    """
+    predicates = tuple(np.asarray(value) for value in error._pred.values())
+    if len({value.shape for value in predicates}) > 1:
+        return True
+    return any(bool(value.any()) for value in predicates)
+
+
 def require_native_candidate(candidate):
     """Restore original physical/domain failures from synchronized candidate aux.
 
