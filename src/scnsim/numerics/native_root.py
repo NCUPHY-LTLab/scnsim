@@ -194,6 +194,7 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
     import jax
     import jax.numpy as jnp
     from .jax_core import first, tau
+    from .passivity import passive_imaginary_root
     selected, eliminated = tuple(selected), tuple(eliminated)
     rows, columns = jnp.asarray(pattern.rows), jnp.asarray(pattern.cols)
     # Canonical SparsePattern contains one slot per physical matrix entry.
@@ -273,7 +274,7 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
             slope_bad = ~(certificate[4] > tau(node_count, rd))
             status = first(status, slope_bad, 13)
             if declaration.kind == 'diagonal_root':
-                status = first(status, omega.imag > 0, 12)
+                status = first(status, ~passive_imaginary_root(omega, tau(node_count, rd)), 12)
             stage = jnp.where(status == 13, 2, jnp.where(status == 12, 1, 0))
             return RootPacket(omega, slope, status, jnp.int32(stage), steps, status == 0,
                 certificate, jnp.zeros((width,), dtype=cd), jnp.zeros((width,), dtype=cd),
@@ -297,9 +298,17 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
         pivot = jnp.argmax(jnp.abs(v))
         phase = jnp.exp(-jnp.asarray(1j, dtype=cd) * jnp.angle(v[pivot]))
         v, u = v * phase, u * phase
-        right = quotient(jnp.max(jnp.abs(state.F @ v)), jnp.max(jnp.abs(state.F) @ jnp.abs(v)))
-        left = quotient(jnp.max(jnp.abs(u.conj() @ state.F)), jnp.max(jnp.abs(u) @ jnp.abs(state.F)))
-        normalizer = _row_norm_product(state.F)
+        # Bound the actual Schur formation Qrr - Qre X, before cancellation.
+        # X and its checked solve belong to this same selected state.
+        formation = jnp.stack(tuple(entry_gather(state.bound_values, row, selected)
+                                    for row in selected))
+        if eliminated:
+            cross = jnp.stack(tuple(entry_gather(state.bound_values, row, eliminated)
+                                    for row in selected))
+            formation = formation + cross @ jnp.abs(state.X)
+        right = quotient(jnp.max(jnp.abs(state.F @ v)), jnp.max(formation @ jnp.abs(v)))
+        left = quotient(jnp.max(jnp.abs(u.conj() @ state.F)), jnp.max(jnp.abs(u) @ formation))
+        normalizer = _row_norm_product(formation)
         eta_m, eta_e = _scaled_ratio(jnp.abs(h), normalizer)
         tm, te = jnp.frexp(tau(width, rd))
         det_closed = jnp.isfinite(eta_m) & ((eta_m == 0) | (eta_e < te) | ((eta_e == te) & (eta_m <= tm)))
@@ -315,7 +324,7 @@ def compile_native_root(declaration, state_function, *, precision, node_count,
             (right <= tau(width, rd)) & jnp.isfinite(left) & (left <= tau(width, rd)) &
             jnp.isfinite(eta_q) & (eta_q <= tau(node_count, rd)) & (scale > 0) &
             (jnp.abs(slope) / scale > tau(width, rd)) & jnp.isfinite(correction) &
-            (correction <= tau(width, rd)) & (omega.real > 0) & (omega.imag <= 0))
+            (correction <= tau(width, rd)) & (omega.real > 0) & passive_imaginary_root(omega, tau(node_count, rd)))
         status = first(status, ~closed, 12)
         stage = jnp.where(prior_status != 0, failure_stage, jnp.where(~rank_ok, 3, jnp.where(status == 12, 1, 0)))
         certificate = jnp.asarray((right, left, eta_m, eta_e, eta_q, scale, correction), dtype=rd)

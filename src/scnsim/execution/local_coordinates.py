@@ -79,9 +79,11 @@ class LocalCoordinateMap:
     """Detached stage map; controller coordinates never replace physical points.
 
     ``coordinate_scales`` consumes finalized LB rows ``{parameter, value}``.
-    Unscaled signed-log variable rows require captured ``si_unit`` metadata.
-    Physical gradient sequences follow variable order; keyed gradients use the
-    exact (definitions_id, parameter_id) keys from the same declaration.
+    A bounded variable without an explicit or declared scale uses the width of
+    its resolved physical bounds. Unscaled open-domain rows retain their
+    existing mapping and unit behavior. Physical gradient sequences follow
+    variable order; keyed gradients use the exact (definitions_id, parameter_id)
+    keys from the same declaration.
     """
 
     _axes: tuple[_Coordinate, ...]
@@ -98,17 +100,30 @@ class LocalCoordinateMap:
             domain = variable.get("domain")
             supplied = scales.get(key)
             declared = variable.get("scale")
-            envelope = supplied if supplied is not None else declared
-            source = "explicit" if supplied is not None else "domain" if declared is not None else "none"
-            scale = None if envelope is None else float64_from_hex(envelope["si_value_f64"])
-            unit_record = envelope if envelope is not None else variable.get("lower")
-            unit = unit_record["si_unit"] if unit_record is not None else variable["si_unit"]
             if domain is None:
                 low = float64_from_hex(variable["lower"]["si_value_f64"])
                 high = float64_from_hex(variable["upper"]["si_value_f64"])
             else:
                 low = 0.0 if domain == "NONNEGATIVE" else None
                 high = 0.0 if domain == "NONPOSITIVE" else None
+            if supplied is not None:
+                envelope = supplied
+                scale = float64_from_hex(envelope["si_value_f64"])
+                source = "explicit"
+            elif declared is not None:
+                envelope = declared
+                scale = float64_from_hex(envelope["si_value_f64"])
+                source = "domain"
+            elif domain is None:
+                envelope = None
+                scale = high - low
+                source = "bounds_width"
+            else:
+                envelope = None
+                scale = None
+                source = "none"
+            unit_record = envelope if envelope is not None else variable.get("lower")
+            unit = unit_record["si_unit"] if unit_record is not None else variable["si_unit"]
             is_log = variable["transform"] == "log"
             mapping = "log" if is_log else "affine" if scale is not None else "raw_si"
             a = (scale / abs(reference) if scale is not None else 1.0) if is_log else None

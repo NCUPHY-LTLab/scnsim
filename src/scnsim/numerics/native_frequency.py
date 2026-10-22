@@ -396,8 +396,10 @@ class NativeFrequencyProgram:
                 roles.extend((('scattering', 8), ('normalizer_inverse', 1),
                               ('reconciliation_voltage', 9), ('reconciliation_scattering', 9),
                               ('source_reconciliation', 9)))
-        if 'operator' in families:
+        if 'operator' in families or (families - {'operator'} and not capability):
             roles.append(('selected_elimination', 3))
+        if 'Z' in families and not capability:
+            roles.append(('impedance', 7))
         return tuple(roles)
 
     def __call__(self, operands, view, omega, *, families, capability,
@@ -452,14 +454,20 @@ class NativeFrequencyProgram:
                                           stage=stage, prior_status=combined(), dependency=stage_dependency(stage) if dependency_override is None else dependency_override)
             certificate(solved.aux)
             return solved.value
+        selected_value = []
         def selected():
+            if selected_value:
+                return selected_value[0]
             assembled = self.assembly.assemble_prepared(operands, omega, view_status=view.status,
                                                         loaded=True, compensated=False)
             check(assembled.status)
             values = tuple(assembled.values[jnp.asarray(sources)] for _, sources in self.blocks)
             rhs = _dense(self.blocks[2][0], values[2])
-            X = sparse(self.ee, values[3], rhs, 3, dependency_override=('responses', dependency[1], ('operator',)) if dependency else ())
-            return _dense(self.blocks[0][0], values[0]) - self.re.matmul(values[1], X)
+            selected_families = ('operator',) if capability else tuple(sorted(families))
+            X = sparse(self.ee, values[3], rhs, 3, dependency_override=('responses', dependency[1], selected_families) if dependency else ())
+            value = _dense(self.blocks[0][0], values[0]) - self.re.matmul(values[1], X)
+            selected_value.append(value)
+            return value
         S = Y = Z = operator = empty
         responses = families - {'operator'}
         if responses and capability:
@@ -498,13 +506,16 @@ class NativeFrequencyProgram:
                 certificate(NativeSparseAux(reconciliation, jnp.where(performed, eta, missing),
                     jnp.where(performed, numerator, missing), jnp.where(performed, denominator, missing), performed))
         elif responses:
-            if 'S' in responses or any(family in responses for family in ('Y', 'Z')):
-                # Current public matrix contract requires Port realizability.
-                # Retained scalar response lowering is a separate declared
-                # route; it must not silently enter this matrix route.
+            if 'S' in responses:
+                # Matrix and S admissions are declaration-checked by the compiler.
+                # This scalar coordinate route cannot synthesize scattering.
                 from .determinants import QuantityError
                 raise QuantityError('port_realizability', 'selected_network',
                                     'Direct matrix response requires a Port-realizable View')
+            divisor = -jnp.asarray(1j, dtype=dtype) * omega
+            Y = selected() / divisor
+            if 'Z' in families:
+                Z = small(Y, eye, 7)
         if 'operator' in families:
             operator = selected()
         return NativeFrequencyOutcome(S, Y, Z, operator, combined(), check_status, certificate_status,

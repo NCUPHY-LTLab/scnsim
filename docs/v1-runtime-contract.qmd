@@ -167,8 +167,10 @@ unavailable gradient is never replaced with zero, NaN or a stale gradient.
 Accepted iterates, original-point baseline/root anchors and fatal-error
 responsibility remain shared with the existing physical execution authority.
 
-The candidate controller works in the declared local coordinate map, including
-raw SI-number coordinates when neither explicit nor domain scales are supplied.
+The candidate controller works in the declared local coordinate map, using
+the width of resolved bounds when a bounded variable has neither explicit nor
+declared scale. Open linear domains keep their declared scale; signed-log
+domains retain their existing reference-based mapping.
 It projects directions at active bounds, and retains up to ten accepted-real
 secant pairs for its two-loop direction. A non-descent direction uses the actual
 negative projected gradient. The direction first establishes a feasible bounded
@@ -387,14 +389,14 @@ exact solver resume. `LBFGSBSpec` requires explicit `max_evaluations`,
 `max_iterations`, `ftol`, `gtol`, `max_line_search` and
 `commit_every_iterations`. Supplied coordinate scales bind every local variable
 in its physical unit. For a linear mapping, explicit scale takes precedence over
-the declared domain scale: $\theta=\theta_0+s x$. If neither exists, the
-controller coordinate is the raw SI-number $x=\theta$, with its SI-unit metadata;
-no guessed dimensionless scale is introduced. A declared log mapping uses
-$\theta=\theta_0\exp(a x)$, where $a=s/|\theta_0|$ for an explicit physical
-scale and $a=1$ otherwise. The actual nonzero starting reference retains the
-sign for signed log domains; finite log bounds retain their declared positive
-physical bounds. The chain rule is $d\theta/dx=s$ for affine coordinates,
-$1$ for raw SI coordinates and $a\theta$ for log coordinates. Each map records
+the declared domain scale: $\theta=\theta_0+s x$. A bounded variable with
+neither uses the width of its resolved physical bounds; open linear domains
+retain their declared scale. A declared log mapping uses
+$\theta=\theta_0\exp(a x)$, where $a=s/|\theta_0|$ when a scale applies and
+$a=1$ for an unscaled signed-log domain. The actual nonzero starting reference
+retains the sign for signed log domains; finite log bounds retain their declared
+positive physical bounds. The chain rule is $d\theta/dx=s$ for affine
+coordinates and $a\theta$ for log coordinates. Each map records
 reference, scale/source, exponent scale, units and native transformed bounds;
 there is no CMA folding, clipping, invented open-domain interval or epsilon.
 Bounds/domain/transform and full effective initial parameters remain recorded

@@ -20,9 +20,14 @@ _ROOT_SELECTORS = frozenset((
 ))
 
 
-def diagonal_passive_policy(result: EvaluationResult) -> EvaluationResult:
-    """Preserve the existing positive-imaginary diagonal-root failure contract."""
-    if result.failure is None and result.root_omega_rad_s.imag > 0:
+def diagonal_passive_policy(result: EvaluationResult, *, node_count: int, precision: str) -> EvaluationResult:
+    """Apply the same full-node selected-precision policy as the native frame."""
+    from ..numerics.passivity import passive_imaginary_root
+    dtype = {'float32': np.float32, 'float64': np.float64}[precision]
+    tolerance = dtype(256 * (node_count + 1)) * np.finfo(dtype).eps
+    complex_dtype = {'float32': np.complex64, 'float64': np.complex128}[precision]
+    if result.failure is None and not passive_imaginary_root(
+            complex_dtype(result.root_omega_rad_s), tolerance):
         from ..canonical import float64_hex
         evidence = record_document(result.evidence_bytes)
         omega = complex(result.root_omega_rad_s)

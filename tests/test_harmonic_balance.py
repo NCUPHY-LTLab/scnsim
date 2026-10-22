@@ -19,6 +19,7 @@ from types import MappingProxyType
 import unittest
 
 import numpy as np
+from tests.test_direct_analysis import _two_coordinate_plan
 
 from scnsim import (
     BiasState,
@@ -47,18 +48,6 @@ from scnsim import (
 )
 
 
-def _two_coordinate_plan():
-    plan = CircuitPlan(id="complex_anchor_stabilization")
-    nodes = {name: plan.bus(id=name) for name in ("a", "b")}
-    for name, capacitance in (("a", 80.0), ("b", 90.0)):
-        capacitor = plan.add(components.capacitor(id=f"c_{name}", capacitance=capacitance*u.fF))
-        inductor = plan.add(components.inductor(id=f"l_{name}", inductance=8.0*u.nH))
-        plan.parallel(id=f"shunt_{name}", start=nodes[name],
-                         branches=((capacitor,), (inductor,)), end=plan.ground)
-    coupling = plan.add(components.capacitor(id="coupling", capacitance=2.0*u.fF))
-    plan.series(id="coupling", start=nodes["a"], elements=(coupling,), end=nodes["b"])
-    coordinates = tuple(nodes[name].node for name in ("a", "b"))
-    return plan, coordinates
 
 
 def _one_port_jj():
@@ -72,16 +61,6 @@ def _one_port_jj():
     return plan, port
 
 
-def _one_port_transfer_zero():
-    plan = CircuitPlan(id="complex_transfer_zero_stabilization")
-    resistor = plan.add(components.resistor(id="resistor", resistance=50.0*u.ohm))
-    capacitor = plan.add(components.capacitor(id="capacitor", capacitance=80.0*u.fF))
-    inductor = plan.add(components.inductor(id="inductor", inductance=8.0*u.nH))
-    signal = plan.bus(id="p")
-    plan.parallel(id="parallel_rlc", start=signal,
-                  branches=((resistor,), (capacitor,), (inductor,)), end=plan.ground)
-    plan.add_port(id="p", at=signal, role="terminated", reference_impedance=50.0*u.ohm)
-    return plan
 
 
 def _hb_dc_spec(port: object, cases: tuple[tuple[str, object | None], ...]) -> HBSolveSpec:
@@ -137,38 +116,6 @@ def _floating_probe_plan():
 
 
 class HBDeclarationTests(unittest.TestCase):
-    @unittest.skipUnless(os.environ.get("SCNSIM_RUN_JULIA_TESTS") == "1", "packaged Julia request preflight")
-    def test_complex_newton_anchor_encoding_preserves_authored_type_and_source_unit(self) -> None:
-        with TemporaryDirectory() as workspace, ExitStack() as owners:
-            plan, coordinates = _two_coordinate_plan()
-            run = CircuitRun(backend="julia", plan=plan, workspace=Path(workspace))
-            owners.callback(run.close)
-            view = run.original.reduce(ReductionPipeline().retain(*coordinates))
-            records = []
-            for anchor in (5.0 * u.GHz, (5.0 + 0.0j) * u.GHz, (5.0 - 0.1j) * u.GHz):
-                spec = HybridizedPoleSpec(coordinates=coordinates, anchor=anchor)
-                explanation = run.explain(view, spec)
-                request = explanation.evidence
-                records.append(request)
-                encoded = request["spec"]["anchor"]
-                self.assertEqual(
-                    encoded["type"],
-                    "quantity_f64" if not isinstance(anchor.magnitude, complex) else "complex_quantity_f64",
-                )
-                self.assertEqual(str(spec.anchor.units), "gigahertz")
-            self.assertEqual(records[1]["spec"]["anchor"]["imag_si_f64"], "0000000000000000")
-            self.assertNotEqual(records[2]["spec"]["anchor"]["imag_si_f64"], "0000000000000000")
-            self.assertEqual(len({record["request_sha256"] for record in records}), 3)
-
-            zero = TransferZeroSpec(
-                anchor=(5.0 + 0.0j) * u.GHz,
-                family="Y",
-                input_coordinate=coordinates[0],
-                output_coordinate=coordinates[1],
-            )
-            request = run.explain(view, zero).evidence
-            self.assertEqual(request["spec"]["anchor"]["type"], "complex_quantity_f64")
-            self.assertEqual(str(zero.anchor.units), "gigahertz")
 
     def test_hb_specs_are_immutable_ordered_and_defensively_copied(self) -> None:
         plan, port = _one_port_jj()
@@ -450,8 +397,8 @@ println(nameof(typeof(propagated)))
     os.environ.get("SCNSIM_RUN_JULIA_TESTS") == "1",
     "set SCNSIM_RUN_JULIA_TESTS=1 to run packaged Julia complex-anchor regressions",
 )
-class ComplexAnchorRuntimeTests(unittest.TestCase):
-    def test_nonzero_imaginary_complex_anchors_execute_and_resolve(self) -> None:
+class JuliaComplexAnchorDecodingTests(unittest.TestCase):
+    def test_julia_complex_anchor_decode_preserves_bits(self) -> None:
         with TemporaryDirectory() as workspace, ExitStack() as owners:
             plan, coordinates = _two_coordinate_plan()
             run = CircuitRun(backend="julia", plan=plan, workspace=Path(workspace))
@@ -499,24 +446,6 @@ println(SCNSimBackend.f64_hex(imag(decoded)))
                 decoded.stdout.splitlines(),
                 [encoded["real_si_f64"], encoded["imag_si_f64"]],
             )
-            result = run.evaluate(view, spec)
-            self.assertTrue(np.isfinite(result.frequency.to("hertz").magnitude))
-            self.assertTrue(np.isfinite(result.linewidth.to("hertz").magnitude))
-            self.assertEqual(run.resolve(view, spec).identity, result.identity)
-
-        with TemporaryDirectory() as workspace, ExitStack() as owners:
-            zero_run = CircuitRun(backend="julia", plan=_one_port_transfer_zero(), workspace=Path(workspace))
-            owners.callback(zero_run.close)
-            zero_spec = TransferZeroSpec(
-                anchor=(6.3 - 0.05j) * u.GHz,
-                family="S",
-                input_coordinate="p",
-                output_coordinate="p",
-            )
-            zero = zero_run.evaluate(zero_run.original, zero_spec)
-            self.assertTrue(np.isfinite(zero.frequency.to("hertz").magnitude))
-            self.assertNotEqual(complex(zero.denominator.to("dimensionless").magnitude), 0.0j)
-            self.assertEqual(zero_run.resolve(zero_run.original, zero_spec).identity, zero.identity)
 
 @unittest.skipUnless(
     os.environ.get("SCNSIM_RUN_JULIA_TESTS") == "1",

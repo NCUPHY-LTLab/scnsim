@@ -228,3 +228,34 @@ branch proof would require a later enclosure-based algorithm and a new runtime
 algorithm identity; complete-QEP nearest-root matching is not a substitute.
 
 [Next: Direct poles, zeros, couplings, and operators](direct-poles-zeros-and-operators.qmd)
+
+
+## Hybrid formation scales and passive-root admission
+
+The JAX Hybrid certificate uses the same actual Schur state as the root:
+$F=Q_{RR}-Q_{RE}X$. Let $B$ be the entrywise formation bound already carried
+by that state, including intrinsic stamps and the View's remaining loads.
+The selected formation scale is
+
+$$
+B_F=B_{RR}+B_{RE}|X|.
+$$
+
+When the eliminated set is empty, $B_F=B_{RR}$. The right and left residuals
+are normalized by $\|B_F|v|\|_\infty$ and
+$\||u|^TB_F\|_\infty$, respectively. The determinant uses the product of
+the Euclidean row norms of $B_F$, retaining the mantissa/exponent arithmetic.
+This avoids dividing by a scale that disappears when physical contributions
+cancel near the root. The SVD rank, nonzero slope, checked elimination,
+Newton correction, and coupling-denominator requirements remain in force.
+
+
+For diagonal roots, Hybrid poles, and their residue-coupling branches, the
+passive-imaginary test is $\operatorname{Im}\omega\le\tau(n)|\omega|$.
+Here $n$ is the full realized finite-node count and
+$\tau(n)=256(n+1)u$ uses the selected numerical precision. The host publication
+policy receives that same frame's node count and precision. The comparison
+leaves the returned complex root unchanged, including its tiny imaginary
+part. It changes neither the Newton stopping rule nor its 32-step limit.
+An operator-element root or transfer zero does not acquire a passive-pole
+restriction from this policy.

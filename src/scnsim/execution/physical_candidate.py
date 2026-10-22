@@ -33,7 +33,10 @@ def encode_physical_candidate(*, objective_program, outcome, parameters, objecti
     for row in metadata:
         result = bodies[row['observable_index']]
         if row['kind'] == 'diagonal_root':
-            result = diagonal_passive_policy(result)
+            result = diagonal_passive_policy(result,
+                node_count=len(program.program.views[
+                    program.program.observables[row['observable_index']].view_index].node_ids),
+                precision=program.program.precision)
             if result.failure is not None:
                 raise numerical_error(result.failure)
             bodies[row['observable_index']] = result

@@ -96,11 +96,14 @@ class ObjectiveLossProgram:
 
 def _ordered_loss_payload(objectives, operands, coefficients):
     """Single ordered loss formula for value and transformed output pullback."""
+    from jax import lax
     import jax.numpy as jnp
     targets, scales, weights = coefficients
     values, residuals, contributions = [], [], []
     for ordinal, (objective, operand) in enumerate(zip(objectives, operands, strict=True)):
-        operand = jnp.asarray(operand)
+        # Round the public scalar operand before residual arithmetic can fuse
+        # with its producer; preserve the selected real or complex dtype.
+        operand = lax.optimization_barrier(jnp.asarray(operand))
         real = jnp.real(operand)
         target = jnp.asarray(targets[ordinal], dtype=real.dtype)
         scale = jnp.asarray(scales[ordinal], dtype=real.dtype)

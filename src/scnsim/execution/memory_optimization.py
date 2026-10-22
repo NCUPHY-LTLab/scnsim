@@ -80,7 +80,10 @@ class MemoryCandidateRecords:
         bodies = project_primal_bodies(program, outcome.primal, inputs, ephemeral=True)
         for row in metadata:
             if row['kind'] == 'diagonal_root':
-                result = diagonal_passive_policy(bodies[row['observable_index']])
+                result = diagonal_passive_policy(bodies[row['observable_index']],
+                    node_count=len(program.program.views[
+                        program.program.observables[row['observable_index']].view_index].node_ids),
+                    precision=program.program.precision)
                 if result.failure is not None:
                     raise numerical_error(result.failure)
                 bodies[row['observable_index']] = result

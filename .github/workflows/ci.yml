@@ -81,13 +81,13 @@ jobs:
 
       - name: Discover the current purpose-based unittest suite
         run: >-
-          uv run --locked python -m unittest discover -s tests -t . -v
+          uv run --locked --group course-generation python -m unittest discover -s tests -t . -v
 
       - name: Record convergence validation scope
         run: |
           echo "### Test coverage in this job" >> "$GITHUB_STEP_SUMMARY"
-          echo "This job discovers the current purpose-based unittest suite with SCNSIM_RUN_JULIA_TESTS unset. Julia-only groups reported as skipped here are not native execution coverage." >> "$GITHUB_STEP_SUMMARY"
-          echo "The runtime-preparation matrix provisions the pinned Julia runtime and discovers the same suite with its explicit Julia opt-in. The job results report actual failures; skips are not treated as passes." >> "$GITHUB_STEP_SUMMARY"
+          echo "This job and each installed-wheel runtime job discover the current purpose-based unittest suite with the Julia opt-in unset. Julia-only groups reported as skipped are not native execution coverage." >> "$GITHUB_STEP_SUMMARY"
+          echo "The Linux/macOS runtime-preparation matrix also provisions the pinned Julia runtime and discovers the same suite with its explicit opt-in. Job results report actual failures; skips are not treated as passes." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and inspect the wheel
         run: |
@@ -646,6 +646,18 @@ jobs:
           Set-Location $env:RUNNER_TEMP
           & $python $script smoke --repository $repository --chapter $chapter --wheelhouse $wheelhouse --output $output
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Discover the current purpose-based suite with the installed Windows wheel
+        shell: pwsh
+        run: |
+          $repository = $PWD.Path
+          $python = Join-Path $repository '.venv-windows-wheel/Scripts/python.exe'
+          $requirements = Join-Path $env:RUNNER_TEMP 'scnsim-course-generation-requirements.txt'
+          uv export --locked --no-default-groups --group course-generation --no-emit-project --format requirements-txt --output-file $requirements
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv pip install --python $python -r $requirements
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -m unittest discover -s tests -t . -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check installed wheel Path Portability Set on Windows
         shell: pwsh
         env:
@@ -804,6 +816,14 @@ jobs:
                   'python': sys.version, 'observations': observations, 'benchmark': benchmark}, default=str))
           PY
 
+      - name: Discover the current purpose-based suite with the installed platform wheel
+        run: |
+          requirements="$RUNNER_TEMP/scnsim-course-generation-requirements.txt"
+          uv export --locked --no-default-groups --group course-generation --no-emit-project \
+            --format requirements-txt --output-file "$requirements"
+          uv pip install --python .venv-jax-wheel/bin/python -r "$requirements"
+          .venv-jax-wheel/bin/python -m unittest discover -s tests -t . -v
+
       - name: Check installed wheel Path Portability Set on Linux
         if: runner.os == 'Linux'
         shell: bash
@@ -834,6 +854,7 @@ jobs:
           for wheel in native-wheelhouse/*.whl; do
             uv pip install --python .venv-wheel/bin/python "${wheel}[julia]"
           done
+          uv pip install --python .venv-wheel/bin/python -r "$RUNNER_TEMP/scnsim-course-generation-requirements.txt"
           .venv-wheel/bin/python - <<'PY'
           from juliapkg.compat import Compat
           from juliapkg.find_julia import find_julia

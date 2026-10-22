@@ -718,6 +718,13 @@ def compile_native_program(quantity_program, inputs, *, capabilities=None, core=
             gathers.append(())
             continue
         family = ('S', 'Y', 'Z')[descriptor.indices[0]] if descriptor.kind == 'response_element' else descriptor.kind
+        # Scalar retained Y/Z has a coordinate equation. Matrix families and
+        # scattering still require the original actual Port capability.
+        if not capabilities[descriptor.view_index] and (
+                descriptor.kind in ('S', 'Y', 'Z') or family == 'S'):
+            from .determinants import QuantityError
+            raise QuantityError('port_realizability', 'selected_network',
+                                'Direct matrix response requires a Port-realizable View')
         selected = []
         for occurrence in range(*descriptor.frequency_slice):
             bits = np.asarray(quantity_program.frequencies_rad_s[occurrence], dtype=np.complex128).tobytes()

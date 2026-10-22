@@ -339,14 +339,18 @@ def compile_native_transfer(declaration, frequency_program, *, precision, view_i
         shape = jax.eval_shape(at, candidate, initial)
         empty_packet, _, _ = jax.tree.map(lambda item: jnp.zeros(item.shape, dtype=item.dtype), shape)
         initial_code = jnp.where(jnp.isfinite(initial) & (initial.real > 0), jnp.int32(0), jnp.int32(12))
+        def choose(predicate, yes, no):
+            return jax.tree.map(lambda a, b: jnp.where(predicate, a, b), yes, no)
+
         def body(loop):
-            omega, step, stopped, packet, status = loop
+            omega, step, stopped, _, _, eligible, has_eligible, _ = loop
             packet, value, closure_code = at(candidate, omega)
             checkify.debug_check(~(stopped & packet.closure),
                 'stagnant transfer certificate returned without a failure')
             final = (step == 32) | stopped
             status = packet.status
-            status = first(status, final & ~packet.closure, closure_code)
+            # Before eligibility, retain the original final-closure precedence.
+            status = first(status, final & ~has_eligible & ~packet.closure, closure_code)
             iteration_slope = packet.iteration_slope_mantissa if family == 'Z' else packet.slope
             zero_slope = (status == 0) & ~packet.closure & (iteration_slope == 0)
             status = first(status, zero_slope, 13)
@@ -356,19 +360,37 @@ def compile_native_transfer(declaration, frequency_program, *, precision, view_i
             else:
                 correction = value / packet.slope
             updated = jnp.asarray(omega - jnp.asarray(correction, dtype=cd), dtype=cd)
-            bad_update = (status == 0) & ~packet.closure & ~jnp.isfinite(updated)
+            # Once closure establishes eligibility, this same original Newton
+            # step is actually used for refinement; an invalid step still fails.
+            bad_update = (status == 0) & ~jnp.isfinite(updated)
             status = first(status, bad_update, 12)
             packet = packet._replace(status=status, steps=step,
                 failure_stage=jnp.where(zero_slope, 2, jnp.where(bad_update, 0, packet.failure_stage)),
                 certificate_status=first(packet.certificate_status, status != 0, status))
+            owns_closure = (status == 0) & packet.closure
+            eligible = choose(owns_closure, packet, eligible)
+            has_eligible = has_eligible | owns_closure
             stagnant = same_bits(updated, omega)
-            done = packet.closure | (status != 0) | final
-            return jnp.where(done, omega, updated), step+1, stagnant, packet, status
+            machine_correction = jnp.abs(correction) <= tau(minor_width, rd) * jnp.abs(omega)
+            refined = (status == 0) & has_eligible & (machine_correction | stagnant)
+            # Eligibility never masks a later checked equation/native error.
+            # The original update budget also bounds refinement: no unrefined
+            # success is returned just because an earlier closure was eligible.
+            refinement_exhausted = (status == 0) & final & has_eligible & ~refined
+            status = first(status, refinement_exhausted, 12)
+            packet = packet._replace(status=status,
+                failure_stage=jnp.where(refinement_exhausted, 4, packet.failure_stage),
+                certificate_status=first(packet.certificate_status, status != 0, status))
+            returned = choose(refined, eligible, packet)
+            done = refined | (status != 0) | final
+            return jnp.where(done, omega, updated), step+1, stagnant, returned, status, eligible, has_eligible, done
+
         def condition(loop):
-            return (loop[1] < 33) & (loop[4] == 0) & ~loop[3].closure
+            return (loop[1] < 33) & (loop[4] == 0) & ~loop[7]
         failed = empty_packet._replace(omega=initial, status=initial_code, certificate_status=initial_code)
-        _, _, _, packet, _ = jax.lax.while_loop(condition, body,
-            (initial, jnp.int32(0), jnp.bool_(False), failed, initial_code))
+        _, _, _, packet, _, _, _, _ = jax.lax.while_loop(condition, body,
+            (initial, jnp.int32(0), jnp.bool_(False), failed, initial_code,
+             failed, jnp.bool_(False), jnp.bool_(False)))
         return packet
 
     def physical_equation(candidate, omega):

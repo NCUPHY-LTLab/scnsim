@@ -1,8 +1,4 @@
-"""Retained Workspace versioning, append-only attempts and exact Julia readback.
-
-Transport faults exercise the current attempt owner. No fabricated numerical
-result or legacy runtime adapter supplies success, and resolve never executes.
-"""
+"""JAX Workspace versioning and separately retained Julia attempt readback."""
 
 from __future__ import annotations
 
@@ -71,6 +67,33 @@ def _primitive_requests(run, resonator, capacitance):
 
 
 class WorkspaceVersioningTests(unittest.TestCase):
+    def test_versioning_upgrade_preserves_leaf_and_forbids_downgrade(self):
+        # Documented Workspace identities, not Run's private binding object.
+        with TemporaryDirectory() as directory, ExitStack() as owners:
+            workspace = Path(directory)
+            plan, _, _ = _primitive_plan(plan_id="first")
+            first = CircuitRun(plan=plan, workspace=workspace, backend="jax")
+            owners.callback(first.close)
+            original = json.loads((workspace / "workspace.json").read_bytes())["active_leaf"]
+            plan, _, _ = _primitive_plan(plan_id="first")
+            upgraded = CircuitRun(plan=plan, workspace=workspace, versioned=True, backend="jax")
+            owners.callback(upgraded.close)
+            index = json.loads((workspace / "workspace.json").read_bytes())
+            self.assertEqual(index["iterations"][0]["workspace_instance_id"], original["workspace_instance_id"])
+            self.assertEqual(index["iterations"][0]["plan_sha256"], original["plan_sha256"])
+            plan, _, _ = _primitive_plan(plan_id="second", capacitance=120.0)
+            second = CircuitRun(plan=plan, workspace=workspace, versioned=True, backend="jax")
+            owners.callback(second.close)
+            index = json.loads((workspace / "workspace.json").read_bytes())
+            self.assertNotEqual(index["iterations"][1]["workspace_instance_id"], original["workspace_instance_id"])
+            with self.assertRaises(WorkspaceVersioningDowngradeForbidden):
+                plan, _, _ = _primitive_plan(plan_id="second", capacitance=120.0)
+                CircuitRun(plan=plan, workspace=workspace, versioned=False, backend="jax")
+
+
+@unittest.skipUnless(os.environ.get("SCNSIM_RUN_JULIA_TESTS") == "1",
+                     "deferred Julia Workspace inventory/version evidence")
+class JuliaWorkspaceVersioningInventoryTests(unittest.TestCase):
     def test_versioning_upgrade_preserves_leaf_and_forbids_downgrade(self):
         # Documented Workspace identities, not Run's private binding object.
         with TemporaryDirectory() as directory, ExitStack() as owners:

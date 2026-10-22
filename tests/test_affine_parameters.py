@@ -20,6 +20,7 @@ from scnsim import (
     CompositePlan,
     CostObjective,
     InvalidCandidatePhysicalParameter,
+    SCNSimValidationError,
     Library,
     OperatorSpec,
     OptimizationSpec,
@@ -116,11 +117,34 @@ def _receipt_for_result(workspace: Path, result: object) -> dict[str, object]:
     return matches[0]
 
 
+class AffinePhysicalValidationTests(unittest.TestCase):
+    def test_ordinary_unauthorized_extrapolation_is_an_authoring_error(self) -> None:
+        plan, parameter = _affine_plan()
+        with TemporaryDirectory() as workspace:
+            run = CircuitRun(
+                plan=plan,
+                workspace=Path(workspace),
+                backend="jax",
+                precision="float64",
+            )
+            try:
+                view = run.original.reduce(ReductionPipeline().retain("signal"))
+                with self.assertRaises(SCNSimValidationError) as raised:
+                    run.evaluate(
+                        view,
+                        OperatorSpec(frequencies=[5.0] * u.GHz),
+                        parameters=ParameterSet({parameter: 1.05 * u.meter}),
+                    )
+                self.assertEqual(raised.exception.stage, "authoring")
+            finally:
+                run.close()
+
+
 @unittest.skipUnless(
     os.environ.get("SCNSIM_RUN_JULIA_TESTS") == "1",
     "set SCNSIM_RUN_JULIA_TESTS=1 to run packaged Julia Affine regressions",
 )
-class AffinePhysicalValidationTests(unittest.TestCase):
+class JuliaAffineEvidenceTests(unittest.TestCase):
     def test_unauthorized_extrapolation_is_typed_and_creates_no_request(self) -> None:
         plan, parameter = _affine_plan()
         with TemporaryDirectory() as workspace:
@@ -132,13 +156,13 @@ class AffinePhysicalValidationTests(unittest.TestCase):
             )
             try:
                 view = run.original.reduce(ReductionPipeline().retain("signal"))
-                with self.assertRaises(InvalidCandidatePhysicalParameter) as raised:
+                with self.assertRaises(SCNSimValidationError) as raised:
                     run.evaluate(
                         view,
                         OperatorSpec(frequencies=[5.0] * u.GHz),
                         parameters=ParameterSet({parameter: 1.05 * u.meter}),
                     )
-                self.assertEqual(raised.exception.stage, "affine_support")
+                self.assertEqual(raised.exception.stage, "authoring")
                 self.assertEqual(run.inventory().requests, ())
             finally:
                 run.close()

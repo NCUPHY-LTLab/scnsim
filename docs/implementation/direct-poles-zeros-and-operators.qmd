@@ -4,7 +4,7 @@ subtitle: "How does each typed Direct quantity bind one selected network and clo
 toc-depth: 3
 ---
 
-**Status:** the first-complete-certificate TransferZero stopping behavior is
+**Status:** the TransferZero final-refinement behavior is
 `CONVERGING`; other existing pole, coupling, and operator meanings remain
 `STABILIZED`. Selected-View element roots are `CONVERGING` and specified in
 the [root procedure](diagonal-root-numerical-procedure.qmd).
@@ -411,15 +411,27 @@ $$
 \frac{T_{ij}(\omega_k)}{T'_{ij}(\omega_k)}
 $$
 
-for at most 32 updates. The anchor candidate is checked before update one;
-the first candidate satisfying the complete certificate is returned, including
-the anchor or the candidate after update 32. A finite, evaluable candidate
-whose residual, slope/rank, or correction does not close may take another
-Newton update; a cheap correction check alone cannot authorize success.
-Bitwise stagnation or update-budget exhaustion checks the complete certificate
-of the current candidate for a typed failure diagnosis. Non-finite quantities,
-invalid scales, failed required solves, and undefined Newton steps remain
-failures rather than recoverable nonclosure. Finite analytic $T/T'$ pairs are
+for at most 32 updates. The anchor candidate is checked before update one.
+The first complete closure establishes an eligible candidate; refinement then
+continues with the same family Newton step until its magnitude is at most
+$\tau(q_N)|\omega|$, or the proposed next iterate has identical real and
+imaginary bits. Here $q_N$ is the existing family numerator order: one for Y,
+$q+1$ for S, and $\max(1,q-1)$ for Z. Z keeps its scaled RF-cofactor Newton
+step; S and Y keep their full family-entry step.
+
+On normal refinement termination, the Result uses the last eligible iterate
+and that iterate's own slope, denominator and certificate. A later finite
+candidate whose closure is false does not replace the eligible packet; it can
+select that prior packet only at the named machine-correction or same-bits
+termination. Before any eligible candidate exists, stagnation and budget
+exhaustion retain the original complete-closure failure diagnosis. After
+eligibility, exhaustion without named refinement termination returns
+`numerical_resolution_unresolved` at `transfer_correction`.
+
+Non-finite quantities, invalid scales, failed required solves and undefined
+Newton steps remain failures. A stored eligible packet never hides a later
+checked equation or native error. The original budget includes refinement;
+no extra updates are granted after update 32. Finite analytic $T/T'$ pairs are
 checked during execution but are not persisted. All Schur and
 family-formation derivatives come from the analytic solve rule
 
@@ -520,9 +532,11 @@ Residual `0/0` is zero; nonzero-slope and rank-gap predicates reject a zero
 denominator. `numerator_slope` stores $\widehat N'$ and the coherently scaled
 denominator determinant stores $\widehat\Delta$; both are canonical
 dimensionless complex evidence. The conversion factor cancels in the slope
-ratio. The final correction obeys
+ratio. Every eligible iterate must satisfy
 $|T/T'|/(2\pi)\le 0.01\,\mathrm{Hz}$, using the full complex magnitude.
-基於計算誤差與工程實用性上的考量，我們直白地將 Newton Correction Threshold 設為 0.01 Hz。
+This remains a closure condition. The subsequent refinement uses the existing
+$\tau(q_N)|\omega|$ or same-bits condition above, so 0.01 Hz does not by
+itself stop the iteration.
 
 The denominator operator $A_D$ must remain finite and machine nonsingular: its
 factorization and full `A_D X = I` backward residual must pass at
@@ -552,7 +566,7 @@ The anchor again identifies only the baseline Newton basin. The Result never
 substitutes a real-grid minimum, dip, peak, sign crossing, nearest zero, or
 globally unique zero.
 
-The Result stores the first completely certified complex `zero` $\omega_z$ in
+The Result stores the last eligible refined complex `zero` $\omega_z$ in
 `radian / second`, `frequency=\operatorname{Re}(\omega_z)/(2\pi)` in hertz,
 and no linewidth field. Its `numerator_slope` and `denominator` are the
 dimensionless complex evidence defined above.

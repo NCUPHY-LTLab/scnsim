@@ -80,6 +80,7 @@ def compile_native_coupling(frequency_program, state_function, branch_declaratio
     import jax.numpy as jnp
     from .jax_core import first, tau
     from .native_root import compile_native_null_vector
+    from .passivity import passive_imaginary_root
     branch_declarations = tuple(branch_declarations)
     if len(branch_declarations) != 2:
         raise TypeError('declared residue coupling requires its two finished branches')
@@ -141,7 +142,8 @@ def compile_native_coupling(frequency_program, state_function, branch_declaratio
             state = packet.selected_state
             if declaration.kind == 'diagonal_root':
                 vector = jnp.zeros((width,), dtype=cd).at[declaration.coordinate_index].set(1)
-                status = first(status, packet.omega.imag > 0, 12)
+                status = first(status, ~passive_imaginary_root(packet.omega,
+                    tau(len(frequency_program.view_program.node_ids), rd)), 12)
             elif declaration.kind == 'hybridized_pole':
                 magnitude = jnp.abs(packet.right_vector)
                 gauge_available = gauge_available & (jnp.count_nonzero(magnitude == jnp.max(magnitude)) == 1)

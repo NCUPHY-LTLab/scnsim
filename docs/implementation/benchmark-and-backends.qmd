@@ -66,8 +66,9 @@ Primal-valid gradient-unavailable trials keep their finite cost/components and
 separate `optimizer_unavailability` provenance, rather than converting a real
 value to a fabricated gradient or hiding the failure. No universal convergence
 or performance claim follows from this source contract. Candidate integration, actual observations and
-Human acceptance remain distinct. The map may use raw SI-number coordinates
-without supplied scales, without an improved-search claim. Current dev30 timing/CI records retain their
+Human acceptance remain distinct. For bounded variables, the map uses the
+resolved bounds width when no explicit optimizer scale is supplied; open-domain
+and signed-log mappings retain their declared behavior. Current dev30 timing/CI records retain their
 original identities and do not establish this new scope.
 
 ## Direct stage bundles and observation scope (dev30 candidate)

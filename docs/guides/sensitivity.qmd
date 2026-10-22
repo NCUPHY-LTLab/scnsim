@@ -265,12 +265,14 @@ are distinct facts. Hybrid has no fabricated summed achievable budget.
 Durable progress callbacks follow acknowledged persistence. Local iteration
 counters do not fabricate CMA generations; `iteration`, `stage_transition` and
 `partial` describe actual recorded phases. Hybrid best remains nullable until
-an actual full-cost evaluation under the final comparison model. Local linear coordinates use an explicit physical scale first, then the
-variable's declared domain scale; with neither they are raw SI numbers carrying
-SI-unit metadata. Log coordinates use the actual signed starting reference
-`theta = reference * exp(a*x)`, with `a = explicit_scale/abs(reference)` or
-`a = 1` when no explicit scale is declared. The stage records this map and
-transfers physical points, not controller coordinates, between models.
+an actual full-cost evaluation under the final comparison model. Local linear
+coordinates use an explicit optimizer scale first, then a declared domain
+scale. A bounded variable with neither uses the width of its resolved physical
+bounds; an open linear domain continues to use its declared scale. Log
+coordinates use the actual signed starting reference
+`theta = reference * exp(a*x)`, with `a = scale/abs(reference)` when a scale
+applies and `a = 1` for an unscaled signed-log domain. The stage records this
+map and transfers physical points, not controller coordinates, between models.
 Native finite bounds and half-lines are retained without CMA folding or an
 invented finite interval. Local restart
 starts a new stage from a committed accepted iterate with cleared curvature; it

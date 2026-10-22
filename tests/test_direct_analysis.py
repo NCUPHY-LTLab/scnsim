@@ -1,17 +1,15 @@
-"""Retained explicit-Julia Direct, selected-network and analytic regressions.
-
-The inherited Float64 comparisons are scoped to the original physical
-fixtures. They are not JAX accuracy, new root-search or performance Gates.
-"""
+"""JAX Direct physics and H2 analytic comparisons, plus deferred Julia evidence."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import math
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 import numpy as np
+from tests.analytic_conditions import (assert_forward, operator_condition, response_oracle,
+    two_mode_roots, pole_condition, coupling_oracle, residue_oracle, matched_zero_oracle)
 from scnsim import (
     CircuitPlan, CircuitRun, DirectQuantityResult, DirectSolveSpec,
     DiagonalRootSpec, HybridizedPoleSpec, OperatorResult, OperatorSpec,
@@ -79,8 +77,6 @@ def _floating_probe_plan():
     return plan, feed_in, probe_plus, probe_minus, ("qubit_plus", "qubit_minus")
 
 
-def _tau(order: int) -> float:
-    return 256.0 * (order + 1) * np.finfo(np.float64).eps
 
 
 @contextmanager
@@ -119,7 +115,7 @@ class DirectDeclarationTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("SCNSIM_RUN_JULIA_TESTS") == "1",
                      "set SCNSIM_RUN_JULIA_TESTS=1 for the packaged Julia regressions")
-class SelectedNetworkTests(unittest.TestCase):
+class JuliaSelectedNetworkEvidenceTests(unittest.TestCase):
     def test_n_trace_pi_ladder_and_n_port_direct_are_not_scalarized(self) -> None:
         plan = CircuitPlan(id="n_trace_direct")
         line = plan.add(components.transmission_line(id="line", length=1.6 * u.mm, rlgc=_coupled_rlgc(), n_sections=2))
@@ -173,8 +169,41 @@ class SelectedNetworkTests(unittest.TestCase):
                 self.assertEqual(result.s.view.probe_loads["probe_minus"], "compensated")
 
 
-@unittest.skipUnless(os.environ.get("SCNSIM_RUN_JULIA_TESTS") == "1",
-                     "set SCNSIM_RUN_JULIA_TESTS=1 for the packaged Julia regressions")
+class SelectedNetworkTests(unittest.TestCase):
+    def test_n_trace_pi_ladder_and_n_port_direct_are_not_scalarized(self) -> None:
+        plan = CircuitPlan(id="n_trace_direct")
+        line = plan.add(components.transmission_line(id="line", length=1.6 * u.mm, rlgc=_coupled_rlgc(), n_sections=2))
+        for end in ("head", "tail"):
+            for conductor in ("readout", "filter"):
+                node = plan.bus(id=f"{end}_{conductor}")
+                plan.link(id=f"connect_{end}_{conductor}", endpoints=(node, line.pin(end, conductor=conductor)))
+                plan.add_port(id=f"{end}_{conductor}", at=node, role="terminated", reference_impedance=50.0 * u.ohm)
+        spec = DirectSolveSpec(frequencies=[1.0, 2.0] * u.GHz)
+        with TemporaryDirectory() as workspace:
+            with _closed_run(plan=plan, workspace=Path(workspace), backend="jax", precision="float64") as run:
+                result = run.solve(run.original, spec)
+                self.assertEqual(result.s.view.matrix.shape, (2, 4, 4))
+                self.assertEqual(result.y.view.matrix.shape, (2, 4, 4))
+                self.assertEqual(result.z.view.matrix.shape, (2, 4, 4))
+                self.assertEqual(tuple(result.s.view.coordinates), ("head_readout", "head_filter", "tail_readout", "tail_filter"))
+
+    def test_ptc_transform_retain_preserves_selected_matrix_and_probe_loads(self) -> None:
+        plan, _, probe_plus, probe_minus, nodes = _floating_probe_plan()
+        with TemporaryDirectory() as workspace:
+            with _closed_run(plan=plan, workspace=Path(workspace), backend="jax", precision="float64") as run:
+                view = run.original.reduce(
+                    ReductionPipeline()
+                    .ptc(probe_plus, probe_minus)
+                    .transform_pair(*nodes, id="qubit")
+                    .retain("feedline_in", "feedline_out", "qubit.differential")
+                )
+                spec = DirectSolveSpec(frequencies=[5.5] * u.GHz)
+                result = run.solve(view, spec)
+                self.assertEqual(result.s.view.matrix.shape, (1, 3, 3))
+                self.assertEqual(result.s.view.probe_loads["probe_plus"], "compensated")
+                self.assertEqual(result.s.view.probe_loads["probe_minus"], "compensated")
+
+
 class DirectQuantityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -182,7 +211,7 @@ class DirectQuantityTests(unittest.TestCase):
         cls.addClassCleanup(cls._temporary.cleanup)
         cls.workspace = Path(cls._temporary.name)
         cls.plan = _advanced_direct_plan()
-        cls.circuit_run = CircuitRun(plan=cls.plan, workspace=cls.workspace, backend="julia", precision="float64")
+        cls.circuit_run = CircuitRun(plan=cls.plan, workspace=cls.workspace, backend="jax", precision="float64")
         cls.addClassCleanup(cls.circuit_run.close)
         cls.view = cls.circuit_run.original.reduce(ReductionPipeline().retain("a", "b"))
         cls.operator_spec = OperatorSpec(frequencies=[5.0, 5.5] * u.GHz)
@@ -203,7 +232,7 @@ class DirectQuantityTests(unittest.TestCase):
         cls._zero_temporary = TemporaryDirectory()
         cls.addClassCleanup(cls._zero_temporary.cleanup)
         cls.zero_plan = _matched_zero_plan()
-        cls.zero_run = CircuitRun(plan=cls.zero_plan, workspace=Path(cls._zero_temporary.name), backend="julia", precision="float64")
+        cls.zero_run = CircuitRun(plan=cls.zero_plan, workspace=Path(cls._zero_temporary.name), backend="jax", precision="float64")
         cls.addClassCleanup(cls.zero_run.close)
         cls.zero_spec = TransferZeroSpec(
             anchor=6.3 * u.GHz,
@@ -231,14 +260,13 @@ class DirectQuantityTests(unittest.TestCase):
             omega = 2.0 * math.pi * float(point.frequency.to("hertz").magnitude)
             _, _, expected = self._matrices(omega)
             actual = np.asarray(point.matrix.to("siemens / second").magnitude)
-            scale = np.max(np.abs(expected))
-            self.assertLessEqual(np.max(np.abs(actual - expected)) / scale, _tau(2))
+            assert_forward(self, "operator", actual, expected, operator_condition(omega), "S/s", frequency_perturbed=True)
 
         self.assertIsInstance(self.response, DirectQuantityResult)
         omega = 2.0 * math.pi * 5.5e9
         expected = 1j * (omega * 2.0e-15 - 1.0 / (omega * 500.0e-9))
         actual = complex(self.response.value.to("siemens").magnitude)
-        self.assertLessEqual(abs(actual - expected) / abs(expected), _tau(2))
+        assert_forward(self, "Yab", actual, expected, response_oracle(omega)[1], "S", frequency_perturbed=True)
         self.assertEqual(self.response.family, "Y")
         self.assertEqual(self.response.magnitude.to("siemens").magnitude, abs(actual))
         self.assertEqual(self.response.real.to("siemens").magnitude, actual.real)
@@ -247,9 +275,10 @@ class DirectQuantityTests(unittest.TestCase):
     def test_hybridized_pole_and_residue_coupling_match_the_common_operator(self) -> None:
         self.assertIsInstance(self.pole, DirectQuantityResult)
         capacitance, stiffness, _ = self._matrices(0.0)
-        roots = np.sqrt(np.linalg.eigvals(np.linalg.solve(capacitance, stiffness)))
+        roots = two_mode_roots()
         pole = complex(self.pole.root.to("radian / second").magnitude)
-        self.assertLessEqual(min(abs(pole - root) for root in roots) / abs(pole), _tau(2))
+        oracle = min(roots, key=lambda root: abs(pole - root))
+        assert_forward(self, "hybridized_pole", pole, oracle, pole_condition(oracle), "rad/s")
         self.assertEqual(self.pole.frequency.to("hertz").magnitude, pole.real / (2.0 * math.pi))
         self.assertEqual(self.pole.linewidth.to("hertz").magnitude, -pole.imag / math.pi)
 
@@ -261,23 +290,108 @@ class DirectQuantityTests(unittest.TestCase):
         omega = 2.0 * math.pi * 5.5e9
         expected = (stiffness[0, 1] - omega**2 * capacitance[0, 1]) / math.sqrt(slope_a * slope_b)
         actual = complex(self.coupling.coupling.to("radian / second").magnitude)
-        self.assertLessEqual(abs(actual - expected) / abs(expected), _tau(2))
+        assert_forward(self, "residue_coupling", actual, expected, coupling_oracle(omega)[1], "rad/s", frequency_perturbed=True)
         self.assertEqual(self.coupling.magnitude.to("radian / second").magnitude, abs(actual))
-        self.assertLessEqual(
-            abs(complex(self.coupling.branch_a_residue.to("ohm").magnitude) + 1.0 / slope_a) / abs(1.0 / slope_a),
-            _tau(2),
-        )
-        self.assertLessEqual(
-            abs(complex(self.coupling.branch_b_residue.to("ohm").magnitude) + 1.0 / slope_b) / abs(1.0 / slope_b),
-            _tau(2),
-        )
+        for index, residue in enumerate((self.coupling.branch_a_residue, self.coupling.branch_b_residue)):
+            expected_residue, condition = residue_oracle(index)
+            assert_forward(self, f"branch_{index}_residue", complex(residue.to("ohm").magnitude),
+                           expected_residue, condition, "ohm")
 
     def test_transfer_zero_is_the_analytic_matched_parallel_lc_zero(self) -> None:
         self.assertIsInstance(self.zero, DirectQuantityResult)
-        expected_frequency = 1.0 / (2.0 * math.pi * math.sqrt(8.0e-9 * 80.0e-15))
         actual_omega = complex(self.zero.zero.to("radian / second").magnitude)
-        expected_omega = 2.0 * math.pi * expected_frequency
-        self.assertLessEqual(abs(actual_omega - expected_omega) / expected_omega, _tau(1))
+        oracle_omega, condition = matched_zero_oracle()
+        assert_forward(self, "matched_Spp_zero", actual_omega, oracle_omega, condition, "rad/s")
         self.assertEqual(self.zero.frequency.to("hertz").magnitude, actual_omega.real / (2.0 * math.pi))
         self.assertNotEqual(complex(self.zero.denominator.to("dimensionless").magnitude), 0.0j)
         self.assertNotEqual(complex(self.zero.numerator_slope.to("dimensionless").magnitude), 0.0j)
+
+
+def _two_coordinate_plan():
+    plan = CircuitPlan(id="complex_anchor_stabilization")
+    nodes = {name: plan.bus(id=name) for name in ("a", "b")}
+    for name, capacitance in (("a", 80.0), ("b", 90.0)):
+        capacitor = plan.add(components.capacitor(id=f"c_{name}", capacitance=capacitance*u.fF))
+        inductor = plan.add(components.inductor(id=f"l_{name}", inductance=8.0*u.nH))
+        plan.parallel(id=f"shunt_{name}", start=nodes[name],
+                         branches=((capacitor,), (inductor,)), end=plan.ground)
+    coupling = plan.add(components.capacitor(id="coupling", capacitance=2.0*u.fF))
+    plan.series(id="coupling", start=nodes["a"], elements=(coupling,), end=nodes["b"])
+    coordinates = tuple(nodes[name].node for name in ("a", "b"))
+    return plan, coordinates
+
+
+def _one_port_transfer_zero():
+    plan = CircuitPlan(id="complex_transfer_zero_stabilization")
+    resistor = plan.add(components.resistor(id="resistor", resistance=50.0*u.ohm))
+    capacitor = plan.add(components.capacitor(id="capacitor", capacitance=80.0*u.fF))
+    inductor = plan.add(components.inductor(id="inductor", inductance=8.0*u.nH))
+    signal = plan.bus(id="p")
+    plan.parallel(id="parallel_rlc", start=signal,
+                  branches=((resistor,), (capacitor,), (inductor,)), end=plan.ground)
+    plan.add_port(id="p", at=signal, role="terminated", reference_impedance=50.0*u.ohm)
+    return plan
+
+
+class ComplexAnchorTests(unittest.TestCase):
+    def test_complex_newton_anchor_encoding_preserves_authored_type_and_source_unit(self) -> None:
+        with TemporaryDirectory() as workspace, ExitStack() as owners:
+            plan, coordinates = _two_coordinate_plan()
+            run = CircuitRun(backend="jax", plan=plan, workspace=Path(workspace))
+            owners.callback(run.close)
+            view = run.original.reduce(ReductionPipeline().retain(*coordinates))
+            records = []
+            for anchor in (5.0 * u.GHz, (5.0 + 0.0j) * u.GHz, (5.0 - 0.1j) * u.GHz):
+                spec = HybridizedPoleSpec(coordinates=coordinates, anchor=anchor)
+                explanation = run.explain(view, spec)
+                request = explanation.evidence
+                records.append(request)
+                encoded = request["spec"]["anchor"]
+                self.assertEqual(
+                    encoded["type"],
+                    "quantity_f64" if not isinstance(anchor.magnitude, complex) else "complex_quantity_f64",
+                )
+                self.assertEqual(str(spec.anchor.units), "gigahertz")
+            self.assertEqual(records[1]["spec"]["anchor"]["imag_si_f64"], "0000000000000000")
+            self.assertNotEqual(records[2]["spec"]["anchor"]["imag_si_f64"], "0000000000000000")
+            self.assertEqual(len({record["request_sha256"] for record in records}), 3)
+
+            zero = TransferZeroSpec(
+                anchor=(5.0 + 0.0j) * u.GHz,
+                family="Y",
+                input_coordinate=coordinates[0],
+                output_coordinate=coordinates[1],
+            )
+            request = run.explain(view, zero).evidence
+            self.assertEqual(request["spec"]["anchor"]["type"], "complex_quantity_f64")
+            self.assertEqual(str(zero.anchor.units), "gigahertz")
+
+
+    def test_nonzero_imaginary_complex_anchors_execute_and_resolve(self) -> None:
+        with TemporaryDirectory() as workspace, ExitStack() as owners:
+            plan, coordinates = _two_coordinate_plan()
+            run = CircuitRun(backend="jax", plan=plan, workspace=Path(workspace))
+            owners.callback(run.close)
+            view = run.original.reduce(ReductionPipeline().retain(*coordinates))
+            spec = HybridizedPoleSpec(coordinates=coordinates, anchor=(6.0 - 1.0e-12j) * u.GHz)
+            request = run.explain(view, spec).evidence
+            encoded = request["spec"]["anchor"]
+            result = run.evaluate(view, spec)
+            self.assertTrue(np.isfinite(result.frequency.to("hertz").magnitude))
+            self.assertTrue(np.isfinite(result.linewidth.to("hertz").magnitude))
+            self.assertEqual(run.resolve(view, spec).identity, result.identity)
+
+        with TemporaryDirectory() as workspace, ExitStack() as owners:
+            zero_run = CircuitRun(backend="jax", plan=_one_port_transfer_zero(), workspace=Path(workspace))
+            owners.callback(zero_run.close)
+            zero_spec = TransferZeroSpec(
+                anchor=(6.3 - 0.05j) * u.GHz,
+                family="S",
+                input_coordinate="p",
+                output_coordinate="p",
+            )
+            zero = zero_run.evaluate(zero_run.original, zero_spec)
+            self.assertTrue(np.isfinite(zero.frequency.to("hertz").magnitude))
+            self.assertNotEqual(complex(zero.denominator.to("dimensionless").magnitude), 0.0j)
+            self.assertEqual(zero_run.resolve(zero_run.original, zero_spec).identity, zero.identity)
+

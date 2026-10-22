@@ -741,7 +741,9 @@ class PhysicalAnalysis:
                         )
                         packet,packet_error = branch_packets_by_id[initial.id]
                     if row['kind'] == 'diagonal_root':
-                        initial = diagonal_passive_policy(initial)
+                        initial = diagonal_passive_policy(initial,
+                            node_count=len(program.program.views[row['view_index']].node_ids),
+                            precision=program.program.precision)
                     if initial.failure is not None:
                         branch_results[start_index] = initial
                         raise EvaluationFailure(
@@ -768,7 +770,10 @@ class PhysicalAnalysis:
                 index = row['start_index']
                 actual = branches[index]
                 if row['kind'] == 'diagonal_root' and not (baseline and self.spec['type'] == 'diagonal_root'):
-                    actual = diagonal_passive_policy(actual)
+                    actual = diagonal_passive_policy(actual,
+                        node_count=len(program.program.views[
+                            program.program.observables[row['observable_index']].view_index].node_ids),
+                        precision=program.program.precision)
                 branches[index] = actual
                 if actual.failure is not None:
                     raise EvaluationFailure(actual.failure, result=actual,
@@ -1568,7 +1573,10 @@ class PhysicalAnalysis:
                     root_packets[start_index],root_errors[start_index] = branch_packets_by_id[result.id]
                 if row['kind'] == 'diagonal_root' and not (
                         baseline and self.spec['type'] == 'diagonal_root'):
-                    result = diagonal_passive_policy(result)
+                    result = diagonal_passive_policy(result,
+                        node_count=len(program.program.views[
+                            program.program.observables[row['observable_index']].view_index].node_ids),
+                        precision=program.program.precision)
                 result = replace(result, id='baseline' if baseline else str(identity))
                 root_results[start_index] = result
                 if result.failure is not None:
@@ -1843,7 +1851,10 @@ class PhysicalAnalysis:
                 'resume_state': None,
             })
             if self.spec['type'] == 'diagonal_root':
-                result = diagonal_passive_policy(result)
+                result = diagonal_passive_policy(result,
+                    node_count=len(self.program.program.views[
+                        self.program.program.observables[0].view_index].node_ids),
+                    precision=self.program.program.precision)
             key = point_identity(self.baseline)
             cache[key], seen = (result, dependencies), {key}
         first_failure = None
