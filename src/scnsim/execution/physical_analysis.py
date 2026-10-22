@@ -1013,8 +1013,12 @@ class PhysicalAnalysis:
         demand = tuple(rows[0]['demand'])
         bucket = len(rows)
         with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
+            # Gather exact work order on the host before one typed device conversion.
+            omega_indices = np.fromiter(
+                (row['omega_index'] for row in rows), dtype=np.intp, count=bucket,
+            )
             omega = jnp.asarray(
-                [omega_source[row['omega_index']] for row in rows],
+                omega_source[omega_indices],
                 dtype=self.backend.complex_dtype,
             )
             prior_check = jnp.asarray(prior_check_status, dtype=np.int32)
@@ -1171,11 +1175,21 @@ class PhysicalAnalysis:
                 for rows, outcome in zip(window, outcomes, strict=True):
                     certificates = (None if raw_failure_certificates else
                                     sparse_certificates(outcome.errors))
+                    family_arrays = {}
                     local_check = np.asarray(outcome.outcomes.check_status)
                     local_certificate = np.asarray(outcome.outcomes.certificate_status)
                     local_check_positions = np.asarray(outcome.outcomes.check_position)
                     local_certificate_positions = np.asarray(outcome.outcomes.certificate_position)
                     executed = np.asarray(outcome.executed, dtype=np.bool_)
+
+                    def family_array(family):
+                        # Materialize each requested family once, on first use.
+                        if family not in family_arrays:
+                            family_arrays[family] = np.asarray(
+                                getattr(outcome.outcomes, family)
+                            )
+                        return family_arrays[family]
+
                     for lane, row in enumerate(rows):
                         if not executed[lane]:
                             continue
@@ -1201,12 +1215,13 @@ class PhysicalAnalysis:
                                 for certificate in certificates
                             )
                         consume_work(
-                            row, outcome.outcomes, lane,
+                            row, lane,
                             check_value=check_value,
                             certificate_value=certificate_value,
                             check_position=int(local_check_positions[lane]),
                             certificate_position=int(local_certificate_positions[lane]),
                             certificates=certificate_rows,
+                            family_array=family_array,
                         )
                         if check_position == -1 and check_value != 0:
                             check_position = row['source_index']
@@ -1262,12 +1277,13 @@ class PhysicalAnalysis:
             if any(set(row['demand']) != {'S', 'Y', 'Z'} for row in work_rows):
                 raise RuntimeError('native Direct work must share S, Y, and Z at each frequency')
 
-        def consume_work(row, outcomes, lane, *, check_value, certificate_value,
-                         check_position, certificate_position, certificates):
+        def consume_work(row, lane, *, check_value, certificate_value,
+                         check_position, certificate_position, certificates,
+                         family_array):
             if in_memory:
                 record = {
                     'families': {
-                        family: np.asarray(getattr(outcomes, family))[lane]
+                        family: family_array(family)[lane]
                         for family in ('S', 'Y', 'Z')
                     },
                 }
@@ -1283,7 +1299,7 @@ class PhysicalAnalysis:
                 'certificate_position': certificate_position,
                 'certificates': certificates,
                 'families': {
-                    family: array_record(np.asarray(getattr(outcomes, family))[lane])
+                    family: array_record(family_array(family)[lane])
                     for family in ('S', 'Y', 'Z')
                 },
             })
@@ -1440,8 +1456,9 @@ class PhysicalAnalysis:
             if any(set(row['demand']) - {'S', 'Y', 'Z', 'operator'} for row in work_rows):
                 raise TypeError('native Sweep provider returned an undeclared matrix family')
 
-        def consume_work(row, outcomes, lane, *, check_value, certificate_value,
-                         check_position, certificate_position, certificates):
+        def consume_work(row, lane, *, check_value, certificate_value,
+                         check_position, certificate_position, certificates,
+                         family_array):
             self.result_sink.stage_native_work(namespace, row['work_index'], {
                 'work_index': row['work_index'],
                 'source_index': row['source_index'],
@@ -1453,7 +1470,7 @@ class PhysicalAnalysis:
                 'certificate_position': certificate_position,
                 'certificates': certificates,
                 'families': {
-                    family: self._store_array(getattr(outcomes, family)[lane])
+                    family: self._store_array(family_array(family)[lane])
                     for family in row['demand']
                 },
             })

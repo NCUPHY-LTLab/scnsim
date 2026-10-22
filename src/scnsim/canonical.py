@@ -56,6 +56,8 @@ def _integrity(message: str, **evidence: object) -> EvidenceIntegrityError:
 def _nfc(value: str, *, field: str = "string") -> str:
     if not isinstance(value, str):
         raise _validation("canonical strings must be str", field=field)
+    if type(value) is str and value.isascii():
+        return value
     return unicodedata.normalize("NFC", value)
 
 
@@ -113,8 +115,10 @@ def canonical_value(value: object) -> object:
 def canonical_json_bytes(value: object) -> bytes:
     """Encode one closed canonical UTF-8 JSON document."""
 
+    normalized = canonical_value(value)
+    # canonical_value recursively inserts object keys in canonical order.
     return json.dumps(
-        canonical_value(value), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        normalized, ensure_ascii=False, sort_keys=False, separators=(",", ":")
     ).encode("utf-8")
 
 
