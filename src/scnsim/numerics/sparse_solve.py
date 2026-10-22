@@ -109,7 +109,7 @@ def _host_transport(*operands, callback, input_tree, specifications,
     return output_tree.unflatten(encoded)
 
 
-def _host_solve(pattern, values, rhs, prior_status, *, stage, mode, ordering, factor=None):
+def _host_solve(pattern, values, rhs, prior_status, *, stage, mode, ordering, factor=None, _diagnostics=None):
     from scipy.sparse import csc_matrix
     from scipy.sparse.linalg import splu
     try:
@@ -144,10 +144,22 @@ def _host_solve(pattern, values, rhs, prior_status, *, stage, mode, ordering, fa
         threshold = real_dtype(256) * real_dtype(pattern.shape[0] + 1) * real_dtype(np.finfo(real_dtype).eps)
         if not (np.all(np.isfinite(value)) and np.isfinite(eta) and eta <= threshold):
             status = np.int32(stage)
+        if _diagnostics is not None:
+            from .solve_diagnostics import componentwise_per_rhs
+            _diagnostics.append(componentwise_per_rhs(error, scale, xp=np))
         return SolveOutcome(value, SolveAux(status, eta, num, den))
     finally:
         # Traceback frames must not extend ownership of a native factor.
         factor = None
+
+
+def host_solve_with_diagnostics(pattern, values, rhs, prior_status, *, stage, mode='N', ordering=None):
+    """Explicit host maintainer call; one existing solve, no JAX callback changes."""
+    from .solve_diagnostics import SolveWithDiagnostics, unperformed_diagnostics
+    rows = []
+    outcome = _host_solve(pattern, values, rhs, prior_status, stage=stage,
+                          mode=mode, ordering=ordering, _diagnostics=rows)
+    return SolveWithDiagnostics(outcome, rows[0] if rows else unperformed_diagnostics())
 
 
 def _host_high_equation(pattern, a, b, prior, *, stage, ordering, a_dot, b_dot,
@@ -399,7 +411,7 @@ def _host_pair_product(payload):
 
 
 def _host_pair_equation(pattern, a, b, prior, *, stage, ordering, mode='N',
-                        a_dot=None, b_dot=None, derivative_stage=4, second=None, observer=None):
+                        a_dot=None, b_dot=None, derivative_stage=4, second=None, observer=None, _diagnostics=None):
     """One actual high factor, one fixed correction for each required equation."""
     from scipy.sparse import csc_matrix
     from scipy.sparse.linalg import splu
@@ -453,7 +465,13 @@ def _host_pair_equation(pattern, a, b, prior, *, stage, ordering, mode='N',
             with phase('pair_update', name):
                 x = cp.add(x, cp.from_value(correction, xp=np), xp=np)
             with phase('postverification', name):
-                eta, num, den = cp.solve_certificate(*csr, x, rhs, real_dtype=rd, execute=_host_pair_product)
+                if _diagnostics is None:
+                    eta, num, den = cp.solve_certificate(*csr, x, rhs, real_dtype=rd, execute=_host_pair_product)
+                else:
+                    verified = cp.solve_certificate_with_diagnostics(
+                        *csr, x, rhs, real_dtype=rd, execute=_host_pair_product)
+                    eta, num, den = verified.outcome
+                    _diagnostics.append(verified.diagnostics)
             threshold = rd(256) * rd(pattern.shape[0] + 1) * rd(np.finfo(rd).eps)
             failed = not (all(np.all(np.isfinite(part)) for part in x) and np.isfinite(eta) and eta <= threshold)
             return PairSolveOutcome(x, SolveAux(np.int32(code if failed else 0), eta, num, den))
@@ -487,6 +505,15 @@ def _host_pair_equation(pattern, a, b, prior, *, stage, ordering, mode='N',
     finally:
         # Traceback frames must not extend ownership of a native factor.
         factor = None
+
+
+def host_pair_solve_with_diagnostics(pattern, a, b, prior_status, *, stage, mode='N', ordering=None):
+    """Observe the primal pair equation's existing fixed correction and certificate."""
+    from .solve_diagnostics import SolveWithDiagnostics, unperformed_diagnostics
+    rows = []
+    outcome = _host_pair_equation(pattern, a, b, prior_status, stage=stage,
+                                  mode=mode, ordering=ordering, _diagnostics=rows)
+    return SolveWithDiagnostics(outcome, rows[0] if rows else unperformed_diagnostics())
 
 
 def _host_pair_dispatch(pattern, ah, al, bh, bl, code, *derivatives,

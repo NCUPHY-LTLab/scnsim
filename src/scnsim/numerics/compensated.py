@@ -222,9 +222,9 @@ def residual(A_hi: Any, A_lo: Any, X: Pair, B: Pair, *, execute: Any) -> Pair:
     return add(product, negate(B), xp=np)
 
 
-def solve_certificate(A_hi: Any, A_lo: Any, X: Pair, B: Pair, *,
-                      real_dtype: Any, execute: Any) -> tuple[Any, Any, Any]:
-    """Return the existing componentwise residual certificate and operands.
+def _solve_certificate(A_hi: Any, A_lo: Any, X: Pair, B: Pair, *,
+                       real_dtype: Any, execute: Any, diagnostics: bool):
+    """Return the existing aggregate ratio-of-maxima certificate and operands.
 
     Matrix inputs are the caller-supplied CSR operands. This helper does not
     perform format checks or assign a solver status.
@@ -232,7 +232,8 @@ def solve_certificate(A_hi: Any, A_lo: Any, X: Pair, B: Pair, *,
     import numpy as np
 
     remainder = residual(A_hi, A_lo, X, B, execute=execute)
-    numerator = real_dtype(np.max(np.abs(project(remainder, xp=np))))
+    error = project(remainder, xp=np)
+    numerator = real_dtype(np.max(np.abs(error)))
 
     # Addition is sparse and coalesces the represented coefficient before abs;
     # abs(A_hi)+abs(A_lo) would certify a different matrix.
@@ -241,7 +242,8 @@ def solve_certificate(A_hi: Any, A_lo: Any, X: Pair, B: Pair, *,
     abs_A.data = np.abs(abs_A.data)
     abs_X = np.abs(project(X, xp=np))
     abs_B = np.abs(project(B, xp=np))
-    denominator = real_dtype(np.max(abs_A @ abs_X + abs_B))
+    scale = abs_A @ abs_X + abs_B
+    denominator = real_dtype(np.max(scale))
 
     if not (np.isfinite(numerator) and np.isfinite(denominator)):
         eta = real_dtype(np.inf)
@@ -249,4 +251,22 @@ def solve_certificate(A_hi: Any, A_lo: Any, X: Pair, B: Pair, *,
         eta = real_dtype(0 if numerator == 0 else np.inf)
     else:
         eta = real_dtype(numerator / denominator)
-    return eta, numerator, denominator
+    outcome = eta, numerator, denominator
+    if diagnostics:
+        from .solve_diagnostics import SolveWithDiagnostics, componentwise_per_rhs
+        return SolveWithDiagnostics(outcome, componentwise_per_rhs(error, scale, xp=np))
+    return outcome
+
+
+def solve_certificate(A_hi: Any, A_lo: Any, X: Pair, B: Pair, *,
+                      real_dtype: Any, execute: Any) -> tuple[Any, Any, Any]:
+    """Existing aggregate certificate; represented matrix is A_hi+A_lo."""
+    return _solve_certificate(A_hi, A_lo, X, B, real_dtype=real_dtype,
+                              execute=execute, diagnostics=False)
+
+
+def solve_certificate_with_diagnostics(A_hi: Any, A_lo: Any, X: Pair, B: Pair, *,
+                                      real_dtype: Any, execute: Any):
+    """Transient per-RHS observation from the SAME compensated residual and scale."""
+    return _solve_certificate(A_hi, A_lo, X, B, real_dtype=real_dtype,
+                              execute=execute, diagnostics=True)

@@ -35,22 +35,50 @@ def maximum_abs(a):
     return jnp.max(jnp.abs(a))
 
 
-def residual(a, x, b):
-    num = maximum_abs(a @ x - b)
-    den = maximum_abs(jnp.abs(a) @ jnp.abs(x) + jnp.abs(b))
-    return jnp.where(jnp.isfinite(num) & jnp.isfinite(den),
+def _residual_frame(a, x, b):
+    error = a @ x - b
+    num = maximum_abs(error)
+    scale = jnp.abs(a) @ jnp.abs(x) + jnp.abs(b)
+    den = maximum_abs(scale)
+    eta = jnp.where(jnp.isfinite(num) & jnp.isfinite(den),
                      jnp.where(den == 0, jnp.where(num == 0, 0.0, jnp.inf), num / den), jnp.inf)
+    return eta, error, scale
+
+
+def residual(a, x, b):
+    """Existing aggregate ratio-of-maxima backward error, not componentwise."""
+    return _residual_frame(a, x, b)[0]
+
+
+def residual_with_diagnostics(a, x, b):
+    """Diagnose the supplied approximate solution using one residual frame."""
+    from .solve_diagnostics import SolveWithDiagnostics, componentwise_per_rhs
+    eta, error, scale = _residual_frame(a, x, b)
+    return SolveWithDiagnostics(eta, componentwise_per_rhs(error, scale, xp=jnp))
 
 
 def first(status, bad, code):
     return jnp.where((status == 0) & bad, jnp.int32(code), status)
 
 
-def solve(a, b, n, code, status):
+def _solve(a, b, n, code, status, *, diagnostics):
     x = jl.lu_solve(jl.lu_factor(a), b)
-    eta = residual(a, x, b)
+    eta, error, scale = _residual_frame(a, x, b)
     bad = ~(jnp.all(jnp.isfinite(a)) & jnp.all(jnp.isfinite(b)) & jnp.isfinite(eta) & (eta <= tau(n, a.real.dtype)))
-    return x, first(status, bad, code), eta
+    outcome = x, first(status, bad, code), eta
+    if diagnostics:
+        from .solve_diagnostics import SolveWithDiagnostics, componentwise_per_rhs
+        return SolveWithDiagnostics(outcome, componentwise_per_rhs(error, scale, xp=jnp))
+    return outcome
+
+
+def solve(a, b, n, code, status):
+    return _solve(a, b, n, code, status, diagnostics=False)
+
+
+def solve_with_diagnostics(a, b, n, code, status):
+    """Maintainer-only solve observation; the existing aggregate gate is unchanged."""
+    return _solve(a, b, n, code, status, diagnostics=True)
 
 
 def inductive_coefficients(groups):

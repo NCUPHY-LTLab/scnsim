@@ -19,7 +19,7 @@ from ..numeric_encoding import record_bytes
 
 
 def backward_residual(A: np.ndarray, X: np.ndarray, B: np.ndarray) -> float:
-    """Existing SCNSim componentwise normalized solve residual."""
+    """Existing SCNSim aggregate ratio-of-maxima backward error."""
     numerator = np.max(np.abs(A @ X - B))
     denominator = np.max(np.abs(A) @ np.abs(X) + np.abs(B))
     if not math.isfinite(numerator) or not math.isfinite(denominator):

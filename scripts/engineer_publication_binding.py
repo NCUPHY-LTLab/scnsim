@@ -21,9 +21,9 @@ from pathlib import Path
 from typing import Mapping
 
 
-TRANSITION_ID = "scnsim.r1.julia_ci_restoration02.20261022"
-PRIOR_PUBLISHED_GIT_COMMIT = "25e116785c02afcee6aeb7860aa42fdb57d23890"
-TRANSITION_FILE = Path(__file__).with_name("engineer_publication_transitions_r1_julia_ci_restoration02_20261022.json")
+TRANSITION_ID = "scnsim.r1.solve_diagnostics.e4fa.20261022"
+PRIOR_PUBLISHED_GIT_COMMIT = "e4fa858504f665d79a24169aeda730750ff0d257"
+TRANSITION_FILE = Path(__file__).with_name("engineer_publication_transitions_r1_solve_diagnostics_e4fa_20261022.json")
 _TRANSITION_NAMES = {
     f"chapter-{chapter:02d}-artifacts.json" for chapter in range(1, 9)
 }

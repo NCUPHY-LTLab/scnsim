@@ -63,9 +63,37 @@ values and evidence; it is not another numerical evaluator.
 
 No new threshold is introduced by this dtype distinction.
 
-Every square solve uses the normalized backward residual and exact `0/0`
-convention already specified for Direct S/Y/Z. This page introduces no second
-tolerance, conditioning threshold, root window, or public numerical control.
+Every square solve uses the aggregate ratio-of-maxima backward error
+
+$$
+\eta=\frac{\max_{i,j}|(AX-B)_{ij}|}
+{\max_{i,j}(|A||X|+|B|)_{ij}}.
+$$
+
+The existing $\eta\le\tau(n)$ gate and exact `0/0 = 0` convention stay unchanged.
+This aggregate is not a componentwise Oettli–Prager error.
+
+Internal maintainer `*_with_diagnostics` calls additionally return
+$\max_i |(AX-B)_{ij}|/(|A||X|+|B|)_{ij}$ for each RHS $j$, computed from the
+same postverification arrays without another solve. Zero denominator with
+nonzero residual and nonfinite diagnostic operands produce infinity. These
+transient diagnostics are returned only by maintainer calls. Ordinary
+`CircuitRun` Results and stored certificate fields remain unchanged. For
+compensated solves, the scale uses $|A_{hi}+A_{lo}|$, preserving the represented
+matrix.
+
+`jax_core.residual_with_diagnostics` observes a supplied approximate solution;
+`jax_core.solve_with_diagnostics`, `sparse_solve.host_solve_with_diagnostics`, and
+`sparse_solve.host_pair_solve_with_diagnostics` observe their actual solve.
+Their `SolveWithDiagnostics` return keeps the original `outcome` separate from
+`diagnostics.per_rhs`. An equation that returns before postverification reports
+`performed=False` with an unavailable reason and no numeric diagnostic. These
+internal maintainer calls introduce no automatic differentiation or compiled
+callback capability beyond the original solve routes.
+
+For $A=I$, $B=(1,10^{-20})^T$ and approximate $X=(1,0)^T$, the aggregate is
+$5\times10^{-21}$ while the single-RHS componentwise diagnostic is $1$.
+The diagnostic does not introduce another tolerance or gate.
 
 ## Bind the exact selected operator first
 

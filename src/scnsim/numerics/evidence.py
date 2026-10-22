@@ -1,4 +1,9 @@
-"""Encode numerical diagnostics without acquiring persistence or runtime ownership."""
+"""Encode numerical diagnostics without acquiring persistence or runtime ownership.
+
+Solve eta/residual_numerator/residual_denominator remain the aggregate
+ratio-of-maxima certificate. Transient componentwise per-RHS diagnostics are
+maintainer observations and are not added to checked or persisted certificates.
+"""
 from __future__ import annotations
 import math
 from collections.abc import Mapping
