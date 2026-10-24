@@ -28,10 +28,6 @@ _EXPECTED_JULIA_VERSION = "1.12.6"
 
 
 _THREAD_ENVIRONMENT = {
-    # JosephsonCircuits uses FFTW in the HB slice.  Keep the environment
-    # deterministic before Julia starts; the HB adapter independently sets
-    # and verifies the runtime count before it accepts a case.
-    "FFTW_NUM_THREADS": "1",
     "JULIA_NUM_THREADS": "1",
     "OPENBLAS_NUM_THREADS": "1",
     "OMP_NUM_THREADS": "1",

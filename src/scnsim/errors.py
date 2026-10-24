@@ -189,17 +189,6 @@ class NumericalResolutionUnresolved(SCNSimExecutionError):
     kind = "numerical_resolution_unresolved"
 
 
-class HBCaseFailure(SCNSimExecutionError):
-    """One declared HB case failed numerically inside a completed batch.
-
-    The failure is receipt-backed and belongs to exactly one case outcome.  It
-    does not turn a valid completed batch into a retryable request failure.
-    ``str(failure)`` returns its human-readable message.
-    """
-
-    kind = "hb_case_failure"
-
-
 class RuntimePreparationError(SCNSimExecutionError):
     """The exact declared backend runtime could not be prepared."""
 

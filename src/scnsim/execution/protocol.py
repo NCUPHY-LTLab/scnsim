@@ -28,7 +28,6 @@ class BootstrapReady:
     julia_threads: int
     blas_threads: int
     blas_vendor: str
-    fftw_threads: int | None = None
 
 
 @dataclass(frozen=True)
@@ -91,7 +90,6 @@ def _validate_bootstrap(
     request_sha256: str,
     attempt_ordinal: int,
     expected_version: str,
-    hb_operation: bool,
 ) -> BootstrapReady:
     frame = _decode_canonical_line(raw, stage="bootstrap")
     required = {
@@ -104,13 +102,9 @@ def _validate_bootstrap(
         "blas_threads": 1,
     }
     expected_fields = {*required, "blas_vendor"}
-    if hb_operation:
-        expected_fields.add("fftw_threads")
     if set(frame) != expected_fields or any(
         frame.get(key) != value for key, value in required.items()
-    ) or not isinstance(frame.get("blas_vendor"), str) or not frame["blas_vendor"] or (
-        hb_operation and frame.get("fftw_threads") != 1
-    ):
+    ) or not isinstance(frame.get("blas_vendor"), str) or not frame["blas_vendor"]:
         raise BackendProtocolError(
             "child bootstrap evidence does not match the sealed launch",
             stage="bootstrap",
@@ -123,7 +117,6 @@ def _validate_bootstrap(
         julia_threads=1,
         blas_threads=1,
         blas_vendor=str(frame["blas_vendor"]),
-        fftw_threads=1 if hb_operation else None,
     )
 
 

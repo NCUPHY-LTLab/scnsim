@@ -1,7 +1,7 @@
 """Plan-bound execution, exact request identity, and typed Result reconstruction.
 
 One captured authoring snapshot and its resolved parameter points feed the
-declarative Direct, HB, and optimization request boundary. Workspace receipts
+declarative Direct and optimization request boundary. Workspace receipts
 and artifact manifests remain the authority for saved reconstruction. A memory
 Run instead owns no Workspace and returns detached Direct or Optimization results with a compact
 in-memory operation Benchmark; it cannot resolve persisted evidence.
@@ -78,7 +78,6 @@ from .results import (
     DirectQuantityResult,
     DirectSolveResult,
     ExplanationResult,
-    HBBatchResult,
     InventoryResult,
     OperatorResult,
     StaticCapacitanceResult,
@@ -94,7 +93,6 @@ from .specs import (
     DiagonalRootSpec,
     OperatorElementRootSpec,
     DirectSolveSpec,
-    HBSolveSpec,
     HybridizedPoleSpec,
     OperatorSpec,
     StaticCapacitanceSpec,
@@ -124,11 +122,6 @@ _OMITTED_COMMIT_EVERY_GENERATIONS = object()
 _OMITTED_CHECKPOINT = object()
 
 
-
-
-
-
-
 def _parameter_value_record(parameter: ParameterRef, value: object) -> Mapping[str, object]:
     return ParameterSet({parameter: value})._record()["bindings"][0]["value"]
 
@@ -147,14 +140,6 @@ def _uses_baseline_root(spec: object) -> bool:
             for selector in _quantity_selectors(objective.quantity)
         )
     return False
-
-
-
-
-
-
-
-
 
 
 class ReductionPipeline:
@@ -528,23 +513,12 @@ class CircuitRun:
         timing: str | None = None,
     ) -> DirectSolveResult | InMemoryDirectSolveResult: ...
 
-    @overload
-    def solve(
-        self,
-        ref: NetworkViewRef,
-        spec: HBSolveSpec,
-        *,
-        parameters: ParameterSet | None = None,
-        backend: str | None = None,
-        precision: str | None = None,
-        timing: str | None = None,
-    ) -> HBBatchResult: ...
 
     @overload
     def solve(
         self,
         ref: NetworkViewRef,
-        spec: DirectSolveSpec | HBSolveSpec,
+        spec: DirectSolveSpec,
         *,
         parameters: ParameterSpace,
         backend: str | None = None,
@@ -556,14 +530,14 @@ class CircuitRun:
     def solve(
         self,
         ref: NetworkViewRef,
-        spec: DirectSolveSpec | HBSolveSpec,
+        spec: DirectSolveSpec,
         *,
         parameters: ParameterSet | ParameterSpace | None = None,
         backend: str | None = None,
         precision: str | None = None,
         timing: str | None = None,
-    ) -> DirectSolveResult | InMemoryDirectSolveResult | HBBatchResult | ParameterSweepResult | InMemoryParameterSweepResult:
-        """Execute the selected Direct response or one shared-basis HB batch."""
+    ) -> DirectSolveResult | InMemoryDirectSolveResult | ParameterSweepResult | InMemoryParameterSweepResult:
+        """Execute the selected Direct response."""
 
         started_ns = perf_counter_ns()
         if self._storage == "memory":
@@ -575,20 +549,12 @@ class CircuitRun:
                                       precision=precision, timing=timing, started_ns=started_ns)
         prepared: PreparedAnalysis
         prepare_before_native = None
-        if isinstance(spec, HBSolveSpec):
-            def prepare_before_native(backend, precision, trace):
-                nonlocal prepared
-                self._require_ref(ref)
-                self._require_backend_spec(backend, precision, spec)
-                with trace.span("preparation"):
-                    prepared = self._prepare_analysis("solve_hb", ref, spec, parameters,
-                                                      backend=backend, precision=precision)
         with self._execution_scope("solve", backend, precision, started_ns, timing,
                                    prepare_before_native=prepare_before_native) as (backend, precision, trace, lease, native_supervisor):
             if prepare_before_native is None:
                 self._require_ref(ref)
                 self._require_backend_spec(backend, precision, spec)
-                operation = "solve_hb" if isinstance(spec, HBSolveSpec) else "solve_direct"
+                operation = "solve_direct"
                 with trace.span("preparation"):
                     prepared = self._prepare_analysis(operation, ref, spec, parameters,
                                                       backend=backend, precision=precision)
@@ -1101,8 +1067,6 @@ class CircuitRun:
     @overload
     def resolve(self, ref: NetworkViewRef, spec: OptimizationSpec, *, parameters: ParameterSet | None = None, backend: str | None = None, precision: str | None = None, attempt: object | None = None) -> OptimizationResult: ...
 
-    @overload
-    def resolve(self, ref: NetworkViewRef, spec: HBSolveSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None, attempt: object | None = None) -> HBBatchResult | ParameterSweepResult: ...
 
     @overload
     def resolve(self, ref: NetworkViewRef, spec: OperatorSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None, attempt: object | None = None) -> OperatorResult | ParameterSweepResult: ...
@@ -1142,7 +1106,6 @@ class CircuitRun:
         self,
         ref: NetworkViewRef | SensitivitySpec,
         spec: DirectSolveSpec
-        | HBSolveSpec
         | DiagonalRootSpec
         | OperatorElementRootSpec
         | HybridizedPoleSpec
@@ -1161,7 +1124,7 @@ class CircuitRun:
         attempt: object | None = None,
     ) -> (
         DirectSolveResult
-        | HBBatchResult
+
         | DiagonalRootResult
         | OperatorElementRootResult
         | DirectQuantityResult
@@ -1204,8 +1167,6 @@ class CircuitRun:
             raise RuntimePreparationError("explicit terminal attempt selection requires JAX", stage="runtime_prepare")
         if isinstance(spec, DirectSolveSpec):
             operation = "solve_direct"
-        elif isinstance(spec, HBSolveSpec):
-            operation = "solve_hb"
         elif isinstance(
             spec,
             (
@@ -1258,7 +1219,6 @@ class CircuitRun:
         self,
         ref: NetworkViewRef,
         spec: DirectSolveSpec
-        | HBSolveSpec
         | DiagonalRootSpec
         | OperatorElementRootSpec
         | HybridizedPoleSpec
@@ -1283,7 +1243,6 @@ class CircuitRun:
             spec,
             (
                 DirectSolveSpec,
-                HBSolveSpec,
                 DiagonalRootSpec,
                 OperatorElementRootSpec,
                 HybridizedPoleSpec,
@@ -1298,9 +1257,7 @@ class CircuitRun:
         ):
             unavailable(f"CircuitRun.explain({type(spec).__name__})")
         operation = (
-            "solve_hb"
-            if isinstance(spec, HBSolveSpec)
-            else "solve_direct"
+            "solve_direct"
             if isinstance(spec, DirectSolveSpec)
             else "evaluate_direct"
             if isinstance(
@@ -1758,36 +1715,6 @@ class CircuitRun:
             return
         raise InvalidOptimizationSpec("optimization selector is outside the Direct quantity catalog", stage="spec_validation")
 
-    def _validate_hb_request(self, ref: NetworkViewRef, spec: HBSolveSpec) -> None:
-        """Bind public HB declarations to this sealed Plan and selected View."""
-
-        if ref._lineage.get("port_realizable") is not True:
-            raise PortRealizabilityError(
-                "HB solve requires a Port-realizable final View",
-                stage="preflight",
-                evidence={"type": "failure_evidence", "operation": "solve_hb", "context_kind": "runtime"},
-            )
-        plan_ports = tuple(self._plan.ports)
-        for drive in spec.drives:
-            if not any(port is drive.at for port in plan_ports):
-                raise SCNSimValidationError(
-                    "HB CurrentDrive belongs to another Plan",
-                    stage="preflight",
-                    evidence={"type": "failure_evidence", "operation": "solve_hb", "context_kind": "runtime"},
-                )
-        channels = frozenset(ref._lineage["terminal_coordinates"])
-        for trace in spec.traces:
-            try:
-                input_channel = self._trace_request_channel(ref, trace.input_port)
-                output_channel = self._trace_request_channel(ref, trace.output_port)
-            except ValueError:
-                input_channel = output_channel = None
-            if input_channel not in channels or output_channel not in channels:
-                raise PortRealizabilityError(
-                    "HB trace names a channel outside the selected View",
-                    stage="preflight",
-                    evidence={"type": "failure_evidence", "operation": "solve_hb", "context_kind": "runtime"},
-                )
         # Driven-PTC authorization is decided by Julia preflight after exact
         # oriented source-vector accumulation.  Comparing declaration scalars
         # here would reject valid cancellation across distinct logical Ports.
@@ -2016,7 +1943,6 @@ class CircuitRun:
         operation: str,
         ref: NetworkViewRef,
         spec: DirectSolveSpec
-        | HBSolveSpec
         | DiagonalRootSpec
         | OperatorElementRootSpec
         | HybridizedPoleSpec
@@ -2039,19 +1965,12 @@ class CircuitRun:
             raise RuntimePreparationError("Static capacitance currently supports a single ParameterSet", stage="preflight")
         if isinstance(spec, OptimizationSpec) and selector_views is None:
             ref, selector_views = self._optimization_views(spec, default_ref=ref)
-        if isinstance(spec, HBSolveSpec):
-            if operation != "solve_hb":
-                raise CompilerInvariantError(
-                    "HB Spec has a non-HB operation", stage="request_encode"
-                )
-            self._validate_hb_request(ref, spec)
-        else:
-            self._validate_direct_request(
-                operation,
-                ref,
-                spec,
-                selector_views=selector_views,
-            )
+        self._validate_direct_request(
+            operation,
+            ref,
+            spec,
+            selector_views=selector_views,
+        )
         parameter_source, resolved = self._parameter_source(parameters)
         parameter_authorizations = tuple(ref._key_record()
             for ref in resolved.effective_parameters.allow_extrapolation)
@@ -2106,7 +2025,7 @@ class CircuitRun:
                             else self._view_coordinate_id(ref, coordinate))
                         for coordinate in _quantity_coordinates(spec)
                     }
-                    if not isinstance(spec, (DirectSolveSpec, HBSolveSpec))
+                    if not isinstance(spec, DirectSolveSpec)
                     else {},
                     trace_channels={
                         channel: self._trace_request_channel(ref, channel)

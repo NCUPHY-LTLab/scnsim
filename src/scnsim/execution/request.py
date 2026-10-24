@@ -18,7 +18,6 @@ from ..canonical import _nfc, _sha256, _validation, canonical_value
 
 _DIRECT_ALGORITHMS = {
     "solve_direct": "scnsim.direct_response.v1",
-    "solve_hb": "scnsim.hb_response.josephsoncircuits.v1",
     "optimize_direct": "scnsim.direct_cmaes.cmaes_jl_0_2_6_state_replay.v9",
 }
 
@@ -144,7 +143,6 @@ def canonical_request_document(
         expected_algorithm = _JAX_ALGORITHMS.get(selected_operation)
     expected_spec = {
         "solve_direct": "direct_solve",
-        "solve_hb": "hb_solve",
         "optimize_direct": "optimization",
         "sensitivity": "sensitivity",
     }.get(selected_operation)

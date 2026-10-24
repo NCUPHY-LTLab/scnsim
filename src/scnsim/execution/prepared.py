@@ -29,7 +29,6 @@ from ..specs import (
     DiagonalRootSpec,
     OperatorElementRootSpec,
     DirectSolveSpec,
-    HBSolveSpec,
     HybridizedPoleSpec,
     OperatorSpec,
     StaticCapacitanceSpec,
@@ -696,7 +695,7 @@ def _optimizer_controls(optimizer, declared_variables, parameters, *, discretiza
 
 def _encode_spec(
     spec: DirectSolveSpec
-    | HBSolveSpec
+
     | DiagonalRootSpec
     | OperatorElementRootSpec
     | HybridizedPoleSpec
@@ -730,57 +729,6 @@ def _encode_spec(
             "type": "direct_solve",
             "frequencies": _frequency_grid(spec.frequencies),
             "traces": [trace_record(trace) for trace in spec.traces],
-        }
-    if isinstance(spec, HBSolveSpec):
-        return {
-            "type": "hb_solve",
-            "pump_axes": [
-                {
-                    "id": axis.id,
-                    "frequency": quantity_envelope(
-                        axis.frequency, si_unit="hertz", registry=units.registry
-                    ),
-                }
-                for axis in spec.pump_axes
-            ],
-            "drives": [
-                {
-                    "id": drive.id,
-                    "port_id": drive.at.id,
-                    "mode": list(drive.mode),
-                    "orientation": "port_node_to_reference",
-                }
-                for drive in spec.drives
-            ],
-            "frequencies": _frequency_grid(spec.frequencies),
-            "cases": [
-                {
-                    "id": case.id,
-                    "currents": [
-                        {
-                            "drive_id": drive.id,
-                            "coefficient": complex_quantity_envelope(
-                                case.currents[drive],
-                                si_unit="ampere",
-                                registry=units.registry,
-                            ),
-                            "coefficient_convention": "exp_minus_i_m_dot_omega_t_fourier_coefficient",
-                        }
-                        for drive in spec.drives
-                        if drive in case.currents
-                    ],
-                }
-                for case in spec.cases
-            ],
-            "truncation": {
-                "pump_harmonics": list(spec.truncation.pump_harmonics),
-                "modulation_harmonics": list(spec.truncation.modulation_harmonics),
-                "max_intermodulation_order": spec.truncation.max_intermodulation_order,
-                "three_wave_mixing": spec.truncation.three_wave_mixing,
-                "four_wave_mixing": spec.truncation.four_wave_mixing,
-            },
-            "traces": [trace_record(trace) for trace in spec.traces],
-            "allow_driven_ptc": spec.allow_driven_ptc,
         }
     if isinstance(
         spec,

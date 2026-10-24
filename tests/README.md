@@ -23,7 +23,6 @@ installed wheel when adding locked display dependencies to those environments.
 | `test_optimization.py` | Seven-selector explanation and actual JAX CMA selector execution with a zero-cost baseline; no cross-backend candidate-trajectory equality. |
 | `test_workspace_readback.py` | JAX Workspace version upgrade/downgrade, shared-Plan Direct/root/CMA identities, exact warm reuse and guarded fresh-process resolve; retained Julia attempt/inventory cases remain below. |
 | `test_workspace_optimization_readback.py` | Actual CMA and L-BFGS-B completion, repeated optimize/resolve with zero native work, fresh-process guarded resolve, exact saved values and identities. |
-| `test_harmonic_balance.py` | HB declaration/preflight, typed numerical failures and sealed readback; packaged Julia execution requires the opt-in below. |
 | `test_julia_replay.py` | Retained Julia CMA interruption/replay and corruption rejection. |
 | `test_manual_diagrams.py` | Explicit diagram declarations, missing/stale drawings, presentation and actual connectivity-sensitive geometry. |
 | `test_path_portability.py` | Native paths/URIs, source provenance and public Memory/Workspace handle lifetime. |
@@ -63,7 +62,7 @@ SCNSIM_RUN_JULIA_TESTS=1 uv run --locked --extra julia --group course-generation
 ```
 
 These backend-specific assertions remain under their original Julia gate until
-the ordered HB/Julia retirement. Their physical purposes and JAX replacements
+the ordered Julia retirement. Their physical purposes and JAX replacements
 are listed below; inventory and attempt-directory behavior are not redefined
 as a JAX API.
 
@@ -74,9 +73,8 @@ as a JAX API.
 | `JuliaAffineEvidenceTests` | Original receipt layout stays gated. JAX `AffineEvidenceTests` reads recorded fan-out rows from the actual Result/history, including candidate values, consumer edges and ordered authorization sources. Ordinary authoring rejection remains distinct from candidate `affine_support` plus infinite candidate cost. |
 | `JuliaOptimizationRetainedTests` | Julia inventory/ledger/seed observations retire with those features. Existing JAX selector and exact zero-baseline assertions remain unchanged; no cross-backend candidate trajectory is required. |
 | `JuliaWorkspaceVersioningInventoryTests`, `WorkspaceReadbackTests` | Julia inventory/attempt selection/interruption/retry remain gated until retirement. JAX versioning and `JaxWorkspaceReadbackTests` preserve shared-Plan identities, warm reuse and fresh-process resolve. No new JAX retry promise is introduced. |
-| `JuliaComplexAnchorDecodingTests` | Exact packaged Julia complex-anchor decoding. Public anchor execution lives in the JAX Direct tests. |
 
-HB and Julia replay remain in scope for their retained backend. A reported skip
+Julia replay remains in scope for the retained Julia backend. A reported skip
 means that group did not execute; it is not a passing numerical observation.
 
 ## Same-call affine evidence

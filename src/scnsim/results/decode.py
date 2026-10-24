@@ -18,10 +18,8 @@ from ..workspace import VerifiedSuccess
 from ..workspace.artifacts import _VerifiedEvidenceLease
 from .base import ParameterPointIdentity, ResultIdentity
 from .factory import _verified_result
-from .decode_hb import _decode_hb_batch_operation
 from .decode_result import _decode_result_operation
 from .decode_sweep import _decode_parameter_sweep_operation
-from .hb import HBBatchResult
 from .sweep import ParameterSweepResult
 
 
@@ -312,11 +310,3 @@ class VerifiedResultDecoder:
     ) -> ParameterSweepResult:
         return _decode_parameter_sweep_operation(self, identity, result, request, directory, bound_spec=bound_spec, evidence_lease=evidence_lease)
 
-    def _decode_hb_batch(
-        self,
-        identity: ResultIdentity | ParameterPointIdentity,
-        result: Mapping[str, object],
-        request: Mapping[str, object],
-        directory: Path,
-    ) -> HBBatchResult:
-        return _decode_hb_batch_operation(self, identity, result, request, directory)

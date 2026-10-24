@@ -252,7 +252,7 @@ website:
           href: docs/concepts/compilation-coordinates-and-network-views.qmd
         - text: "Requests, execution, and Results"
           href: docs/concepts/requests-execution-and-result-ownership.qmd
-        - text: "Direct and HB realizations"
+        - text: "Linear Direct realization"
           href: docs/concepts/direct-and-hb-realizations.qmd
         - text: "Units, parameters, and optimization"
           href: docs/concepts/units-parameters-and-optimization.qmd
@@ -317,8 +317,6 @@ website:
               href: docs/implementation/direct-poles-zeros-and-operators.qmd
             - text: "Direct quantities and optimization"
               href: docs/implementation/direct-quantities-and-optimization.qmd
-            - text: "HB realization"
-              href: docs/implementation/hb-realization-and-outcomes.qmd
         - section: "Execution, storage, and presentation"
           contents:
             - text: "Benchmark and backends"

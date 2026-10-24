@@ -23,17 +23,7 @@ def _compare_artifacts(left: object, right: object, *, operation: object) -> Non
         for entry in inventory:
             if not isinstance(entry, dict):
                 raise _integrity("Artifact inventory entry is malformed.")
-            if operation == "solve_hb" and set(entry) != {
-                "id", "path", "sha256", "media_type", "byte_length"
-            }:
-                if set(entry) != {"case_id", "id", "path", "sha256"} or not isinstance(entry.get("case_id"), str) or _IDENTIFIER.fullmatch(entry["case_id"]) is None or not isinstance(entry.get("id"), str) or _IDENTIFIER.fullmatch(entry["id"]) is None or not isinstance(entry.get("path"), str):
-                    raise _integrity("HB artifact reference is malformed.")
-                identity = (entry["case_id"], entry["id"], entry["path"])
-                if identity in identities or entry["path"] in paths:
-                    raise _integrity("HB artifact references repeat an identity or path.")
-                identities.add(identity); paths.add(entry["path"])
-                entries.append((*identity, _valid_sha(entry.get("sha256"))))
-            elif set(entry) == {"id", "path", "sha256", "media_type", "byte_length"}:
+            if set(entry) == {"id", "path", "sha256", "media_type", "byte_length"}:
                 if (
                     not isinstance(entry.get("id"), str)
                     or not entry["id"]
@@ -69,98 +59,6 @@ def _compare_artifacts(left: object, right: object, *, operation: object) -> Non
     if normalized[0] != normalized[1]:
         raise _integrity("Outcome and receipt artifact inventories disagree.")
 
-def _verify_hb_artifact_inventory(directory: Path, result: Mapping[str, object], receipt: Mapping[str, object]) -> None:
-    """Cross-check HB's case-local semantic catalog against receipt bytes."""
-
-    cases = result.get("cases")
-    links = receipt.get("artifacts")
-    if not isinstance(cases, list) or not isinstance(links, list):
-        raise _integrity("HB Result or receipt lacks its artifact inventory.")
-    expected: list[dict[str, str]] = []
-    seen_identity: set[tuple[str, str, str]] = set()
-    seen_paths: set[str] = set()
-    roles = ("s", "y", "z", "backend_native_s", "backend_native_z", "states", "effective_source_vectors")
-    for outcome in cases:
-        if not isinstance(outcome, dict) or outcome.get("status") == "failure":
-            continue
-        if outcome.get("status") != "success" or not isinstance(outcome.get("case_id"), str) or not isinstance(outcome.get("artifacts"), dict) or not isinstance(outcome.get("traces"), list):
-            raise _integrity("HB success catalog is malformed.")
-        catalog = outcome["artifacts"]
-        artifacts = [catalog[role] for role in roles]
-        artifacts.extend(outcome["traces"])
-        for artifact in artifacts:
-            if not isinstance(artifact, dict):
-                raise _integrity("HB artifact catalog entry is malformed.")
-            artifact_id, path, digest = artifact.get("id"), artifact.get("path"), artifact.get("sha256")
-            if not isinstance(artifact_id, str) or _IDENTIFIER.fullmatch(artifact_id) is None or not isinstance(path, str):
-                raise _integrity("HB artifact catalog has an invalid semantic identity.")
-            # A trace may deliberately reuse a fixed role ID (for example
-            # ``s``); the canonical HB reference is case + local ID + path.
-            identity = (outcome["case_id"], artifact_id, path)
-            if identity in seen_identity or path in seen_paths:
-                raise _integrity("HB artifact catalog repeats a case-local identity or path.")
-            seen_identity.add(identity); seen_paths.add(path)
-            _valid_sha(digest)
-            expected.append({"case_id": outcome["case_id"], "id": artifact_id, "path": path, "sha256": digest})
-            manifest_path = artifact.get("file_manifest")
-            if not isinstance(manifest_path, str):
-                raise _integrity("HB artifact catalog has no manifest path.", artifact_id=artifact_id)
-            artifact_path = _inside(directory, path)
-            manifest = _inside(directory, manifest_path)
-            if not artifact_path.is_dir() or artifact_path.is_symlink() or not manifest.is_file() or manifest.is_symlink():
-                raise _integrity("HB artifact path is missing or unsafe.", artifact_id=artifact_id)
-            manifest_bytes = manifest.read_bytes()
-            if _sha256(manifest_bytes) != digest:
-                raise _integrity("HB artifact manifest hash disagrees with its catalog.", artifact_id=artifact_id)
-            manifest_doc = _decode_bytes(manifest_bytes, "artifact manifest")
-            if manifest_doc.get("schema") != "scnsim.artifact_manifest" or manifest_doc.get("artifact_id") != artifact_id or manifest_doc.get("artifact_path") != path:
-                raise _integrity("HB artifact manifest identity disagrees with its catalog.", artifact_id=artifact_id)
-            _verify_manifest_tree(artifact_path, manifest_doc)
-    _compare_artifacts(expected, links, operation="solve_hb")
-    artifact_root = directory / "artifacts"
-    if not expected:
-        if artifact_root.exists():
-            raise _integrity("All-failed HB batch must not retain an artifact directory.")
-        return
-    if artifact_root.is_symlink() or not artifact_root.is_dir() or (artifact_root / "cases").is_symlink() or not (artifact_root / "cases").is_dir():
-        raise _integrity("HB artifact root is missing or unsafe.")
-    if any(child.is_symlink() or not child.is_dir() for child in (artifact_root / "cases").iterdir()):
-        raise _integrity("HB case artifact root contains an unsafe entry.")
-    actual_ordinals = {
-        child.name for child in (artifact_root / "cases").iterdir()
-        if child.is_dir() and not child.is_symlink()
-    }
-    expected_ordinals = {
-        path.split("/")[2] for path in seen_paths
-    }
-    if actual_ordinals != expected_ordinals:
-        raise _integrity("HB case artifact directories disagree with successful outcomes.")
-    for ordinal in expected_ordinals:
-        case_root = artifact_root / "cases" / ordinal
-        expected_case_entries: set[str] = set()
-        expected_trace_entries: set[str] = set()
-        for path in seen_paths:
-            parts = path.split("/")
-            if parts[2] != ordinal:
-                continue
-            if len(parts) == 4:
-                stem = parts[3].removesuffix(".zarr")
-                expected_case_entries.update({parts[3], f"{stem}.manifest.json"})
-            else:
-                stem = parts[4].removesuffix(".zarr")
-                expected_case_entries.add("traces")
-                expected_trace_entries.update({parts[4], f"{stem}.manifest.json"})
-        entries = {child.name: child for child in case_root.iterdir()}
-        if set(entries) != expected_case_entries:
-            raise _integrity("HB case directory contains undeclared entries.", case_ordinal=ordinal)
-        for name, child in entries.items():
-            if child.is_symlink() or (name == "traces" and not child.is_dir()) or (name != "traces" and (name.endswith(".zarr") != child.is_dir() or name.endswith(".manifest.json") != child.is_file())):
-                raise _integrity("HB case directory contains an unsafe entry.", case_ordinal=ordinal)
-        if expected_trace_entries:
-            trace_root = case_root / "traces"
-            trace_entries = {child.name: child for child in trace_root.iterdir()}
-            if set(trace_entries) != expected_trace_entries or any(child.is_symlink() or (name.endswith(".zarr") != child.is_dir() or name.endswith(".manifest.json") != child.is_file()) for name, child in trace_entries.items()):
-                raise _integrity("HB trace directory contains undeclared or unsafe entries.", case_ordinal=ordinal)
 
 def _verify_artifact_inventory(
     directory: Path,
@@ -180,9 +78,6 @@ def _verify_artifact_inventory(
             request_path=request_path,
             include_records=include_sweep_records,
         )
-    if result.get("result_kind") == "hb_batch":
-        _verify_hb_artifact_inventory(directory, result, receipt)
-        return
     catalog = result.get("array_catalog")
     if catalog is None:
         catalog = {}

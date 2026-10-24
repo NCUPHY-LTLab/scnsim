@@ -39,8 +39,6 @@ def _decode_result_operation(
 
     kind = result["result_kind"]
     discretization = _decode_discretization(result.get("discretization"))
-    if kind == "hb_batch":
-        return decoder._decode_hb_batch(identity, result, request, directory)
     if kind == "direct_response":
         arrays = result["array_catalog"]
         frequency = _read_zarr(

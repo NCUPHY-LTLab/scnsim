@@ -40,12 +40,6 @@ function bootstrap_record(request, request_sha::String, ordinal::Int)
         "schema" => "scnsim.bootstrap_ready",
         "schema_version" => 1,
     )
-    if get(request, "operation", nothing) == "solve_hb"
-        # HB is prepared before attempt allocation so the Python side can bind
-        # its one-thread FFTW evidence into attempt.json along with BLAS.
-        hb_require_runtime!()
-        record["fftw_threads"] = JosephsonCircuits.FFTW.get_num_threads()
-    end
     return record
 end
 
@@ -73,9 +67,6 @@ function read_authorization(request, request_sha::String, staging::String, ordin
         expected_blas = benchmark_context.julia_blas_threads
         attempt["julia_threads"] == expected_julia && attempt["blas_threads"] == expected_blas || error("attempt thread evidence violates the declared execution profile")
         Threads.nthreads() == expected_julia && BLAS.get_num_threads() == expected_blas || error("benchmark native thread settings disagree with attempt evidence")
-    end
-    if get(request, "operation", nothing) == "solve_hb"
-        get(attempt, "fftw_threads", nothing) == 1 || error("attempt FFTW thread evidence violates HB policy")
     end
     (get(request, "operation", nothing) == "optimize_direct" ||
         get(request["parameter_source"], "kind", nothing) != "point") || eof(stdin) ||
@@ -174,11 +165,6 @@ function run_terminal(request_path::String, staging::String; benchmark_context =
         compiled = view.compiled
         if operation == "solve_direct"
             solve_direct(request, view, request_sha, attempt_sha, staging)
-        elseif operation == "solve_hb"
-            # HB lowers from the raw normalized graph so Josephson rows and
-            # original B/R/M remain physical authority; `view` is the same
-            # realized selected-network lineage used by Direct.
-            solve_hb(request, plan, raw_compiled, view, request_sha, attempt_sha, staging)
         elseif operation == "evaluate_direct"
             kind = get(request["spec"], "type", nothing)
             if kind in ("diagonal_root", "operator_element_root")
@@ -323,7 +309,6 @@ function preflight(plan_path::String, request_path::String)
     compiled = view.compiled
     load = port_load_admittance(compiled)
     realized_request = deepcopy(request); realized_request["ref_lineage"] = realized_lineage
-    hb_validation = operation == "solve_hb" ? hb_preflight(realized_request, plan, raw_compiled, view) : nothing
     runtime_path = normpath(joinpath(@__DIR__, "..", "runtime.json"))
     runtime = plain(JSON3.read(read(runtime_path, String)))
     result = Dict{String,Any}(
@@ -354,9 +339,7 @@ function preflight(plan_path::String, request_path::String)
         "optimization_preflight" => Dict("supported" => "dev5_full_scalar_selector_catalog", "algorithm_id" => runtime["algorithm_ids"]["optimization"]),
         "direct_hb_capability" => Dict(
             "direct" => "full_rlgc_nport_selected_network",
-            "hb" => (has_offdiagonal_series_resistance(compiled) ? "unsupported_off_diagonal_series_resistance" : "josephsoncircuits_hb_candidate"),
         ),
     )
-    hb_validation === nothing || (result["hb_preflight"] = hb_validation)
     return result
 end

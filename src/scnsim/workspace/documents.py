@@ -12,7 +12,7 @@ from .validation.common import _UUID4
 
 _DIRECT_RESULTS = frozenset({
     "direct_response", "diagonal_root", "operator_element_root", "hybridized_pole", "transfer_zero",
-    "residue_normalized_coupling", "response_element", "operator", "optimization", "hb_batch",
+    "residue_normalized_coupling", "response_element", "operator", "optimization",
 })
 
 

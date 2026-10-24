@@ -2,7 +2,6 @@ module SCNSimBackend
 
 using CMAEvolutionStrategy
 using JSON3
-using JosephsonCircuits
 using LinearAlgebra
 using Random
 using SHA
@@ -46,10 +45,6 @@ include("direct_quantities.jl")
 include("terminal.jl")
 include("optimization.jl")
 
-# The HB surface is deliberately included after the shared compiler, selected
-# network realization, artifact writer, and terminal protocol are defined.
-# It consumes those authorities; it does not create a second graph/runtime.
-include("hb.jl")
 include("batch_v2.jl")
 
 end # module

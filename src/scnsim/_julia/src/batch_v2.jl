@@ -60,8 +60,6 @@ function execute_point_operation!(request, plan, raw_compiled, view, request_sha
     operation = String(request["operation"]); compiled = view.compiled
     if operation == "solve_direct"
         solve_direct(request, view, request_sha, attempt_sha, staging)
-    elseif operation == "solve_hb"
-        solve_hb(request, plan, raw_compiled, view, request_sha, attempt_sha, staging)
     elseif operation == "evaluate_direct"
         kind = get(request["spec"], "type", nothing)
         kind in ("diagonal_root", "operator_element_root") ? evaluate_element_root(request, plan, compiled, request_sha, attempt_sha, staging) :

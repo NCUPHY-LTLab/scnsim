@@ -15,7 +15,6 @@ from ..specs import (
     DiagonalRootSpec,
     OperatorElementRootSpec,
     DirectSolveSpec,
-    HBSolveSpec,
     HybridizedPoleSpec,
     OperatorSpec,
     StaticCapacitanceSpec,
@@ -114,7 +113,7 @@ def _quantity_selectors(value: object) -> tuple[QuantitySelector, ...]:
 def source_units(
         source_provenance,
         parameter_lookup,
-        spec: DirectSolveSpec | HBSolveSpec | DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | StaticCapacitanceSpec | StaticCapacitanceElementSpec | OptimizationSpec,
+        spec: DirectSolveSpec | DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | StaticCapacitanceSpec | StaticCapacitanceElementSpec | OptimizationSpec,
         parameters: ParameterSet,
         *,
         parameter_space: ParameterSet | ParameterSpace | None,
@@ -347,22 +346,6 @@ def source_units(
             return sorted(evidence, key=lambda item: str(item["identity"]))
         if isinstance(spec, DirectSolveSpec):
             add(_source_unit_identity(scope="request_spec", parameter_id="frequencies", field="value"), spec.frequencies, "hertz")
-        elif isinstance(spec, HBSolveSpec):
-            add(_source_unit_identity(scope="request_hb", parameter_id="frequencies", field="value"), spec.frequencies, "hertz")
-            for axis in spec.pump_axes:
-                add(_source_unit_identity(scope="request_hb", parameter_id=axis.id, field="pump_frequency"), axis.frequency, "hertz")
-            for case in spec.cases:
-                for drive in spec.drives:
-                    if drive in case.currents:
-                        add(
-                            _source_unit_identity(
-                                scope="request_hb",
-                                parameter_id=case.id,
-                                field=f"drive:{drive.id}:coefficient",
-                            ),
-                            case.currents[drive],
-                            "ampere",
-                        )
         elif isinstance(spec, DiagonalRootSpec):
             add(_source_unit_identity(scope="request_spec", parameter_id="root_hint", field="value"), spec.root_hint, "hertz")
         elif isinstance(spec, OperatorElementRootSpec):
@@ -487,8 +470,6 @@ def prepare_request(*, plan_sha256, operation, view, encoded_spec,
     semantic = dict(runtime_base)
     if operation == "solve_direct":
         semantic["algorithm_id"] = "scnsim.direct_response.v1"
-    elif operation == "solve_hb":
-        semantic["algorithm_id"] = "scnsim.hb_response.josephsoncircuits.v1"
     elif operation == "evaluate_direct" and backend == "jax":
         from .request import _JAX_ALGORITHMS
         semantic["algorithm_id"] = _JAX_ALGORITHMS[encoded_spec["type"]]

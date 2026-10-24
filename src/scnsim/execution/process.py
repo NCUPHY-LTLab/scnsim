@@ -131,7 +131,6 @@ def _validate_bootstrap_for_threads(
     request_sha256: str,
     attempt_ordinal: int,
     expected_version: str,
-    hb_operation: bool,
     expected_julia_threads: int,
     expected_blas_threads: int,
 ) -> BootstrapReady:
@@ -142,7 +141,6 @@ def _validate_bootstrap_for_threads(
             request_sha256=request_sha256,
             attempt_ordinal=attempt_ordinal,
             expected_version=expected_version,
-            hb_operation=hb_operation,
         )
 
     frame = _decode_canonical_line(raw, stage="bootstrap")
@@ -156,14 +154,11 @@ def _validate_bootstrap_for_threads(
         "blas_threads": expected_blas_threads,
     }
     expected_fields = {*required, "blas_vendor"}
-    if hb_operation:
-        expected_fields.add("fftw_threads")
     if (
         set(frame) != expected_fields
         or any(frame.get(key) != value for key, value in required.items())
         or not isinstance(frame.get("blas_vendor"), str)
         or not frame["blas_vendor"]
-        or (hb_operation and frame.get("fftw_threads") != 1)
     ):
         raise BackendProtocolError(
             "child bootstrap evidence does not match the sealed benchmark thread profile",
@@ -181,7 +176,6 @@ def _validate_bootstrap_for_threads(
         julia_threads=expected_julia_threads,
         blas_threads=expected_blas_threads,
         blas_vendor=str(frame["blas_vendor"]),
-        fftw_threads=1 if hb_operation else None,
     )
 
 
@@ -209,7 +203,7 @@ def _cpu_limited_argv(argv: list[str], profile: Mapping[str, object] | None) -> 
         "import json,os,sys; p=json.loads(sys.argv[1]); "
         "os.sched_setaffinity(0,set(p['cpus'])); "
         "a=sorted(os.sched_getaffinity(0)); "
-        "os.environ['SCNSIM_BENCHMARK_CPU_AFFINITY']=json.dumps(" 
+        "os.environ['SCNSIM_BENCHMARK_CPU_AFFINITY']=json.dumps("
         "{'requested_cpus':p['cpus'],'actual_cpus':a,'topology':p['topology']},"
         "sort_keys=True,separators=(',',':')); "
         "v=sys.argv[2:]; os.execvpe(v[0],v,os.environ)"
@@ -309,7 +303,6 @@ def run_terminal(
                 "alternate Julia entrypoint and argument vector must be supplied together",
                 stage="launch_arguments",
             )
-        hb_operation = request_document.get("operation") == "solve_hb"
         optimization_operation = request_document.get("operation") == "optimize_direct"
         sweep_operation = request_document.get("parameter_source", {}).get("kind") in {"grid", "points"}
         if sweep_operation != (point_recovery is not None and publish_point is not None):
@@ -431,8 +424,7 @@ def run_terminal(
                     request_sha256=request_sha256,
                     attempt_ordinal=attempt_ordinal,
                     expected_version=expected_version,
-                    hb_operation=hb_operation,
-                    expected_julia_threads=_julia_threads,
+                            expected_julia_threads=_julia_threads,
                     expected_blas_threads=_julia_blas_threads,
                 )
                 if _timing_observer is not None:

@@ -36,13 +36,6 @@ class ReconciliationEvidence:
     def __init__(self) -> None:
         unavailable("ReconciliationEvidence construction")
 
-@dataclass(frozen=True, slots=True)
-class HBScatteringMatrixResult(ScatteringMatrixResult):
-    backend_native: MatrixView | None = None
-    reconciliation: ReconciliationEvidence | None = None
-
-    def __init__(self) -> None:
-        unavailable("HBScatteringMatrixResult construction")
 
 @dataclass(frozen=True, slots=True)
 class DirectSolveResult(AnalysisResult):

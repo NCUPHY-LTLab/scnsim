@@ -222,8 +222,6 @@ def _validate_success_staging(
         if is_parameter_sweep
         else "direct_response"
         if request.get("operation") == "solve_direct"
-        else "hb_batch"
-        if request.get("operation") == "solve_hb"
         else "optimization"
         if request.get("operation") == "optimize_direct"
         else request.get("spec", {}).get("type")
@@ -284,21 +282,6 @@ def _validate_success_staging(
             "ledger_artifacts",
         }
         if expected_kind == "optimization"
-        else {
-            "schema",
-            "schema_version",
-            "result_kind",
-            "request_sha256",
-            "attempt_sha256",
-            "parameters",
-            "parameters_sha256",
-            "ref_lineage",
-            "lattice",
-            "truncation",
-            "topology_evidence",
-            "cases",
-        }
-        if expected_kind == "hb_batch"
         else None
     )
     if expected_result_fields is not None and expected_kind != "parameter_sweep" and "discretization" in result:
@@ -327,66 +310,6 @@ def _validate_success_staging(
     if expected_kind == "parameter_sweep":
         catalogs.append(result["manifest"])
         expected_links = [dict(result["manifest"])]
-    elif expected_kind == "hb_batch":
-        expected_links: list[dict[str, object]] = []
-        cases = result.get("cases")
-        if not isinstance(cases, list):
-            raise BackendProtocolError(
-                "HB result has no ordered case catalog", stage="outcome"
-            )
-        for case in cases:
-            if not isinstance(case, Mapping):
-                raise BackendProtocolError(
-                    "HB result case catalog is malformed", stage="outcome"
-                )
-            if case.get("status") == "failure":
-                continue
-            artifacts = case.get("artifacts")
-            traces = case.get("traces")
-            case_id = case.get("case_id")
-            if (
-                not isinstance(case_id, str)
-                or not isinstance(artifacts, Mapping)
-                or not isinstance(traces, list)
-            ):
-                raise BackendProtocolError(
-                    "HB success artifact catalog is malformed", stage="outcome"
-                )
-            ordered = [
-                artifacts[name]
-                for name in (
-                    "s",
-                    "y",
-                    "z",
-                    "backend_native_s",
-                    "backend_native_z",
-                    "states",
-                    "effective_source_vectors",
-                )
-            ]
-            ordered.extend(traces)
-            for artifact in ordered:
-                if not isinstance(artifact, Mapping):
-                    raise BackendProtocolError(
-                        "HB success artifact catalog is malformed", stage="outcome"
-                    )
-                catalogs.append(artifact)
-                expected_links.append(
-                    {
-                        "case_id": case_id,
-                        "id": artifact.get("id"),
-                        "path": artifact.get("path"),
-                        "sha256": artifact.get("sha256"),
-                    }
-                )
-        if outcome.get("artifacts") != expected_links:
-            raise BackendProtocolError(
-                "HB outcome artifact inventory does not match result.json",
-                stage="outcome",
-            )
-        _verify_artifact_inventory(
-            staging, result, {"artifacts": expected_links}, request_path=request_path
-        )
     elif expected_kind != "optimization":
         catalogs.extend(result["array_catalog"].values())
     else:
@@ -406,7 +329,7 @@ def _validate_success_staging(
         )
         if verified_sweep_records is not None:
             sweep_records = verified_sweep_records
-    elif expected_kind != "hb_batch":
+    else:
         expected_links = [
             {"id": artifact["id"], "sha256": artifact["sha256"]}
             for artifact in catalogs

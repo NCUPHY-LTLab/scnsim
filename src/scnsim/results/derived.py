@@ -154,7 +154,7 @@ class ExplanationResult(Result):
                     ("ports", compiled.get("ports")),
                     ("root", compiled.get("root_preflight")),
                     ("optimization", compiled.get("optimization_preflight")),
-                    ("Direct / HB", compiled.get("direct_hb_capability")),
+                    ("Direct", compiled.get("direct_hb_capability")),
                 ),
             )
             rows = compiled.get("expanded_branch_rows", ())

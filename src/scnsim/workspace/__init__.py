@@ -13,7 +13,6 @@ from .validation.common import _required_extrapolation_rows
 from .validation.inventory import (
     _compare_artifacts,
     _verify_artifact_inventory,
-    _verify_hb_artifact_inventory,
 )
 from .validation.optimization import (
     _verify_attempt_checkpoint_consumption,
@@ -53,7 +52,6 @@ __all__ = [
     "_verify_baseline_checkpoint_document",
     "_verify_failure_document",
     "_verify_generation_artifacts",
-    "_verify_hb_artifact_inventory",
     "_verify_parameter_sweep_artifacts",
     "_verify_point_checkpoints",
     "_verify_request_document",

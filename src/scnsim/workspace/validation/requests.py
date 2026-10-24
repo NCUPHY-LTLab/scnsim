@@ -80,7 +80,6 @@ def _verify_request_document(
     runtime = request.get("runtime_semantic")
     julia_algorithms = {
         "solve_direct": {"direct_solve": "scnsim.direct_response.v1"},
-        "solve_hb": {"hb_solve": "scnsim.hb_response.josephsoncircuits.v1"},
         "evaluate_direct": {
             "diagonal_root": "scnsim.diagonal_root.newton32.v2",
             "operator_element_root": "scnsim.operator_element_root.newton32.v1",
@@ -170,9 +169,6 @@ def _verify_request_document(
                                                         static_capacitance=static_capacitance)
     if operation == "solve_direct":
         _verify_v1_direct_spec(spec, terminal, port_realizable)
-    elif operation == "solve_hb":
-        logical_ports = [port["id"] for port in plan["connectivity"]["ports"]]
-        _verify_v1_hb_spec(spec, terminal, port_realizable, logical_ports)
     elif operation == "evaluate_direct":
         _verify_v1_evaluation_spec(spec, terminal, port_realizable,
             static_retained=static_capacitance and request["view"]["retain"] is not None)
@@ -829,98 +825,6 @@ def _verify_v1_direct_spec(spec: object, terminal: list[str], port_realizable: b
             raise _integrity("Direct trace declaration is malformed.")
         trace_ids.add(trace["id"])
 
-def _verify_v1_hb_spec(
-    spec: object,
-    terminal: list[str],
-    port_realizable: bool,
-    logical_ports: list[str],
-) -> None:
-    """Close the declared HB request before workspace evidence is allocated.
-
-    Lattice realization remains Julia-owned, but a sealed request must already
-    bind a complete, unique authoring declaration to a port-realizable View.
-    """
-
-    if not port_realizable:
-        raise _integrity("HB S/Y/Z request is not Port-realizable.")
-    expected = {
-        "type", "pump_axes", "drives", "frequencies", "cases", "truncation",
-        "traces", "allow_driven_ptc",
-    }
-    if not isinstance(spec, dict) or set(spec) != expected or spec.get("type") != "hb_solve":
-        raise _integrity("HB solve Spec is malformed.")
-    axes = spec.get("pump_axes")
-    drives = spec.get("drives")
-    cases = spec.get("cases")
-    traces = spec.get("traces")
-    frequencies = spec.get("frequencies")
-    truncation = spec.get("truncation")
-    if not isinstance(axes, list) or not isinstance(drives, list) or not isinstance(cases, list) or not cases or not isinstance(traces, list) or not isinstance(frequencies, list) or not frequencies or not isinstance(truncation, dict) or not isinstance(spec.get("allow_driven_ptc"), bool):
-        raise _integrity("HB solve Spec has incomplete declarations.")
-    axis_ids: set[str] = set()
-    for axis in axes:
-        if not isinstance(axis, dict) or set(axis) != {"id", "frequency"} or not isinstance(axis.get("id"), str) or _IDENTIFIER.fullmatch(axis["id"]) is None or axis["id"] in axis_ids:
-            raise _integrity("HB pump-axis declaration is malformed.")
-        _verify_quantity_role(axis.get("frequency"), complex_value=False, unit="hertz", dimensionality="inverse_time")
-        if _f64_value(axis["frequency"]["si_value_f64"]) <= 0.0:
-            raise _integrity("HB pump-axis frequency is not strictly positive.")
-        axis_ids.add(axis["id"])
-    previous = 0.0
-    for frequency in frequencies:
-        _verify_quantity_role(frequency, complex_value=False, unit="hertz", dimensionality="inverse_time")
-        value = _f64_value(frequency["si_value_f64"])
-        if value <= previous:
-            raise _integrity("HB response frequency grid is not strictly positive and increasing.")
-        previous = value
-    drive_ids: set[str] = set()
-    for drive in drives:
-        if (
-            not isinstance(drive, dict)
-            or set(drive) != {"id", "port_id", "mode", "orientation"}
-            or not isinstance(drive.get("id"), str)
-            or _IDENTIFIER.fullmatch(drive["id"]) is None
-            or drive["id"] in drive_ids
-            or drive.get("port_id") not in logical_ports
-            or drive.get("orientation") != "port_node_to_reference"
-            or not _valid_mode_tuple(drive.get("mode"), len(axis_ids))
-        ):
-            raise _integrity("HB current-drive declaration is malformed.")
-        drive_ids.add(drive["id"])
-    case_ids: set[str] = set()
-    for case in cases:
-        if not isinstance(case, dict) or set(case) != {"id", "currents"} or not isinstance(case.get("id"), str) or _IDENTIFIER.fullmatch(case["id"]) is None or case["id"] in case_ids or not isinstance(case.get("currents"), list):
-            raise _integrity("HB case declaration is malformed.")
-        current_ids: set[str] = set()
-        for current in case["currents"]:
-            if (
-                not isinstance(current, dict)
-                or set(current) != {"drive_id", "coefficient", "coefficient_convention"}
-                or current.get("drive_id") not in drive_ids
-                or current["drive_id"] in current_ids
-                or current.get("coefficient_convention") != "exp_minus_i_m_dot_omega_t_fourier_coefficient"
-            ):
-                raise _integrity("HB case current binding is malformed.")
-            _verify_quantity_role(current.get("coefficient"), complex_value=True, unit="ampere", dimensionality="current")
-            current_ids.add(current["drive_id"])
-        case_ids.add(case["id"])
-    expected_truncation = {"pump_harmonics", "modulation_harmonics", "max_intermodulation_order", "three_wave_mixing", "four_wave_mixing"}
-    if set(truncation) != expected_truncation or not isinstance(truncation.get("pump_harmonics"), list) or not isinstance(truncation.get("modulation_harmonics"), list) or len(truncation["pump_harmonics"]) != len(axis_ids) or len(truncation["modulation_harmonics"]) != len(axis_ids) or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in [*truncation["pump_harmonics"], *truncation["modulation_harmonics"]]) or (truncation.get("max_intermodulation_order") is not None and (not isinstance(truncation["max_intermodulation_order"], int) or isinstance(truncation["max_intermodulation_order"], bool) or truncation["max_intermodulation_order"] < 0)) or not isinstance(truncation.get("three_wave_mixing"), bool) or not isinstance(truncation.get("four_wave_mixing"), bool):
-        raise _integrity("HB truncation declaration is malformed.")
-    trace_ids: set[str] = set()
-    for trace in traces:
-        if (
-            not isinstance(trace, dict)
-            or set(trace) != {"id", "input_port", "input_mode", "output_port", "output_mode"}
-            or not isinstance(trace.get("id"), str)
-            or _IDENTIFIER.fullmatch(trace["id"]) is None
-            or trace["id"] in trace_ids
-            or trace.get("input_port") not in terminal
-            or trace.get("output_port") not in terminal
-            or not _valid_mode_tuple(trace.get("input_mode"), len(axis_ids))
-            or not _valid_mode_tuple(trace.get("output_mode"), len(axis_ids))
-        ):
-            raise _integrity("HB trace declaration is malformed.")
-        trace_ids.add(trace["id"])
 
 def _valid_mode_tuple(value: object, rank: int) -> bool:
     return bool(
@@ -929,100 +833,6 @@ def _valid_mode_tuple(value: object, rank: int) -> bool:
         and all(isinstance(item, int) and not isinstance(item, bool) for item in value)
     )
 
-def _hb_operating_lattice_is_vacuous(spec: Mapping[str, object]) -> bool:
-    """Reproduce the pinned JC empty operating-basis condition from the request.
-
-    This delegates to the full pinned ordering reconstruction below, so its
-    vacuity rule cannot drift from the actual RFFT/parity/crop construction.
-    """
-
-    return not _hb_declared_modes_from_spec(spec, response=False)
-
-def _hb_declared_modes_from_spec(spec: Mapping[str, object], *, response: bool) -> list[list[int]]:
-    """Mirror the pinned JC 0.5.4 Fourier construction and its ordering.
-
-    The receipt does not merely attest that a returned set fits the requested
-    bounds.  `calcfreqsrdft`/`calcfreqsdft`, `truncfreqs`, and (for the
-    operating basis) `removeconjfreqs` determine the ordered public channel
-    basis.  Reconstructing it here closes result reuse against a backend that
-    has silently permuted an otherwise valid lattice.
-    """
-
-    axes = spec.get("pump_axes")
-    truncation = spec.get("truncation")
-    drives = spec.get("drives")
-    if not isinstance(axes, list) or not isinstance(truncation, Mapping) or not isinstance(drives, list):
-        raise _integrity("HB request cannot reproduce its pinned JC lattice.")
-    rank = len(axes)
-    limits_key = "modulation_harmonics" if response else "pump_harmonics"
-    limits = truncation.get(limits_key)
-    if (
-        not isinstance(limits, list)
-        or len(limits) != rank
-        or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in limits)
-        or not isinstance(truncation.get("three_wave_mixing"), bool)
-        or not isinstance(truncation.get("four_wave_mixing"), bool)
-    ):
-        raise _integrity("HB request has an invalid JC lattice truncation.")
-    crop = truncation.get("max_intermodulation_order")
-    if crop is not None and (not isinstance(crop, int) or isinstance(crop, bool) or crop < 0):
-        raise _integrity("HB request has an invalid JC intermodulation crop.")
-    declared_dc = any(
-        isinstance(drive, Mapping)
-        and isinstance(drive.get("mode"), list)
-        and len(drive["mode"]) == rank
-        and all(value == 0 for value in drive["mode"])
-        for drive in drives
-    )
-    if rank == 0:
-        # This is SCNSim's documented private JC adapter: the backend uses an
-        # inert `(0,)`, while the public rank-zero basis is `()`.
-        return [[]] if response or declared_dc else []
-
-    # Julia CartesianIndices is column-major: the first pump axis advances
-    # first.  Iterate reversed Python products to preserve that exact order.
-    dimensions = [2 * limit + 1 for limit in limits] if response else [limits[0] + 1, *[2 * limit + 1 for limit in limits[1:]]]
-    modes: list[tuple[int, ...]] = []
-    for reversed_indices in product(*(range(1, dimension + 1) for dimension in reversed(dimensions))):
-        indices = tuple(reversed(reversed_indices))
-        mode = tuple(
-            index - 1 if index <= limit + 1 else -dimension + index - 1
-            for index, limit, dimension in zip(indices, limits, dimensions)
-        )
-        absolute_order = sum(abs(value) for value in mode)
-        criterion = (
-            (response and all(value == 0 for value in mode))
-            or ((truncation["four_wave_mixing"] if response else truncation["three_wave_mixing"]) and absolute_order > 0 and absolute_order % 2 == 0)
-            or ((truncation["three_wave_mixing"] if response else truncation["four_wave_mixing"]) and absolute_order % 2 == 1)
-            or (not response and declared_dc and all(value == 0 for value in mode))
-        )
-        if criterion and (sum(value != 0 for value in mode) == 1 or crop is None or absolute_order <= crop):
-            modes.append(mode)
-    if response:
-        return [list(mode) for mode in modes]
-
-    # `removeconjfreqs` removes the lexicographically greater coordinate of
-    # every JC-conjugate pair and retains original Cartesian order.
-    nw = tuple(dimensions)
-    nt = (2 * nw[0] - 1, *nw[1:])
-    removed: set[tuple[int, ...]] = set()
-    for reversed_indices in product(*(range(1, dimension + 1) for dimension in reversed(nw))):
-        coordinate = tuple(reversed(reversed_indices))
-        target = tuple((length - (index - 1)) % length + 1 for index, length in zip(coordinate, nt))
-        if coordinate != target and all(index <= dimension for index, dimension in zip(target, nw)):
-            removed.add(max(coordinate, target))
-    retained: list[list[int]] = []
-    for reversed_indices in product(*(range(1, dimension + 1) for dimension in reversed(nw))):
-        coordinate = tuple(reversed(reversed_indices))
-        if coordinate in removed:
-            continue
-        mode = tuple(
-            index - 1 if index <= limit + 1 else -dimension + index - 1
-            for index, limit, dimension in zip(coordinate, limits, dimensions)
-        )
-        if mode in modes:
-            retained.append(list(mode))
-    return retained
 
 def _verify_root_search(search: object) -> None:
     """Validate closed caller discovery facts, not numerical root success."""
@@ -1726,7 +1536,7 @@ def _verify_failure_document(value: object, operation: object) -> None:
     kind = value.get("kind")
     contexts = {
         "authoring", "workspace", "runtime", "compile", "direct_response",
-        "direct_quantity", "optimization_candidate", "hb_case", "protocol",
+        "direct_quantity", "optimization_candidate", "protocol",
         "artifact", "resolution", "scaffold",
     }
     if (

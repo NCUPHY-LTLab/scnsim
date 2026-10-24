@@ -15,7 +15,6 @@ from .common import (
 from .optimization import _verify_checkpoint_primary_lineage
 from .requests import _verify_v1_lineage
 from .result_direct import _verify_direct_response_result, _verify_operator_result
-from .result_hb import _verify_hb_batch_result
 from .result_optimization import _verify_optimization_result
 from .result_scalars import _verify_scalar_result_payload
 
@@ -166,7 +165,6 @@ def _verify_single_result_document(
     spec = request.get("spec")
     kind = (
         "direct_response" if request.get("operation") == "solve_direct"
-        else "hb_batch" if request.get("operation") == "solve_hb"
         else "optimization" if request.get("operation") == "optimize_direct"
         else spec.get("type") if request.get("operation") == "evaluate_direct" and isinstance(spec, dict)
         else None
@@ -180,9 +178,7 @@ def _verify_single_result_document(
         or result.get("attempt_sha256") != attempt_sha256
     ):
         raise _integrity("Result envelope does not match its request and attempt.")
-    if kind == "hb_batch":
-        _verify_hb_batch_result(result, request, plan, discretization=discretization)
-    elif kind == "direct_response":
+    if kind == "direct_response":
         _verify_direct_response_result(result, request, plan, common)
     elif kind == "operator":
         _verify_operator_result(result, request, plan, common)

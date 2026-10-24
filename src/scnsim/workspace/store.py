@@ -1281,7 +1281,6 @@ class WorkspaceBinding:
         request_document = _load_canonical(request_path)
         plan_document = _load_canonical(self.leaf / "plan.json")
         _verify_request_document(request_document, self.plan_sha256, plan_document)
-        is_hb = request_document.get("operation") == "solve_hb"
         attempt_path = directory / "attempt.json"
         receipt_path = directory / "receipt.json"
         attempt = _load_canonical(attempt_path)
@@ -1314,8 +1313,6 @@ class WorkspaceBinding:
         }
         if state == "launched":
             attempt_fields.update({"julia_threads", "blas_threads", "blas_vendor"})
-            if is_hb:
-                attempt_fields.add("fftw_threads")
         if attempt.get("resume_ledger_sha256") is not None:
             attempt_fields.add("resume_ledger_sha256")
         checkpoint_sha = attempt.get("baseline_checkpoint_sha256")
@@ -1335,10 +1332,8 @@ class WorkspaceBinding:
         if state == "launched":
             if any(not isinstance(attempt.get(key), int) or attempt[key] < 1 for key in ("julia_threads", "blas_threads")) or not isinstance(attempt.get("blas_vendor"), str) or not attempt["blas_vendor"]:
                 raise _integrity("Launched attempt lacks child runtime evidence.", attempt=str(directory))
-            if is_hb and attempt.get("fftw_threads") != 1:
-                raise _integrity("HB launched attempt lacks fixed FFTW thread evidence.", attempt=str(directory))
-            if not is_hb and "fftw_threads" in attempt:
-                raise _integrity("Direct launched attempt must not claim HB FFTW evidence.", attempt=str(directory))
+            if "fftw_threads" in attempt:
+                raise _integrity("Direct launched attempt must not claim FFTW evidence.", attempt=str(directory))
         elif any(key in attempt for key in ("julia_threads", "blas_threads", "blas_vendor", "fftw_threads")):
             raise _integrity("Allocated attempt must not claim child runtime evidence.", attempt=str(directory))
         attempt_sha256 = _sha256(_canonical_bytes(attempt))
@@ -1516,7 +1511,6 @@ class WorkspaceBinding:
             expected_result_kind = (
                 "parameter_sweep" if is_parameter_sweep
                 else "direct_response" if request_document.get("operation") == "solve_direct"
-                else "hb_batch" if request_document.get("operation") == "solve_hb"
                 else "optimization" if request_document.get("operation") == "optimize_direct"
                 else request_document.get("spec", {}).get("type") if request_document.get("operation") == "evaluate_direct" and isinstance(request_document.get("spec"), dict)
                 else None

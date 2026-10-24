@@ -158,6 +158,5 @@ def _run_jax_preflight(
         "root_preflight": {"spec": spec, "view_id": primary_key,
                            "algorithm_id": request["runtime_semantic"]["algorithm_id"]},
         "optimization_preflight": {"objective_views": objective_views},
-        "direct_hb_capability": {"backend": "jax", "direct": "sparse_cpu_superlu",
-                                 "hb": "requires_explicit_julia"},
+        "direct_hb_capability": {"backend": "jax", "direct": "sparse_cpu_superlu"},
     }

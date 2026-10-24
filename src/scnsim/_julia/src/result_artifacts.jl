@@ -276,42 +276,6 @@ function write_success(staging::String, request, request_sha::String, attempt_sh
     write_bytes(joinpath(staging, "outcome.json"), canonical_bytes(outcome))
 end
 
-"""Write HB success with case-local artifact identities.
-
-HB has deliberately repeatable local roles (`s`, `states`, and so on) for
-each named case.  Its receipt/outcome therefore cannot use Direct's global
-`{id,sha256}` artifact inventory; the stable identity is case + role + path.
-"""
-function write_hb_success(staging::String, request, request_sha::String, attempt_sha::String, result)
-    augment_single_result!(result, request)
-    result_path = joinpath(staging, "result.json")
-    write_bytes(result_path, canonical_bytes(result))
-    result_sha = file_sha256(result_path)
-    links = Any[]
-    for case in result["cases"]
-        get(case, "status", nothing) == "success" || continue
-        artifacts = case["artifacts"]
-        for role in ("s", "y", "z", "backend_native_s", "backend_native_z", "states", "effective_source_vectors")
-            artifact = artifacts[role]
-            push!(links, Dict("case_id" => case["case_id"], "id" => artifact["id"], "path" => artifact["path"], "sha256" => artifact["sha256"]))
-        end
-        for artifact in case["traces"]
-            push!(links, Dict("case_id" => case["case_id"], "id" => artifact["id"], "path" => artifact["path"], "sha256" => artifact["sha256"]))
-        end
-    end
-    outcome = Dict{String,Any}(
-        "schema" => "scnsim.outcome",
-        "schema_version" => 1,
-        "request_sha256" => request_sha,
-        "attempt_sha256" => attempt_sha,
-        "runtime_semantic" => request["runtime_semantic"],
-        "status" => "success",
-        "result_sha256" => result_sha,
-        "artifacts" => links,
-    )
-    write_bytes(joinpath(staging, "outcome.json"), canonical_bytes(outcome))
-end
-
 function failure_evidence(request, failure::BackendFailure)
     evidence = Dict{String,Any}(
         "type" => "failure_evidence",

@@ -57,9 +57,6 @@ def _attempt_document(
                 "blas_vendor": ready.blas_vendor,
             }
         )
-        fftw_threads = ready.fftw_threads
-        if fftw_threads is not None:
-            document["fftw_threads"] = fftw_threads
     if resume_ledger_sha is not None:
         document["resume_ledger_sha256"] = resume_ledger_sha
     if checkpoint is not None:
@@ -80,7 +77,7 @@ def _failure_record(
             "type": "failure_evidence",
             "operation": operation
             if operation
-            in {"solve_direct", "solve_hb", "evaluate_direct", "optimize_direct"}
+            in {"solve_direct", "evaluate_direct", "optimize_direct"}
             else "backend_protocol",
             "context_kind": "protocol",
             "request_sha256": request_sha,
