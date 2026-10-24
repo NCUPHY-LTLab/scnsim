@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..errors import EvidenceIntegrityError
-from ..numeric_encoding import record_bytes, record_document
+from .binary_blocks import record_bytes, record_document
 from ..diagnostics.identity import checkpoint_seal
 
 _JOURNAL_MARKER = '$scnsim_benchmark_journal'

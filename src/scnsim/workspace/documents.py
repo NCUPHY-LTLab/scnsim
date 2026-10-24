@@ -109,7 +109,7 @@ def versioned_workspace_document(
 
 
 def _workspace_document(fields: Mapping[str, object]) -> dict[str, object]:
-    return canonical_value({"schema": "scnsim.workspace", "schema_version": 1, **fields})  # type: ignore[return-value]
+    return canonical_value({"schema": "scnsim.workspace", "schema_version": 1, "evidence_version": 3, **fields})  # type: ignore[return-value]
 
 
 def _uuid(value: object) -> str:

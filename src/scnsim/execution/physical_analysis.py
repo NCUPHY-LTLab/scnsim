@@ -70,6 +70,42 @@ def execute_native_branch_packet(native, candidate, start_index, seed, *, backen
     return result, packet, error
 
 
+
+def _native_chunk_sparse_exception(exception):
+    """Recognize only owned equation leaves; keep mixed batch errors throwable."""
+    from jax._src.checkify import BatchedError
+    from jax.tree_util import PyTreeDef
+    from ..numerics.native_sparse import ArchivedPrimalCheck, SparseEquationCheck
+
+    if isinstance(exception, SparseEquationCheck):
+        return True
+    if type(exception) is BatchedError:
+        rows = exception.error_mapping
+        return (type(rows) is dict and bool(rows)
+                and all(type(index) is tuple and all(type(i) is int and i >= 0 for i in index)
+                        and _native_chunk_sparse_exception(value)
+                        for index, value in rows.items()))
+    if type(exception) is ArchivedPrimalCheck:
+        if not isinstance(exception.original_tree, PyTreeDef) or len(exception.payload) < 2:
+            return False
+        try:
+            original = exception.original_tree.unflatten(exception.payload[:-2])
+        except (TypeError, ValueError):
+            return False
+        return _native_chunk_sparse_exception(original)
+    return False
+
+
+def _raise_unowned_native_chunk_error(error):
+    """Leave owned lane failures to the original ordered status reducers."""
+    from ..numerics.evidence import native_error_may_raise
+
+    if native_error_may_raise(error):
+        exception = error.get_exception()
+        if exception is not None and not _native_chunk_sparse_exception(exception):
+            error.throw()
+
+
 def acquire_native_root(program, native, candidate, row, seed, *, backend,
                         program_owner, operation_resources=None, compact_evidence=False,
                         discover=True):
@@ -179,7 +215,7 @@ def acquire_completed_root_frame(program, inputs, *, backend, program_owner,
 class ChunkedResultSink:
     """Bounded operation-local staging for one Direct or Sweep completion.
 
-    Numerical rows are encoded once into the existing operation spool. Only
+    Numerical rows are stored as checked immutable SQLite blocks. Only
     immutable byte-range references remain resident while computation runs;
     publication reads one Direct chunk or one budget-sized Sweep group at a
     time. The sink has no Workspace transaction or success-selection authority.
@@ -246,12 +282,8 @@ class ChunkedResultSink:
             raise TypeError("Direct data cannot be appended to a Sweep sink")
         if set(families) != {"S", "Y", "Z"}:
             raise ValueError("a Direct chunk must contain its declared S, Y, and Z families")
-        from ..numeric_encoding import array_record
-
-        frequencies = array_record(np.asarray(frequencies_hz))
-        family_records = {
-            name: array_record(np.asarray(families[name])) for name in ("S", "Y", "Z")
-        }
+        frequencies = np.asarray(frequencies_hz)
+        family_records = {name: np.asarray(families[name]) for name in ("S", "Y", "Z")}
         count = len(np.asarray(frequencies_hz))
         source_chunk = {
             "point_count": count,
@@ -369,7 +401,7 @@ class ChunkedResultSink:
         reference = self._spool.put_record(dict(record))
         self._continuations.setdefault(ordinal, []).append(reference)
 
-    def chunks(self):
+    def chunks(self, snapshot=None):
         """Yield the canonical chunk records required by the atomic publisher."""
         if self._continuations:
             raise RuntimeError(
@@ -377,7 +409,7 @@ class ChunkedResultSink:
             )
         if self._domain == "direct":
             for reference in self._references:
-                yield self._spool.get_record(reference)
+                yield self._spool.get_record(reference, snapshot=snapshot)
             return
 
         pending = []
@@ -388,7 +420,7 @@ class ChunkedResultSink:
                        "summary_json": {}}
                 pending = []
                 pending_bytes = 0
-            pending.append(self._spool.get_record(reference))
+            pending.append(self._spool.get_record(reference, snapshot=snapshot))
             pending_bytes += reference.byte_length
         if pending:
             yield {"point_count": len(pending), "payload": {"points": pending},
@@ -1044,9 +1076,6 @@ class PhysicalAnalysis:
                               prior_check_status, prior_certificate_status,
                               operation):
         """Run one exact frequency bucket and return its synchronized outcome."""
-        from ..numerics.native_sparse import SparseEquationCheck
-        from ..numerics.evidence import native_error_may_raise, native_primal_exception
-
         jnp = self.backend.jax.numpy
         view_index = rows[0]['view_index']
         demand = tuple(rows[0]['demand'])
@@ -1082,10 +1111,7 @@ class PhysicalAnalysis:
                          'first_source_index': rows[0]['source_index'],
                          **(self._native_slot_admission or {})},
             )
-        if native_error_may_raise(outcome.errors):
-            exception = native_primal_exception(outcome.errors)
-            if exception is not None and not isinstance(exception, SparseEquationCheck):
-                outcome.errors.throw()
+        _raise_unowned_native_chunk_error(outcome.errors)
         return outcome
 
     def _native_frequency_slots(self, native):

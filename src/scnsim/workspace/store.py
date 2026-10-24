@@ -13,17 +13,79 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..canonical import canonical_json_bytes as _canonical_bytes, sha256_hex as _sha256
-from ..errors import WorkspaceCommitIndeterminateError, WorkspacePlanReplacedError, WorkspaceVersioningDowngradeForbidden
+from ..errors import UnsupportedEvidenceVersionError, WorkspaceCommitIndeterminateError, WorkspacePlanReplacedError, WorkspaceVersioningDowngradeForbidden
 from .documents import (
     plan_workspace_document,
     replaceable_workspace_document,
     versioned_workspace_document,
 )
 from ._os_io import lock_fd, unlock_fd, replace_path, require_workspace_platform
-from .primitives import _relative_path
+from .primitives import _relative_path, _inside
 from .storage import _LEAF_STAGING, _WorkspacePublishIndeterminate, _atomic_write, _decode_bytes, _fsync_directory, _fsync_tree, _load_canonical, _publish_workspace_state, _remove_leaf
 from .operation_lease import _exclusive_activity_lease
 from .validation.common import _UUID4, _integrity, _valid_sha, _valid_uuid
+
+
+def _old_evidence(path, found=None):
+    return UnsupportedEvidenceVersionError(
+        "Workspace evidence was written by a pre-1.0 development build that 1.0 does not support; use a new Workspace and recompute.",
+        stage="workspace", evidence={"path": str(path), "found_evidence_version": found,
+                                     "supported_evidence_version": 3,
+                                     "action": "use a new Workspace and recompute"})
+
+
+def _preflight_workspace(root: Path) -> None:
+    """Admit only v3 evidence before creating directories, locks or databases."""
+    from .operation_store import preflight_operation_store
+
+    if not root.exists():
+        return
+    if root.is_symlink() or not root.is_dir():
+        raise _integrity("Workspace root is missing or symlinked.", path=str(root))
+    for name in ("requests", ".zgroup", ".zarray", "zarr.json", "benchmark.json"):
+        path = root / name
+        if path.exists() or path.is_symlink():
+            raise _old_evidence(path)
+    state_path = root / "workspace.json"
+    if not state_path.exists() and not state_path.is_symlink():
+        for parent in (root / "leaves", root):
+            if parent.is_symlink():
+                raise _integrity("Workspace leaf directory must not be symlinked.", path=str(parent))
+            if not parent.is_dir():
+                continue
+            for child in parent.iterdir():
+                if ((parent == root / "leaves" or child.name.startswith("iteration"))
+                        and child.is_dir()):
+                    if child.is_symlink():
+                        raise _integrity("Workspace leaf must not be symlinked.", path=str(child))
+                    document = _load_canonical(child / "workspace.json")
+                    if document.get("evidence_version") != 3:
+                        raise _old_evidence(child, document.get("evidence_version"))
+                    preflight_operation_store(child / "operations")
+        return
+    state = _load_canonical(state_path)
+    _assert_root_envelope(state)
+    if state["kind"] == "replaceable_workspace":
+        directories = [state["active_leaf"]["directory"]]
+    else:
+        iterations = state["iterations"]
+        if (not isinstance(iterations, list)
+                or any(not isinstance(item, dict) or not isinstance(item.get("directory"), str)
+                       for item in iterations)):
+            raise _integrity("Versioned workspace iterations are malformed.")
+        directories = [item["directory"] for item in iterations]
+    for directory in directories:
+        leaf = _inside(root, directory)
+        if leaf.is_symlink():
+            raise _integrity("Workspace leaf must not be symlinked.", path=str(leaf))
+        document = _load_canonical(leaf / "workspace.json")
+        if document.get("evidence_version") != 3:
+            raise _old_evidence(leaf, document.get("evidence_version"))
+        for name in ("requests", ".zgroup", ".zarray", "zarr.json", "benchmark.json"):
+            legacy = leaf / name
+            if legacy.exists() or legacy.is_symlink():
+                raise _old_evidence(legacy)
+        preflight_operation_store(leaf / "operations")
 
 
 def _utc_now() -> str:
@@ -155,10 +217,11 @@ class WorkspaceBinding:
             raise _integrity("Workspace leaf path is missing or symlinked.", leaf=str(self.leaf))
         leaf = _load_canonical(self.leaf / "workspace.json")
         if (
-            set(leaf) != {"schema", "schema_version", "kind", "workspace_instance_id", "plan_sha256"}
+            set(leaf) != {"schema", "schema_version", "evidence_version", "kind", "workspace_instance_id", "plan_sha256"}
             or
             leaf.get("schema") != "scnsim.workspace"
             or leaf.get("schema_version") != 1
+            or leaf.get("evidence_version") != 3
             or leaf.get("kind") != "plan_workspace"
             or leaf.get("workspace_instance_id") != self.workspace_instance_id
             or leaf.get("plan_sha256") != self.plan_sha256
@@ -174,6 +237,7 @@ class WorkspaceBinding:
 
 @contextmanager
 def _workspace_lock(root: Path, *, exclusive: bool) -> Iterator[None]:
+    _preflight_workspace(root)
     require_workspace_platform(stage="workspace")
     if root.is_symlink() or not root.is_dir():
         raise _integrity("Workspace root is missing or symlinked.", path=str(root))
@@ -190,6 +254,7 @@ def _workspace_lock(root: Path, *, exclusive: bool) -> Iterator[None]:
     try:
         lock_fd(descriptor, exclusive=exclusive)
         acquired = True
+        _preflight_workspace(root)
         yield
     except BaseException as error:
         primary = error
@@ -236,8 +301,10 @@ def bind_workspace(
     if not callable(commit):
         raise TypeError("workspace commit must be callable")
     root = Path(workspace).expanduser().resolve(strict=False)
+    _preflight_workspace(root)
     root.mkdir(parents=True, exist_ok=True)
     with _exclusive_activity_lease(root), _workspace_lock(root, exclusive=True):
+        _preflight_workspace(root)
         try:
             state_path = root / "workspace.json"
             if not state_path.exists():
@@ -412,9 +479,10 @@ def _recover_leaf(root: Path, leaf_path: Path, plan_sha256: str, *, expected_dir
         raise _integrity("Interrupted workspace leaf is unsafe.", leaf=str(leaf_path))
     leaf = _load_canonical(leaf_path / "workspace.json")
     if (
-        set(leaf) != {"schema", "schema_version", "kind", "workspace_instance_id", "plan_sha256"}
+        set(leaf) != {"schema", "schema_version", "evidence_version", "kind", "workspace_instance_id", "plan_sha256"}
         or leaf.get("schema") != "scnsim.workspace"
         or leaf.get("schema_version") != 1
+            or leaf.get("evidence_version") != 3
         or leaf.get("kind") != "plan_workspace"
         or leaf.get("plan_sha256") != plan_sha256
     ):
@@ -566,6 +634,8 @@ def _verified_unbound_leaf(root: Path, path: Path, expected_directory: str) -> W
     )
 
 def _assert_root_envelope(state: Mapping[str, object]) -> None:
+    if state.get("evidence_version") != 3:
+        raise _old_evidence("workspace.json", state.get("evidence_version"))
     root_id = state.get("workspace_instance_id")
     kind = state.get("kind")
     if (
@@ -579,8 +649,8 @@ def _assert_root_envelope(state: Mapping[str, object]) -> None:
     if kind == "replaceable_workspace":
         active = state.get("active_leaf")
         if set(state) not in (
-            {"schema", "schema_version", "kind", "workspace_instance_id", "active_leaf"},
-            {"schema", "schema_version", "kind", "workspace_instance_id", "active_leaf", "maintenance"},
+            {"schema", "schema_version", "evidence_version", "kind", "workspace_instance_id", "active_leaf"},
+            {"schema", "schema_version", "evidence_version", "kind", "workspace_instance_id", "active_leaf", "maintenance"},
         ) or not isinstance(active, dict) or set(active) != {"directory", "workspace_instance_id", "plan_sha256"}:
             raise _integrity("Replaceable workspace envelope is open or malformed.")
         leaf_id = _valid_uuid(active.get("workspace_instance_id"))
@@ -589,8 +659,8 @@ def _assert_root_envelope(state: Mapping[str, object]) -> None:
         _valid_sha(active.get("plan_sha256"))
     else:
         if set(state) not in (
-            {"schema", "schema_version", "kind", "workspace_instance_id", "next_iteration", "iterations"},
-            {"schema", "schema_version", "kind", "workspace_instance_id", "next_iteration", "iterations", "maintenance"},
+            {"schema", "schema_version", "evidence_version", "kind", "workspace_instance_id", "next_iteration", "iterations"},
+            {"schema", "schema_version", "evidence_version", "kind", "workspace_instance_id", "next_iteration", "iterations", "maintenance"},
         ):
             raise _integrity("Versioned workspace envelope is open or malformed.")
     maintenance = state.get("maintenance")

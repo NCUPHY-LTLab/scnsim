@@ -15,6 +15,7 @@ import sys
 from ..workspace import evidence as storage
 from ..workspace.operation_lease import request_execution_lease
 from ..numeric_encoding import record_bytes, record_document
+from ..workspace.binary_blocks import record_bytes as storage_record_bytes
 from ..canonical import canonical_json_bytes, float64_from_hex
 from ..errors import EvidenceIntegrityError, OptimizationProgressCallbackError, ResultUnavailableError, RuntimePreparationError
 from ..results.decode_jax import decode_jax_operation
@@ -1342,14 +1343,13 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
                 task_id=task_id, attempt_id=attempt_id, diagnostics="boundary",
             )
         if chunk_domain is not None:
-            from .operation_spool import OperationSpool
+            from ..workspace.sqlite_storage import ChunkStorage
             from .physical_analysis import ChunkedResultSink
             from .policy import ExecutionPolicy
 
             policy = ExecutionPolicy() if execution_policy is None else execution_policy
-            spool = OperationSpool(workspace, trace.operation_id, lease_root=binding.root)
             result_sink = ChunkedResultSink(
-                spool, domain=chunk_domain,
+                ChunkStorage(binding), domain=chunk_domain,
                 scratch_budget_bytes=policy.scratch_budget_bytes,
                 sweep_grid_shape=(
                     request["parameter_source"]["shape"]
@@ -1422,7 +1422,7 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
                 with binding.writer():
                     if result_sink is None:
                         publication = storage.complete_operation(
-                            binding, writer=writer, terminal_bytes=record_bytes(terminal),
+                            binding, writer=writer, terminal_bytes=storage_record_bytes(terminal),
                         )
                     else:
                         publish = (storage.complete_direct_operation if chunk_domain == "direct"
@@ -1431,7 +1431,7 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
                         publication = publish(
                             binding, operation_id=trace.operation_id,
                             task_id=task_id, attempt_id=attempt_id,
-                            metadata=result_sink.metadata, chunks=result_sink.chunks(),
+                            metadata=result_sink.metadata, chunks=result_sink.chunks,
                             summary=result_sink.summary(),
                         )
                     if result_sink is None:

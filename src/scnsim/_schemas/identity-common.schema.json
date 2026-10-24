@@ -728,6 +728,7 @@
       "required": [
         "schema",
         "schema_version",
+        "evidence_version",
         "kind",
         "workspace_instance_id",
         "plan_sha256"
@@ -735,6 +736,7 @@
       "properties": {
         "schema": { "const": "scnsim.workspace" },
         "schema_version": { "const": 1 },
+        "evidence_version": { "const": 3 },
         "kind": { "const": "plan_workspace" },
         "workspace_instance_id": { "$ref": "#/$defs/workspaceInstanceId" },
         "plan_sha256": { "$ref": "#/$defs/sha256" }
@@ -746,6 +748,7 @@
       "required": [
         "schema",
         "schema_version",
+        "evidence_version",
         "kind",
         "workspace_instance_id",
         "active_leaf"
@@ -753,6 +756,7 @@
       "properties": {
         "schema": { "const": "scnsim.workspace" },
         "schema_version": { "const": 1 },
+        "evidence_version": { "const": 3 },
         "kind": { "const": "replaceable_workspace" },
         "workspace_instance_id": { "$ref": "#/$defs/workspaceInstanceId" },
         "active_leaf": {
@@ -774,6 +778,7 @@
       "required": [
         "schema",
         "schema_version",
+        "evidence_version",
         "kind",
         "workspace_instance_id",
         "next_iteration",
@@ -782,6 +787,7 @@
       "properties": {
         "schema": { "const": "scnsim.workspace" },
         "schema_version": { "const": 1 },
+        "evidence_version": { "const": 3 },
         "kind": { "const": "versioned_workspace" },
         "workspace_instance_id": { "$ref": "#/$defs/workspaceInstanceId" },
         "next_iteration": { "type": "integer", "minimum": 1 },
