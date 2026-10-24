@@ -21,8 +21,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  change-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      lane: ${{ steps.scope.outputs.lane }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Classify the exact event comparison
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python .github/scripts/change_scope.py
+
   package-and-docs:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: change-scope
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.change-scope.outputs.lane == 'product'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -477,7 +495,8 @@ jobs:
           if-no-files-found: error
 
   native-platform-wheels:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: change-scope
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.change-scope.outputs.lane == 'product'
     strategy:
       fail-fast: false
       matrix:
@@ -571,7 +590,8 @@ jobs:
           path: native-wheelhouse/
 
   windows-native-wheel:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: change-scope
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.change-scope.outputs.lane == 'product'
     runs-on: windows-2022
     steps:
       - name: Preserve Git source bytes in the Windows checkout
@@ -607,8 +627,8 @@ jobs:
           if-no-files-found: error
 
   windows-jax-wheel-smoke:
-    needs: windows-native-wheel
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: [change-scope, windows-native-wheel]
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.change-scope.outputs.lane == 'product'
     runs-on: windows-2022
     steps:
       - name: Preserve Git source bytes in the Windows checkout
@@ -680,8 +700,8 @@ jobs:
           if-no-files-found: error
 
   runtime-preparation-smoke:
-    needs: native-platform-wheels
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: [change-scope, native-platform-wheels]
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.change-scope.outputs.lane == 'product'
     strategy:
       fail-fast: false
       matrix:
@@ -838,6 +858,7 @@ jobs:
           test="$repository/tests/test_path_portability.py"
           cd "$RUNNER_TEMP"
           "$python" -W error::ResourceWarning "$test"
+
       - name: Check installed wheel Path Portability Set on macOS
         if: runner.os == 'macOS'
         shell: bash
@@ -849,3 +870,142 @@ jobs:
           test="$repository/tests/test_path_portability.py"
           cd "$RUNNER_TEMP"
           "$python" -W error::ResourceWarning "$test"
+
+  documentation:
+    needs: change-scope
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.change-scope.outputs.lane == 'docs'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.6"
+          python-version: "3.12"
+      - name: Set up Quarto
+        uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+        with:
+          version: "1.10.18"
+      - name: Sync locked dependencies without building the project
+        run: |
+          uv lock --check
+          uv sync --locked --no-install-project --no-build
+      - name: Render and inspect documentation
+        run: |
+          quarto render --no-execute --no-clean
+          uv run --locked --no-sync python - <<'PY'
+          import re
+          from pathlib import Path
+
+          import subprocess
+
+          tracked = subprocess.check_output(
+              ["git", "ls-files", "*.md", "*.qmd"],
+              text=True,
+          ).splitlines()
+
+          def prose_only(text):
+              lines = []
+              fence_char = None
+              fence_length = 0
+              for line in text.splitlines():
+                  marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+                  if fence_char is None:
+                      if marker:
+                          fence_char = marker.group(1)[0]
+                          fence_length = len(marker.group(1))
+                      else:
+                          lines.append(line)
+                  elif (
+                      marker
+                      and marker.group(1)[0] == fence_char
+                      and len(marker.group(1)) >= fence_length
+                      and not marker.group(2).strip()
+                  ):
+                      fence_char = None
+              return "\n".join(lines)
+
+          include_contexts = {}
+          for source in map(Path, tracked):
+              for included in re.findall(r"\{\{<\s*include\s+([^\s>]+)\s*>\}\}", prose_only(source.read_text())):
+                  path = (source.parent / included.strip("\"'")).resolve()
+                  assert path.exists(), f"broken local include in {source}: {included}"
+                  include_contexts.setdefault(path, set()).add(source.parent)
+
+          for source in map(Path, tracked):
+              for target in re.findall(r"\[[^]]+\]\(([^)]+)\)", prose_only(source.read_text())):
+                  if "://" in target or target.startswith(("#", "mailto:")):
+                      continue
+                  relative = target.split("#", 1)[0].strip("<>")
+                  if not relative:
+                      continue
+                  for context in include_contexts.get(source.resolve(), {source.parent}):
+                      path = (
+                          Path(relative.removeprefix("/"))
+                          if relative.startswith("/")
+                          else context / relative
+                      ).resolve()
+                      assert path.exists(), f"broken local link in {source}: {target}"
+          print("verified local links in", len(tracked), "tracked Markdown/QMD files")
+          PY
+          if git ls-files | grep -Eq '(^|/)(_site|\.quarto|\.venv[^/]*|build|dist)(/|$)|\.quarto_ipynb$'; then
+            echo "generated output is tracked"
+            exit 1
+          fi
+
+  ci-status:
+    needs:
+      - change-scope
+      - package-and-docs
+      - native-platform-wheels
+      - windows-native-wheel
+      - windows-jax-wheel-smoke
+      - runtime-preparation-smoke
+      - documentation
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the declared lane to finish successfully
+        env:
+          LANE: ${{ needs.change-scope.outputs.lane }}
+          CLASSIFIER: ${{ needs.change-scope.result }}
+          PACKAGE: ${{ needs.package-and-docs.result }}
+          NATIVE: ${{ needs.native-platform-wheels.result }}
+          WINDOWS: ${{ needs.windows-native-wheel.result }}
+          WINDOWS_SMOKE: ${{ needs.windows-jax-wheel-smoke.result }}
+          RUNTIME: ${{ needs.runtime-preparation-smoke.result }}
+          DOCS: ${{ needs.documentation.result }}
+          EVENT: ${{ github.event_name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+
+          statuses = {
+              "package-and-docs": os.environ["PACKAGE"],
+              "native-platform-wheels": os.environ["NATIVE"],
+              "windows-native-wheel": os.environ["WINDOWS"],
+              "windows-jax-wheel-smoke": os.environ["WINDOWS_SMOKE"],
+              "runtime-preparation-smoke": os.environ["RUNTIME"],
+          }
+          docs = os.environ["DOCS"]
+          event = os.environ["EVENT"]
+          draft = os.environ["DRAFT"] == "true"
+          lane = os.environ["LANE"]
+          if os.environ["CLASSIFIER"] != "success":
+              sys.exit("change classifier did not succeed")
+          if lane not in {"docs", "product"}:
+              sys.exit("classifier returned an invalid lane")
+          if event == "pull_request" and draft:
+              if any(result != "skipped" for result in statuses.values()) or docs != "skipped":
+                  sys.exit("draft PR unexpectedly ran or failed a lane")
+          elif lane == "docs":
+              if docs != "success" or any(result != "skipped" for result in statuses.values()):
+                  sys.exit("documentation lane did not finish as declared")
+          elif lane == "product":
+              if docs != "skipped" or any(result != "success" for result in statuses.values()):
+                  sys.exit("product lane did not finish as declared")
+          else:
+              sys.exit("classifier returned an invalid lane")
+          PY
