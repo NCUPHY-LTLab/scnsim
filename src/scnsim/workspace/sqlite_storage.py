@@ -226,7 +226,6 @@ def recover_operation_workspace(binding):
     store = _bound(binding)
     if store.path.exists() or store.path.is_symlink():
         store.recover()
-    binding._cleanup_staging()
     cleanup_inactive_operation_scratch(operation_workspace(binding), binding.root)
 
 
@@ -1461,7 +1460,7 @@ def _complete_chunked_operation(binding, *, domain, operation_id, task_id, attem
                          domain=domain, task_id=task_id)
         expected_sweep_points = None
         if domain == "sweep":
-            from .validation.sweeps import _parameter_source_points
+            from .validation.common import _parameter_source_points
 
             expected_sweep_points = iter(_parameter_source_points(source))
         stream = _stream(task_id)

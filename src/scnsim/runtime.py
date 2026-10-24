@@ -76,7 +76,6 @@ from .results import (
     DirectQuantityResult,
     DirectSolveResult,
     ExplanationResult,
-    InventoryResult,
     OperatorResult,
     StaticCapacitanceResult,
     StaticCapacitanceElementResult,
@@ -367,7 +366,7 @@ class CircuitRun:
         )
         from .workspace.evidence import recover_operation_workspace
 
-        with self._binding.writer(cleanup_staging=False):
+        with self._binding.writer():
             recover_operation_workspace(self._binding)
 
     @property
@@ -814,7 +813,7 @@ class CircuitRun:
         self._require_workspace_storage("recover_workspace")
         from .workspace.evidence import recover_operation_workspace
 
-        with self._binding.writer(cleanup_staging=False):
+        with self._binding.writer():
             recover_operation_workspace(self._binding)
 
     @overload
@@ -1218,31 +1217,6 @@ class CircuitRun:
             },
         )
 
-    @run_activity
-    def inventory(self) -> InventoryResult:
-        """Inspect this Run's exact workspace leaf without selecting a latest result."""
-        self._require_workspace_storage("inventory")
-
-        with self._binding.reader():
-            inventory = self._binding.inventory_document()
-        requests = inventory.get("requests")
-        maintenance = inventory.get("maintenance")
-        if (
-            inventory.get("schema") != "scnsim.inventory"
-            or inventory.get("schema_version") != 3
-            or inventory.get("plan_sha256") != self._plan_sha256
-            or not isinstance(requests, list)
-            or any(not isinstance(row, Mapping) for row in requests)
-            or not isinstance(maintenance, list)
-            or len(maintenance) > 1
-            or any(not isinstance(row, Mapping) for row in maintenance)
-        ):
-            raise EvidenceIntegrityError("workspace inventory is malformed", stage="inventory")
-        return _verified_result(
-            InventoryResult,
-            requests=tuple(dict(row) for row in requests),
-            maintenance=tuple(dict(row) for row in maintenance),
-        )
 
     @run_activity
     def build_report(self, spec: ReportSpec) -> ReportResult:
@@ -1948,7 +1922,7 @@ class CircuitRun:
             plan_sha256=self._plan_sha256, operation=operation,
             view=_view_declaration(ref._lineage), encoded_spec=encoded_spec,
             parameter_source=parameter_source, runtime_base=self._runtime_base,
-            source_units=source_units, backend="jax", precision=precision,
+            source_units=source_units, precision=precision,
             parameter_authorizations=parameter_authorizations,
         )
 

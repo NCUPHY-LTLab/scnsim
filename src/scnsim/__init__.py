@@ -49,7 +49,6 @@ from .authoring import (
     components,
 )
 from .errors import (
-    BackendProtocolError,
     CompilerInvariantError,
     DirectResponseFormationError,
     EliminatedBlockSolveFailure,
@@ -100,7 +99,6 @@ from .results import (
     DirectQuantityResult,
     DirectSolveResult,
     ExplanationResult,
-    InventoryResult,
     LineDiscretization,
     MatrixFamilyResult,
     MatrixView,
@@ -241,7 +239,6 @@ __all__ = [
     "AffineMap",
     "ElectricalResolution",
     "AnalysisResult",
-    "BackendProtocolError",
     "BiasState",
     "BranchRef",
     "BusRef",
@@ -291,7 +288,6 @@ __all__ = [
     "InvalidDiagonalRootHint",
     "InvalidOptimizationSpec",
     "OptimizationProgressCallbackError",
-    "InventoryResult",
     "LineDiscretization",
     "Library",
     "MatrixFamilyResult",

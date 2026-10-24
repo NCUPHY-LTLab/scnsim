@@ -192,15 +192,6 @@ class ExplanationResult(Result):
             )
         return HtmlPresentation(html)
 
-@dataclass(frozen=True, slots=True)
-class InventoryResult(Result):
-    """Pure read-only evidence inventory; it never selects a result for resolve."""
-
-    requests: tuple[Mapping[str, object], ...]
-    maintenance: tuple[Mapping[str, object], ...]
-
-    def __init__(self) -> None:
-        unavailable("InventoryResult construction")
 
 @dataclass(frozen=True, slots=True)
 class ReportResult(Result):

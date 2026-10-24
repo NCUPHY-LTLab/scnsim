@@ -391,8 +391,6 @@ def _project_python_observations(
     baseline_values_by_sequence: Mapping[int, Mapping[str, object]],
     checkpoint_sequences: Mapping[tuple[str, str], int],
 ) -> dict[str, object] | None:
-    if task.get("arm") == "original_julia":
-        return None
     payload = terminal_event.get("payload")
     if not isinstance(payload, Mapping):
         return None

@@ -2457,7 +2457,7 @@ class FixedDirectResultReader(_FixedChunkedResultReader):
 def _expected_sweep_point(source: Mapping[str, Any], ordinal: int):
     """Return one request-declared source index and its complete parameters."""
     kind = source.get("kind")
-    from .validation.sweeps import _merge_parameter_records
+    from .validation.common import _merge_parameter_records
 
     if kind == "points":
         points = source["points"]

@@ -195,12 +195,6 @@ class RuntimePreparationError(SCNSimExecutionError):
     kind = "runtime_preparation"
 
 
-class BackendProtocolError(SCNSimExecutionError):
-    """The Julia process violated the declared request/outcome protocol."""
-
-    kind = "backend_protocol"
-
-
 class OptimizationProgressCallbackError(SCNSimExecutionError):
     """An observer callback failed after validated optimization progress."""
 

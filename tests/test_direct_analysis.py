@@ -1,9 +1,8 @@
-"""JAX Direct physics and H2 analytic comparisons, plus deferred Julia evidence."""
+"""JAX Direct physics and H2 analytic comparisons."""
 from __future__ import annotations
 
 from contextlib import ExitStack, contextmanager
 import math
-import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -77,8 +76,6 @@ def _floating_probe_plan():
     return plan, feed_in, probe_plus, probe_minus, ("qubit_plus", "qubit_minus")
 
 
-
-
 @contextmanager
 def _closed_run(**kwargs):
     run = CircuitRun(**kwargs)
@@ -111,62 +108,6 @@ class DirectDeclarationTests(unittest.TestCase):
             pipeline.transform_pair(*nodes, id="late")
         with self.assertRaises(ValueError):
             pipeline.retain("feedline_in")
-
-
-@unittest.skipUnless(os.environ.get("SCNSIM_RUN_JULIA_TESTS") == "1",
-                     "set SCNSIM_RUN_JULIA_TESTS=1 for the packaged Julia regressions")
-class JuliaSelectedNetworkEvidenceTests(unittest.TestCase):
-    def test_n_trace_pi_ladder_and_n_port_direct_are_not_scalarized(self) -> None:
-        plan = CircuitPlan(id="n_trace_direct")
-        line = plan.add(components.transmission_line(id="line", length=1.6 * u.mm, rlgc=_coupled_rlgc(), n_sections=2))
-        for end in ("head", "tail"):
-            for conductor in ("readout", "filter"):
-                node = plan.bus(id=f"{end}_{conductor}")
-                plan.link(id=f"connect_{end}_{conductor}", endpoints=(node, line.pin(end, conductor=conductor)))
-                plan.add_port(id=f"{end}_{conductor}", at=node, role="terminated", reference_impedance=50.0 * u.ohm)
-        spec = DirectSolveSpec(frequencies=[1.0, 2.0] * u.GHz)
-        with TemporaryDirectory() as workspace:
-            with _closed_run(plan=plan, workspace=Path(workspace), backend="julia", precision="float64") as run:
-                explanation = run.explain(run.original, spec)
-                self.assertEqual(run.inventory().requests, ())
-                compiled = explanation.evidence["compiled"]
-                rows = compiled["expanded_branch_rows"]
-                audits = [row for row in rows if row["kind"] == "transmission_line_audit"]
-                self.assertEqual(len(audits), 1)
-                self.assertEqual(audits[0]["conductors"], ("readout", "filter"))
-                self.assertEqual(audits[0]["n_sections"], 2)
-                self.assertEqual(len(audits[0]["stations"]), 6)
-                self.assertTrue(any(row.get("row_conductor") != row.get("column_conductor") and not row.get("omitted_as_zero") for row in rows if row.get("kind") in {"series_inductance", "shunt_capacitance"}))
-                result = run.solve(run.original, spec)
-                self.assertEqual(result.s.view.matrix.shape, (2, 4, 4))
-                self.assertEqual(result.y.view.matrix.shape, (2, 4, 4))
-                self.assertEqual(result.z.view.matrix.shape, (2, 4, 4))
-                self.assertEqual(tuple(result.s.view.coordinates), ("head_readout", "head_filter", "tail_readout", "tail_filter"))
-
-    def test_ptc_transform_retain_uses_one_realized_lineage(self) -> None:
-        plan, _, probe_plus, probe_minus, nodes = _floating_probe_plan()
-        with TemporaryDirectory() as workspace:
-            with _closed_run(plan=plan, workspace=Path(workspace), backend="julia", precision="float64") as run:
-                view = run.original.reduce(
-                    ReductionPipeline()
-                    .ptc(probe_plus, probe_minus)
-                    .transform_pair(*nodes, id="qubit")
-                    .retain("feedline_in", "feedline_out", "qubit.differential")
-                )
-                spec = DirectSolveSpec(frequencies=[5.5] * u.GHz)
-                explanation = run.explain(view, spec)
-                lineage = explanation.evidence["compiled"]["ref_lineage"]
-                port_nets = {port["id"]: port["net"]
-                             for port in explanation.evidence["connectivity"]["ports"]}
-                self.assertEqual(lineage["terminal_coordinates"],
-                                 (port_nets["feedline_in"], port_nets["feedline_out"], "qubit.differential"))
-                self.assertEqual(lineage["ptc"]["selected_ports"], ("probe_plus", "probe_minus"))
-                self.assertEqual([row["port_id"] for row in lineage["ptc"]["loads"]], ["probe_plus", "probe_minus"])
-                self.assertTrue(lineage["port_realizable"])
-                result = run.solve(view, spec)
-                self.assertEqual(result.s.view.matrix.shape, (1, 3, 3))
-                self.assertEqual(result.s.view.probe_loads["probe_plus"], "compensated")
-                self.assertEqual(result.s.view.probe_loads["probe_minus"], "compensated")
 
 
 class SelectedNetworkTests(unittest.TestCase):
@@ -434,4 +375,3 @@ class ComplexAnchorTests(unittest.TestCase):
             self.assertTrue(np.isfinite(zero.frequency.to("hertz").magnitude))
             self.assertNotEqual(complex(zero.denominator.to("dimensionless").magnitude), 0.0j)
             self.assertEqual(zero_run.resolve(zero_run.original, zero_spec).identity, zero.identity)
-

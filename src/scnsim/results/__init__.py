@@ -21,7 +21,7 @@ from .base import (
     _valid_source_index,
 )
 from .diagram import CircuitDiagramAudit, CircuitDiagramResult
-from .derived import ExplanationResult, InventoryResult, ReportResult, TraceResult
+from .derived import ExplanationResult, ReportResult, TraceResult
 from .factory import _is_checked_report_input, _is_verified_analysis_result, _verified_result
 from .matrix import (
     DiagonalRootResult,
@@ -87,7 +87,6 @@ __all__ = [
     "DirectSolveResult",
     "ExplanationResult",
     "HtmlPresentation",
-    "InventoryResult",
     "InMemoryDirectSolveResult",
     "InMemoryAnalysisDependency",
     "InMemoryAnalysisPointOutcome",
@@ -194,7 +193,6 @@ for _public_result_type in (
     ParameterSweepResult,
     TraceResult,
     ExplanationResult,
-    InventoryResult,
     ReportResult,
     CircuitDiagramAudit,
     CircuitDiagramResult,
