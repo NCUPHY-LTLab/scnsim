@@ -96,7 +96,7 @@ class LibraryProvenanceTests(unittest.TestCase):
             self.catalog.other = object()
         plan = self._plan(component, id="factory_once")
         with TemporaryDirectory() as workspace:
-            run = CircuitRun(plan=plan, workspace=Path(workspace), backend="jax")
+            run = CircuitRun(plan=plan, workspace=Path(workspace))
             try:
                 self.assertTrue(plan.sealed)
                 self.assertEqual(_factory_calls, ["resonator"])
@@ -110,7 +110,7 @@ class LibraryProvenanceTests(unittest.TestCase):
         plan = self._plan(component, id="direct_composite")
         spec = DirectSolveSpec(frequencies=[5.0]*u.GHz)
         with TemporaryDirectory() as workspace:
-            run = CircuitRun(plan=plan, workspace=Path(workspace), backend="jax")
+            run = CircuitRun(plan=plan, workspace=Path(workspace))
             try:
                 with self.assertRaises(ResultUnavailableError):
                     run.resolve(run.original, spec)
@@ -142,7 +142,7 @@ class ComponentExpansionTests(unittest.TestCase):
                 use = component if component is junction else component.between(
                     component.pin("terminal_1"), component.pin("terminal_2"))
                 plan.series(id="body", start=signal, elements=(use,), end=return_bus)
-                run = CircuitRun(plan=plan, workspace=Path(workspace), backend="jax", precision="float64")
+                run = CircuitRun(plan=plan, workspace=Path(workspace), precision="float64")
                 try:
                     view = run.original.reduce(ReductionPipeline().retain("signal", "return"))
                     explanation = run.explain(view, OperatorSpec(frequencies=[5.0]*u.GHz))
@@ -165,7 +165,7 @@ class ComponentExpansionTests(unittest.TestCase):
                 inductor_b=inductors[b].inductive_branch("self"),
                 coupling_coefficient=coefficient*u.dimensionless)
         with TemporaryDirectory() as workspace:
-            run = CircuitRun(plan=plan, workspace=Path(workspace), backend="jax", precision="float64")
+            run = CircuitRun(plan=plan, workspace=Path(workspace), precision="float64")
             try:
                 view = run.original.reduce(ReductionPipeline().retain("signal"))
                 # The public compiler owns complete-graph physical rejection;
@@ -189,7 +189,7 @@ class ComponentExpansionTests(unittest.TestCase):
         plan.couple_inductive(id="mutual", inductor_a=left.inductive_branch("loop"),
             inductor_b=right.inductive_branch("loop"), coupling_coefficient=0.25*u.dimensionless)
         with TemporaryDirectory() as workspace:
-            run = CircuitRun(plan=plan, workspace=Path(workspace), backend="jax", precision="float64")
+            run = CircuitRun(plan=plan, workspace=Path(workspace), precision="float64")
             try:
                 evidence = run.explain(run.original, DirectSolveSpec(frequencies=[5.0]*u.GHz)).evidence
             finally:

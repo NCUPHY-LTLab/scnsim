@@ -67,7 +67,7 @@ root-policy proposal retain their original identities and limits.
 
 `CircuitRun(plan=plan, storage="workspace", workspace=path)` retains the saved
 default: binding, recovery, fixed saved Results and readonly resolution.
-`CircuitRun(plan=plan, storage="memory", backend="jax")` omits Workspace
+`CircuitRun(plan=plan, storage="memory")` omits Workspace
 binding entirely. Supplying a Workspace or enabling `versioned` with memory
 storage is invalid. Construction, preparation, warmup, solve and cleanup in
 this mode create no SCNSim Workspace, SQLite record, filesystem operation lease,

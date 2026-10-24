@@ -180,7 +180,7 @@ class SelectedNetworkTests(unittest.TestCase):
                 plan.add_port(id=f"{end}_{conductor}", at=node, role="terminated", reference_impedance=50.0 * u.ohm)
         spec = DirectSolveSpec(frequencies=[1.0, 2.0] * u.GHz)
         with TemporaryDirectory() as workspace:
-            with _closed_run(plan=plan, workspace=Path(workspace), backend="jax", precision="float64") as run:
+            with _closed_run(plan=plan, workspace=Path(workspace), precision="float64") as run:
                 compiled = run.explain(run.original, spec).evidence["compiled"]
                 sections = [row for row in compiled["expanded_branch_rows"]
                             if row["kind"] == "pi_section"]
@@ -204,7 +204,7 @@ class SelectedNetworkTests(unittest.TestCase):
     def test_ptc_transform_retain_preserves_selected_matrix_and_probe_loads(self) -> None:
         plan, _, probe_plus, probe_minus, nodes = _floating_probe_plan()
         with TemporaryDirectory() as workspace:
-            with _closed_run(plan=plan, workspace=Path(workspace), backend="jax", precision="float64") as run:
+            with _closed_run(plan=plan, workspace=Path(workspace), precision="float64") as run:
                 view = run.original.reduce(
                     ReductionPipeline()
                     .ptc(probe_plus, probe_minus)
@@ -251,7 +251,7 @@ class DirectQuantityTests(unittest.TestCase):
         cls.addClassCleanup(cls._temporary.cleanup)
         cls.workspace = Path(cls._temporary.name)
         cls.plan = _advanced_direct_plan()
-        cls.circuit_run = CircuitRun(plan=cls.plan, workspace=cls.workspace, backend="jax", precision="float64")
+        cls.circuit_run = CircuitRun(plan=cls.plan, workspace=cls.workspace, precision="float64")
         cls.addClassCleanup(cls.circuit_run.close)
         cls.view = cls.circuit_run.original.reduce(ReductionPipeline().retain("a", "b"))
         cls.operator_spec = OperatorSpec(frequencies=[5.0, 5.5] * u.GHz)
@@ -272,7 +272,7 @@ class DirectQuantityTests(unittest.TestCase):
         cls._zero_temporary = TemporaryDirectory()
         cls.addClassCleanup(cls._zero_temporary.cleanup)
         cls.zero_plan = _matched_zero_plan()
-        cls.zero_run = CircuitRun(plan=cls.zero_plan, workspace=Path(cls._zero_temporary.name), backend="jax", precision="float64")
+        cls.zero_run = CircuitRun(plan=cls.zero_plan, workspace=Path(cls._zero_temporary.name), precision="float64")
         cls.addClassCleanup(cls.zero_run.close)
         cls.zero_spec = TransferZeroSpec(
             anchor=6.3 * u.GHz,
@@ -377,7 +377,7 @@ class ComplexAnchorTests(unittest.TestCase):
     def test_complex_newton_anchor_encoding_preserves_authored_type_and_source_unit(self) -> None:
         with TemporaryDirectory() as workspace, ExitStack() as owners:
             plan, coordinates = _two_coordinate_plan()
-            run = CircuitRun(backend="jax", plan=plan, workspace=Path(workspace))
+            run = CircuitRun( plan=plan, workspace=Path(workspace))
             owners.callback(run.close)
             view = run.original.reduce(ReductionPipeline().retain(*coordinates))
             records = []
@@ -410,7 +410,7 @@ class ComplexAnchorTests(unittest.TestCase):
     def test_nonzero_imaginary_complex_anchors_execute_and_resolve(self) -> None:
         with TemporaryDirectory() as workspace, ExitStack() as owners:
             plan, coordinates = _two_coordinate_plan()
-            run = CircuitRun(backend="jax", plan=plan, workspace=Path(workspace))
+            run = CircuitRun( plan=plan, workspace=Path(workspace))
             owners.callback(run.close)
             view = run.original.reduce(ReductionPipeline().retain(*coordinates))
             spec = HybridizedPoleSpec(coordinates=coordinates, anchor=(6.0 - 1.0e-12j) * u.GHz)
@@ -422,7 +422,7 @@ class ComplexAnchorTests(unittest.TestCase):
             self.assertEqual(run.resolve(view, spec).identity, result.identity)
 
         with TemporaryDirectory() as workspace, ExitStack() as owners:
-            zero_run = CircuitRun(backend="jax", plan=_one_port_transfer_zero(), workspace=Path(workspace))
+            zero_run = CircuitRun( plan=_one_port_transfer_zero(), workspace=Path(workspace))
             owners.callback(zero_run.close)
             zero_spec = TransferZeroSpec(
                 anchor=(6.3 - 0.05j) * u.GHz,

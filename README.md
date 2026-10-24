@@ -73,8 +73,7 @@ seed, not a target value or an instruction to discover every root.
 ### Execution prerequisites and Result ownership
 
 Use an exact-version installation matching your Python/platform. JAX CPU is
-the default numerical backend; Julia-only capabilities require an explicitly
-selected backend and a separately provided Julia installation. Notebook
+the numerical runtime. Notebook
 presentation has its own optional dependencies. See the
 [setup guide](examples/engineer/setup.qmd) (`engineer-setup`) before executing.
 Reading this bundle imports no producer and performs no simulation.
@@ -220,7 +219,7 @@ baseline_s11.show(component="magnitude", magnitude="db")
 selected_s11.show(component="magnitude", magnitude="db")
 ```
 
-The code uses the default JAX backend. The S11 figures below are the existing
+The code uses the JAX runtime. The S11 figures below are the existing
 Chapter 1 Julia outputs for this authored case and channel; the website does
 not run the example to regenerate them.
 
@@ -269,10 +268,8 @@ may also need the matching Microsoft Visual C++ Redistributable, separate from
 the compiler tools; see
 [Microsoft's supported Redistributable guidance](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170).
 For the CPU JAX backend, see the [JAX CPU installation notes](https://docs.jax.dev/en/latest/installation.html#cpu).
-For a notebook environment, source installation and optional backends, see the
-[setup guide](examples/engineer/setup.qmd). Julia-only features use explicit
-backend selection and a separately provided Julia installation; see
-[Direct and HB realizations](docs/concepts/direct-and-hb-realizations.qmd).
+For a notebook environment and source installation, see the
+[setup guide](examples/engineer/setup.qmd).
 
 ## Learn the model, then choose the calculation
 

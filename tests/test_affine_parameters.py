@@ -132,7 +132,6 @@ class AffinePhysicalValidationTests(unittest.TestCase):
             run = CircuitRun(
                 plan=plan,
                 workspace=Path(workspace),
-                backend="jax",
                 precision="float64",
             )
             try:
@@ -336,7 +335,7 @@ def _resolve_affine_public_evidence(workspace, mode, cpu_threads):
     plan, parameter = _affine_plan()
     with patch.object(JaxBackend, "__init__", side_effect=AssertionError("resolve initialized a backend")), \
             patch.object(JaxBackend, "execute_native", side_effect=AssertionError("resolve dispatched native work")):
-        run = CircuitRun(plan=plan, workspace=Path(workspace), backend="jax", precision="float64")
+        run = CircuitRun(plan=plan, workspace=Path(workspace), precision="float64")
         try:
             if mode == "grid":
                 result = run.resolve(run.original, DirectSolveSpec(frequencies=[5.0] * u.GHz),
@@ -384,7 +383,7 @@ class AffineEvidenceTests(unittest.TestCase):
         point = ParameterSet({parameter: 1.05 * u.meter}, allow_extrapolation=(parameter,))
         for storage in ("memory", "workspace"):
             with self.subTest(storage=storage), TemporaryDirectory() as directory:
-                run = CircuitRun(plan=plan, backend="jax", precision="float64", storage=storage,
+                run = CircuitRun(plan=plan, precision="float64", storage=storage,
                                  **({"workspace": Path(directory)} if storage == "workspace" else {}))
                 try:
                     view = run.original.reduce(ReductionPipeline().retain("signal"))
@@ -459,7 +458,7 @@ class AffineEvidenceTests(unittest.TestCase):
         spec = DirectSolveSpec(frequencies=[5.0] * u.GHz)
         for storage in ("memory", "workspace"):
             with self.subTest(storage=storage), TemporaryDirectory() as directory:
-                run = CircuitRun(plan=plan, backend="jax", precision="float64", storage=storage,
+                run = CircuitRun(plan=plan, precision="float64", storage=storage,
                                  **({"workspace": Path(directory)} if storage == "workspace" else {}))
                 try:
                     space = _affine_grid(parameter)
@@ -505,7 +504,7 @@ class AffineEvidenceTests(unittest.TestCase):
         )
         for storage in ("memory", "workspace"):
             with self.subTest(storage=storage), TemporaryDirectory() as directory:
-                run = CircuitRun(plan=plan, backend="jax", precision="float64", storage=storage,
+                run = CircuitRun(plan=plan, precision="float64", storage=storage,
                                  **({"workspace": Path(directory)} if storage == "workspace" else {}))
                 try:
                     view = run.original.reduce(ReductionPipeline().retain("signal"))
@@ -522,7 +521,7 @@ class AffineEvidenceTests(unittest.TestCase):
                     # Keep origins call-local even when the admitted boolean/core
                     # is the same. A saved cache read retains its execution's origins.
                     both_run = run if storage == "memory" else CircuitRun(
-                        plan=plan, backend="jax", precision="float64",
+                        plan=plan, precision="float64",
                         workspace=Path(directory) / "both sources")
                     try:
                         both_view = both_run.original.reduce(ReductionPipeline().retain("signal"))

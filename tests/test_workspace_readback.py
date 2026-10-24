@@ -72,23 +72,23 @@ class WorkspaceVersioningTests(unittest.TestCase):
         with TemporaryDirectory() as directory, ExitStack() as owners:
             workspace = Path(directory)
             plan, _, _ = _primitive_plan(plan_id="first")
-            first = CircuitRun(plan=plan, workspace=workspace, backend="jax")
+            first = CircuitRun(plan=plan, workspace=workspace)
             owners.callback(first.close)
             original = json.loads((workspace / "workspace.json").read_bytes())["active_leaf"]
             plan, _, _ = _primitive_plan(plan_id="first")
-            upgraded = CircuitRun(plan=plan, workspace=workspace, versioned=True, backend="jax")
+            upgraded = CircuitRun(plan=plan, workspace=workspace, versioned=True)
             owners.callback(upgraded.close)
             index = json.loads((workspace / "workspace.json").read_bytes())
             self.assertEqual(index["iterations"][0]["workspace_instance_id"], original["workspace_instance_id"])
             self.assertEqual(index["iterations"][0]["plan_sha256"], original["plan_sha256"])
             plan, _, _ = _primitive_plan(plan_id="second", capacitance=120.0)
-            second = CircuitRun(plan=plan, workspace=workspace, versioned=True, backend="jax")
+            second = CircuitRun(plan=plan, workspace=workspace, versioned=True)
             owners.callback(second.close)
             index = json.loads((workspace / "workspace.json").read_bytes())
             self.assertNotEqual(index["iterations"][1]["workspace_instance_id"], original["workspace_instance_id"])
             with self.assertRaises(WorkspaceVersioningDowngradeForbidden):
                 plan, _, _ = _primitive_plan(plan_id="second", capacitance=120.0)
-                CircuitRun(plan=plan, workspace=workspace, versioned=False, backend="jax")
+                CircuitRun(plan=plan, workspace=workspace, versioned=False)
 
 
 def _resolve_jax_in_fresh_process(workspace, cpu_threads):
@@ -100,7 +100,7 @@ def _resolve_jax_in_fresh_process(workspace, cpu_threads):
     # Guard real readback: never supply a synthetic numerical result.
     with patch.object(JaxBackend, "__init__", side_effect=AssertionError("resolve initialized a backend")), \
             patch.object(JaxBackend, "execute_native", side_effect=AssertionError("resolve dispatched native work")):
-        run = CircuitRun(plan=plan, workspace=Path(workspace), backend="jax", precision="float64")
+        run = CircuitRun(plan=plan, workspace=Path(workspace), precision="float64")
         try:
             direct, root, optimization, view = _primitive_requests(run, coordinate, capacitance)
             return [_saved_values(value) for value in (
@@ -117,7 +117,7 @@ class JaxWorkspaceReadbackTests(unittest.TestCase):
         cls.addClassCleanup(cls._temporary.cleanup)
         cls.workspace = Path(cls._temporary.name)
         plan, coordinate, cls.capacitor = _primitive_plan()
-        cls.circuit_run = CircuitRun(plan=plan, workspace=cls.workspace, backend="jax", precision="float64")
+        cls.circuit_run = CircuitRun(plan=plan, workspace=cls.workspace, precision="float64")
         cls.addClassCleanup(cls.circuit_run.close)
         cls.direct_spec, cls.root_spec, cls.optimization_spec, cls.view = _primitive_requests(
             cls.circuit_run, coordinate, cls.capacitor)

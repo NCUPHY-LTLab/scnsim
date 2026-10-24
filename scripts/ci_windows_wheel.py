@@ -373,7 +373,7 @@ def smoke(args):
                 'events': _lock_observation(Path(temporary) / 'lock ownership 鎖')})
             save()
             workspace = Path(temporary) / 'saved LC 工作區'
-            saved_run = CircuitRun(plan=namespace['plan'], workspace=workspace, backend='jax')
+            saved_run = CircuitRun(plan=namespace['plan'], workspace=workspace)
             saved_error = None
             try:
                 direct_spec = DirectSolveSpec(frequencies=[5.5, 6.0, 6.5]*u.GHz)
@@ -408,7 +408,7 @@ def smoke(args):
                     if saved_error is None:
                         raise
                     saved_error.add_note(f'Windows Workspace Run cleanup: {error!r}')
-        run = CircuitRun(plan=namespace['plan'], storage='memory', backend='jax')
+        run = CircuitRun(plan=namespace['plan'], storage='memory')
         retained = []
         for precision in ('float64', 'float32'):
             direct = run.solve(run.original, DirectSolveSpec(frequencies=[5.5, 6.0, 6.5]*u.GHz), precision=precision)

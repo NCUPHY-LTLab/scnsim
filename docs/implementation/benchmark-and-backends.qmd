@@ -119,8 +119,7 @@ stores fail with `UnsupportedEvidenceVersionError`: use a new Workspace and
 recompute. Old data are neither migrated nor automatically deleted.
 
 JAX Optimization defaults to `commit_every_generations=10`, a positive integer
-excluding booleans. Explicit `None` remains invalid. Omission resolves after
-backend selection: JAX uses 10, while explicit Julia retains its native value 1. Baseline
+excluding booleans. Explicit `None` remains invalid. Omission resolves to 10. Baseline
 evidence stays in memory until the first complete group publishes it once. After N completed post-tell generations, one
 transaction publishes their ordered numerical records and the latest full
 CMA/RNG state. A short final group commits at the normal tail or a handleable
@@ -128,7 +127,6 @@ error; incomplete generation work is never presented as a resumable generation.
 Checkpoint off retains evidence without fabricating a resumable snapshot. The
 interval binds operation/task/checkpoint identity, not the numerical request,
 so completed numeric cache lookup stays independent of commit granularity.
-Explicit Julia intervals other than 1 are unsupported and fail before launch.
 The workspace policy does not change numerical algorithms, precision, candidate
 order or winner meaning. The dev13 sparse implementation below changes the
 factorization mechanism under a distinct numerical algorithm identity.
@@ -262,11 +260,9 @@ CONVERGING implementation contracts, not memory, speed or completed-case claims.
 
 ## Public operations and runtime configuration
 
-Normal `CircuitRun.solve`, `evaluate`, `optimize` and `resolve` select JAX CPU
-with `precision="float64"` by default. The Run constructor defaults to `backend="jax", precision="float64"`. Their
-keyword-only `backend=None` and `precision=None` inherit those Run defaults;
-explicit per-call values override them, including `backend="julia"` and JAX
-`precision="float32"`. Existing positional declarations, parameter ownership,
+`CircuitRun` and its public operations use JAX CPU. The Run constructor
+defaults to `precision="float64"`; per-call `precision=None` inherits that
+default, and an explicit `precision="float32"` selects Float32. Existing positional declarations, parameter ownership,
 Views and typed result meanings remain. JAX runs in the calling Python process;
 there is no Python numerical child, Julia discovery, Julia preflight or fallback.
 Float32 uses real Float32/Complex64 kernel arrays, not rounded Float64 outputs.
@@ -285,10 +281,6 @@ matrices are inspectable outputs and cannot become scalar objectives. The
 formulas, certificates, units, baseline rules and denominator amendment; this
 page does not introduce another numerical contract. Source-bound installed-wheel
 observations for the new scope remain pending.
-
-HB still requires explicit Julia. Explicit Julia retains its current Float64
-contract and requires the optional Julia extra plus a manually provided Julia
-executable; feature calls do not acquire Julia or automatically fall back.
 
 `configure_runtime(*, cpu_threads: int | None = None) -> RuntimeConfiguration`
 records an immutable process resource declaration. `None` leaves the existing
@@ -529,8 +521,8 @@ Julia baseline semantics are unchanged.
 
 ## Built-in read-only Benchmark
 
-`run.benchmark(*, operations=None, method=None, backend=None, precision=None, status=None) -> BenchmarkResult` reads this
-Run's current Plan leaf. Optional operation-ID and method/backend/precision/status filters select recorded
+`run.benchmark(*, operations=None, method=None, precision=None, status=None) -> BenchmarkResult` reads this
+Run's current Plan leaf. Optional operation-ID and method/precision/status filters select recorded
 operations; omitted filters select all recorded operations in that leaf. A status
 filter matches the independently recorded operation status **or** `task_status`.
 The report preserves both facts: committed task success does not synthesize a
@@ -790,8 +782,8 @@ quantity fields and the corresponding finished branch dependencies.
 
 ## Backend-aware compiler explanation (dev14 CONVERGING)
 
-`CircuitRun.explain(ref, spec, *, parameters=None, backend=None, precision=None)`
-inherits the Run backend and precision; explicit keywords override them. JAX
+`CircuitRun.explain(ref, spec, *, parameters=None, precision=None)`
+inherits the Run precision; an explicit precision overrides it. JAX
 explanations use the existing sparse Python compiler and View realization at the
 effective parameter point, including every ordered scalar objective View. Their
 `scnsim.jax_preflight` evidence binds actual Plan/request hashes and declared
@@ -803,8 +795,7 @@ JIT, global dense C/K/G allocation, numerical solve or Julia discovery.
 
 The existing ExplanationResult exposes the evidence and its line discretization
 and HTML presentation. Sparse records explicitly identify their format and
-shape; they are not native Julia dense compiler artifacts. Explicit Julia
-explanations retain the existing compiler preflight. Manual schematic
+shape. Manual schematic
 preparation/rendering does not initialize Julia or a solver; the automatic
 compiled diagram producer is retired independently of numerical compilation.
 

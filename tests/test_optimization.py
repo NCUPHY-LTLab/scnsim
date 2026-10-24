@@ -176,7 +176,6 @@ class OptimizationTests(unittest.TestCase):
             run = CircuitRun(
                 plan=plan,
                 workspace=Path(workspace),
-                backend="jax",
                 precision="float64",
             )
             try:
@@ -208,7 +207,6 @@ class OptimizationTests(unittest.TestCase):
             run = CircuitRun(
                 plan=plan,
                 workspace=Path(workspace),
-                backend="jax",
                 precision="float64",
             )
             try:
@@ -284,7 +282,6 @@ class OptimizationTests(unittest.TestCase):
             zero_run = CircuitRun(
                 plan=zero_plan,
                 workspace=Path(zero_workspace),
-                backend="jax",
                 precision="float64",
             )
             try:
