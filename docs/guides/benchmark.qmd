@@ -1,7 +1,71 @@
 ---
-title: "Run Operations and Read-only Benchmark"
-subtitle: "Execute with JAX or Julia, then inspect actual recorded work"
+title: "Run operations and read their Benchmark"
+subtitle: "Choose storage, then inspect the work that actually executed"
 ---
+
+Run the physical operation first, then inspect `run.benchmark()`. The Benchmark
+reports that operation's recorded costs and work; it does not start another
+solve or choose a performance workload.
+
+## Choose Result ownership
+
+```python
+from scnsim import CircuitRun
+
+run = CircuitRun(plan=plan, storage="memory")
+result = run.solve(run.original, direct_spec)
+benchmark = run.benchmark()
+run.close()
+```
+
+Use `CircuitRun(plan=plan, workspace="workspaces/example")` for saved evidence
+and exact `resolve()`. Memory and Workspace share the JAX producer for Direct,
+quantities, Sensitivity, sweeps and Optimization. Memory stores no operation
+history; its Benchmark is the last call's immutable aggregate summary.
+Memory timing accepts `aggregate` only. Workspace also supports detailed timing.
+
+## Configure before execution
+
+The base installation includes CPU JAX. `CircuitRun` has no backend keyword.
+Set an explicit process budget before numerical initialization when needed:
+
+```python
+from scnsim import configure_runtime
+
+configure_runtime(cpu_threads=10)
+```
+
+This is a declared budget, not proof that ten cores were used. Existing late or
+conflicting configuration errors retain their meaning.
+
+`explain()` reviews the selected request without solving. `prepare()` returns a
+detached numerical callable; `warmup()` compiles declared variants without
+running a baseline, sparse equation or optimizer evaluation. These are separate
+operations, not hidden warm-up solves.
+
+## Interpret the measurement
+
+Keep compilation, synchronized compute, readback and publication clocks separate.
+A cached Workspace success may return a saved Result without native dispatch;
+that is readback rather than warm compute. Report actual evaluation/iteration
+counts for Optimization, with elapsed time per actual evaluation when available.
+Zero current evaluations has no compute mean; historical stage counts are not
+newly executed work.
+
+Workspace Benchmark opening and `resolve()` are readonly. They do not migrate,
+repair or solve. If current evidence needs recovery, explicitly call
+`run.recover_workspace()`. Older evidence from pre-1.0 development builds is
+unsupported by 1.0: use a new Workspace and recompute.
+
+For clock, progress and resource ownership, see
+[Runtime and Benchmark](../implementation/benchmark-and-backends.qmd).
+For required result publication and exact stored arrays, see
+[Workspace evidence v3](../contracts/workspace-evidence-v3.qmd).
+
+## History: pre-1.0 runtime and storage
+
+<details>
+<summary>Earlier version-bound implementation record</summary>
 
 **Status:** 1.0.0a2 Alpha `CONVERGING` candidate. This guide describes the current
 implementation contract, not completed performance or numerical acceptance.
@@ -294,3 +358,5 @@ report = BenchmarkResult.open(benchmark.workspace)
 Native Julia result files retain their separate native ownership and readback
 contract. No GPU, automatic mesh choice, new CMA algorithm or
 numerical/performance acceptance condition is introduced.
+
+</details>

@@ -1,7 +1,85 @@
 ---
-title: "Execution Backends and Operation Benchmark"
-subtitle: "Same-process JAX, verified results and read-only hierarchical observations"
+title: "Runtime and Benchmark"
+subtitle: "Prepare JAX work, execute one operation and inspect its recorded costs"
+toc-depth: 2
 ---
+
+SCNSim executes numerical work through one JAX CPU physical program in the
+calling Python process. A Benchmark reads the recorded operation; it does not
+execute an independent comparison workload.
+
+## Public operations and runtime configuration
+
+`CircuitRun(plan=plan, workspace=path)` selects saved ownership;
+`CircuitRun(plan=plan, storage="memory")` selects detached RAM ownership.
+The constructor has no backend selector. Both support Direct, typed quantities,
+Sensitivity, ordered ParameterSpace and declared Optimization strategies.
+`precision="float64"` is the default; an explicit `float32` uses the corresponding
+real/complex kernel dtype. Host coherent-SI declarations remain binary64.
+Precision, compensated arithmetic, units and achieved accuracy are distinct.
+
+Call `configure_runtime(cpu_threads=...)` before numerical runtime initialization.
+The declaration controls the process resource budget; it is not a measurement
+of actual CPU utilization. Identical declarations are idempotent. A conflicting
+or late declaration retains its runtime-preparation failure.
+
+## Preparation, progress and evidence residency {#warm-preparation-progress-and-evidence-residency}
+
+`explain()` performs declaration and compiler preflight without solving or
+creating an operation record. `prepare()` acquires a detached numeric function
+and layouts. `warmup()` lowers/compiles the same declared variants used by
+execution without running assembly, a sparse solve, Newton or an optimizer
+baseline. Frame-dependent consumers remain lazy when exact static inputs are
+not available; matching shapes alone are not a preparation claim.
+
+The Run owns bounded static programs and executable resources. Call-local
+factors, linearization frames and arrays remain owned through synchronization
+and required consumption. The existing one-slot policy remains; this is not a
+pipeline or a promise about unknown native scratch. Returned values and fixed
+saved selections remain usable after Run close.
+
+## Storage and publication
+
+Memory owns actual detached values and evidence without a Workspace, spool or
+saved identity. Workspace uses evidence v3 and OperationStore revision 8.
+Direct and Direct Sweeps stream same-call host arrays directly to immutable
+objects; Optimization retains its bounded operation spool and lazy stage history.
+No second numerical pass materializes saved data.
+
+CMA groups complete post-tell generations according to the declared commit
+cadence. Required publication completes before its callback; transient progress
+and optional timing are separate. Local accepted-iteration publication retains
+its declared cadence. Each public stage history includes its saved baseline,
+without changing evaluation or iteration counts. Final completion and success
+selection are atomic. See [Workspace evidence v3](../contracts/workspace-evidence-v3.qmd).
+
+## Built-in readonly Benchmark
+
+`run.benchmark()` describes recorded work. Memory keeps only its last compact
+aggregate Benchmark; before an operation it raises `ResultUnavailableError`.
+Memory supports aggregate timing only. Workspace can retain aggregate or detailed
+timing. `BenchmarkResult.open(benchmark.workspace)` reopens the explicit saved
+operation-store locator, not an enclosing directory discovered by search.
+
+Recorded wall spans, compilation, sparse/native compute, synchronization,
+publication, observer and cleanup costs keep their actual clock scopes.
+Unavailable or unaligned clocks stay unavailable. Reusing a completed request
+is readback, not evidence that the solver executed again. Candidate counts,
+native dispatches, factor counts, frequency points and public API calls are
+different work measures; retain the denominator when reporting a mean.
+
+## Numerical authority
+
+Values, Jacobian/JVP/VJP and objective losses consume the same selected physical
+program. Checked failures, residual/correction policies, transpose conventions,
+mesh and exact dtype belong to the [numerical contract](../v1-runtime-contract.qmd).
+Timing and compile-cache observations do not alter that contract or establish a
+speedup, accuracy threshold or optimization attainment.
+
+## History: pre-1.0 runtime and storage
+
+<details>
+<summary>Earlier version-bound implementation record</summary>
 
 **Status:** CONVERGING, 1.0.0.dev32 development candidate contract. The following interfaces are
 implementation targets, not completed execution, performance or acceptance
@@ -158,7 +236,7 @@ or delivery obligations. The current architecture/lifecycle candidate uses only
 its assigned stage-specific installed-wheel observations. No speed or numerical
 acceptance threshold is added.
 
-## Warm preparation, progress and evidence residency (dev27) {#warm-preparation-progress-and-evidence-residency}
+## Warm preparation, progress and evidence residency (dev27) {#warm-preparation-progress-and-evidence-residency-dev27}
 
 `run.warmup(view, spec, parameters=None)` prepares the exact current JAX
 Plan/parameter/View topology and executable signatures for an existing Direct,
@@ -832,3 +910,5 @@ waited 與 lazy。CMA 的 composed Objective cost、local/Hybrid 的實際 deriv
 Compile-only warmup、首次 execution、後續同結構候選、保存與 memory observations
 分開報告。Generated-code bytes 是輔助資訊，不等於 LLVM/JAX/native allocator
 resident bytes；unknown bytes 保持 unknown，不以提高 CPU 使用率或固定秒數作 Gate。
+
+</details>

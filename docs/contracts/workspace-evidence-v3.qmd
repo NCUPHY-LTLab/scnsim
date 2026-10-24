@@ -80,5 +80,7 @@ ordinary lock before current-format mutation or recovery. There is no migration
 or older-format reader.
 
 The public Sweep, SParameterTrace, Result evidence and resolve interfaces retain
-their ownership and ordering. Conditional affine evidence is present only when
-that call used it.
+their ownership and ordering. Direct and Operator Results expose readonly same-call evidence, including
+each Sweep point and saved resolution. Conditional affine evidence is present
+only when that call used it. Public history contains the complete saved stage
+baseline and ordered evaluations; iteration/evaluation counters remain separate.

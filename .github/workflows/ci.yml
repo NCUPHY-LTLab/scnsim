@@ -165,10 +165,15 @@ jobs:
           uv run --locked python - <<'PY'
           import json
           import re
+          import runpy
           import shutil
           import subprocess
           import tempfile
           from pathlib import Path
+
+          portable_notebook_bytes = runpy.run_path(
+              "scripts/generate_portable_notebook.py"
+          )["portable_notebook_bytes"]
 
           def source_text(value):
               if isinstance(value, list) and all(isinstance(item, str) for item in value):
@@ -210,6 +215,7 @@ jobs:
 
               metadata = notebook.get("metadata", {})
               kernelspec = metadata.get("kernelspec", {})
+              assert "path" not in kernelspec, f"machine-local kernel path: {label}"
               language_info = metadata.get("language_info", {})
               relevant_metadata = {
                   "kernelspec": {
@@ -234,7 +240,7 @@ jobs:
               with tempfile.TemporaryDirectory(prefix="scnsim-reader-ipynb-") as directory:
                   isolated = Path(directory)
                   shutil.copytree(Path("examples"), isolated / "examples")
-                  return subprocess.run(
+                  rendered = subprocess.run(
                       [
                           "quarto", "render", str(source), "--to", "ipynb",
                           "--no-execute", "--no-clean", "--output", "-",
@@ -243,6 +249,7 @@ jobs:
                       check=True,
                       capture_output=True,
                   ).stdout
+                  return portable_notebook_bytes(rendered)
 
           chapter_specs = (
               (
@@ -280,14 +287,14 @@ jobs:
                   (
                       "_01-physical-plan.qmd", "_02-explicit-capstone.qmd",
                       "_03-ptc-core.qmd", "_04-optional-transform.qmd",
-                      "_05-optional-quantity.qmd", "_06-optional-hb.qmd",
+                      "_05-optional-quantity.qmd",
                   ),
                   (
                       "01-physical-plan.qmd", "02-explicit-capstone.qmd",
                       "03-ptc-core.qmd", "04-optional-transform.qmd",
-                      "05-optional-quantity.qmd", "06-optional-hb.qmd",
+                      "05-optional-quantity.qmd",
                   ),
-                  12,
+                  9,
               ),
               (
                   Path("examples/engineer/chapter-05/chapter.qmd"),
