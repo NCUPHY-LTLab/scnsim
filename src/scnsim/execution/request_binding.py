@@ -480,7 +480,7 @@ def source_units(
 
 def prepare_request(*, plan_sha256, operation, view, encoded_spec,
                     parameter_source, runtime_base, source_units,
-                    backend, precision):
+                    backend, precision, parameter_authorizations=()):
     """Encode validated request data once, without retaining facade state."""
     from .identity import _jax_runtime_identity
     from .prepared import PreparedAnalysis
@@ -524,5 +524,6 @@ def prepare_request(*, plan_sha256, operation, view, encoded_spec,
         parameter_source=parameter_source,
         runtime_semantic=semantic,
         source_units=source_units,
+        parameter_authorizations=parameter_authorizations,
     )
 

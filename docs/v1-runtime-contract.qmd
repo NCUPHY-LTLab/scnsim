@@ -2765,13 +2765,12 @@ need no authorization. An out-of-support value fails by default; a request may
 approve extrapolation only for named `ParameterRef` objects. An unapproved
 optimization candidate becomes
 `InvalidCandidatePhysicalParameter(stage="affine_support")` with tagged `Inf`
-cost. Every out-of-support fan-out records exactly one evidence entry: a
-rejected candidate uses authorization source `none`, while an approved
-candidate uses `optimization_spec` (or `parameter_set` for an ordinary
-solve/evaluate receipt). Each entry records the public parameter, exact
-consumer, support, input value, lower/upper side, canonical distance beyond
-support, and authorization source without
-claiming that Q2D or another calibration validated the extrapolated region.
+cost. Each actual JAX out-of-support fan-out records one evidence entry with the
+public parameter, consumer edge, input value, support, side, and distance.
+Its `authorization_sources` list retains each applicable source in order:
+`parameter_set`, then `optimization_spec`; an unauthorized candidate has an
+empty list. These are records of the executed request, not calibration of the
+extrapolated region.
 Distance uses the public input/support dimensionality and coherent-SI value
 `support_lower - input_value` on the lower side or
 `input_value - support_upper` on the upper side, and is strictly positive.
@@ -2780,6 +2779,16 @@ validate authorization, apply each `AffineMap`, then validate mapped primitive
 physical domains. Candidate ledgers own candidate extrapolation evidence;
 ordinary solve/evaluate receipts own evidence authorized by their explicit
 `ParameterSet`.
+
+Read JAX Direct, Operator, and scalar Result records through
+`result.evidence.get("affine_evidence", ())`. Each sweep `point.result` carries
+its own occurrence's records, including repeated parameter points. This
+read-only mapping remains available after Run close and Workspace resolve;
+readback retains the original execution's authorization sources. If no edge
+was outside support, the `affine_evidence` key is absent. Optimization candidate
+records retain their corresponding conditional evidence in the candidate
+history and objective components.
+
 Authorization is request-local: passing an extrapolated winner to a later
 solve/evaluate request requires a new explicit ParameterSet approval:
 

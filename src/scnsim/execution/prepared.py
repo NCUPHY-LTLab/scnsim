@@ -198,6 +198,7 @@ class PreparedAnalysis:
 
     request_bytes: bytes
     source_unit_bytes: tuple[bytes, ...]
+    parameter_authorization_bytes: tuple[bytes, ...] = ()
 
     @classmethod
     def create(
@@ -210,6 +211,7 @@ class PreparedAnalysis:
         parameter_source: Mapping[str, object],
         runtime_semantic: Mapping[str, object],
         source_units: Sequence[Mapping[str, object]],
+        parameter_authorizations: Sequence[Mapping[str, object]] = (),
     ) -> PreparedAnalysis:
         if runtime_semantic.get("backend") == "jax" and operation == "optimize_direct":
             # Backend identity and transform naming share one canonical owner;
@@ -242,6 +244,8 @@ class PreparedAnalysis:
             source_unit_bytes=tuple(
                 canonical_json_bytes(record) for record in source_units
             ),
+            parameter_authorization_bytes=tuple(canonical_json_bytes(ref)
+                                                for ref in parameter_authorizations),
         )
 
     def request(self) -> dict[str, object]:
@@ -258,6 +262,10 @@ class PreparedAnalysis:
         if source['kind'] != 'point':
             raise TypeError('effective_point requires a single-point parameter source')
         return source['parameters']
+
+    def parameter_authorizations(self) -> tuple[dict[str, object], ...]:
+        """Actual caller authorization before optimization's baseline union."""
+        return tuple(json.loads(ref) for ref in self.parameter_authorization_bytes)
 
     def source_units(self) -> tuple[dict[str, object], ...]:
         return tuple(json.loads(record) for record in self.source_unit_bytes)

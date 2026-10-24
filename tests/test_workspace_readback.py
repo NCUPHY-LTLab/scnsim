@@ -91,6 +91,74 @@ class WorkspaceVersioningTests(unittest.TestCase):
                 CircuitRun(plan=plan, workspace=workspace, versioned=False, backend="jax")
 
 
+def _resolve_jax_in_fresh_process(workspace, cpu_threads):
+    from scnsim import configure_runtime
+    from scnsim.execution.jax_backend import JaxBackend
+    from tests.test_workspace_optimization_readback import _saved_values
+    configure_runtime(cpu_threads=cpu_threads)
+    plan, coordinate, capacitance = _primitive_plan()
+    # Guard real readback: never supply a synthetic numerical result.
+    with patch.object(JaxBackend, "__init__", side_effect=AssertionError("resolve initialized a backend")), \
+            patch.object(JaxBackend, "execute_native", side_effect=AssertionError("resolve dispatched native work")):
+        run = CircuitRun(plan=plan, workspace=Path(workspace), backend="jax", precision="float64")
+        try:
+            direct, root, optimization, view = _primitive_requests(run, coordinate, capacitance)
+            return [_saved_values(value) for value in (
+                run.resolve(run.original, direct), run.resolve(view, root),
+                run.resolve(view, optimization))]
+        finally:
+            run.close()
+
+
+class JaxWorkspaceReadbackTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._temporary = TemporaryDirectory()
+        cls.addClassCleanup(cls._temporary.cleanup)
+        cls.workspace = Path(cls._temporary.name)
+        plan, coordinate, cls.capacitor = _primitive_plan()
+        cls.circuit_run = CircuitRun(plan=plan, workspace=cls.workspace, backend="jax", precision="float64")
+        cls.addClassCleanup(cls.circuit_run.close)
+        cls.direct_spec, cls.root_spec, cls.optimization_spec, cls.view = _primitive_requests(
+            cls.circuit_run, coordinate, cls.capacitor)
+        cls.direct = cls.circuit_run.solve(cls.circuit_run.original, cls.direct_spec)
+        cls.root = cls.circuit_run.evaluate(cls.view, cls.root_spec)
+        cls.optimization = cls.circuit_run.optimize(cls.view, cls.optimization_spec, progress=False)
+
+    def test_direct_root_and_cma_share_one_plan_without_identity_aliasing(self):
+        identities = (self.direct.identity, self.root.identity, self.optimization.identity)
+        self.assertEqual(len({identity.plan_sha256 for identity in identities}), 1)
+        self.assertEqual(len({identity.request_sha256 for identity in identities}), 3)
+        self.assertEqual(self.direct.s.view.matrix.shape, (3, 1, 1))
+        self.assertTrue(np.isfinite(self.root.frequency.to("hertz").magnitude))
+        self.assertTrue(np.isfinite(self.root.linewidth.to("hertz").magnitude))
+        self.assertTrue(tuple(self.optimization.stage().history))
+        self.assertEqual(self.optimization.best.parameters.allow_extrapolation, ())
+        best = self.optimization.best.parameters.values[self.capacitor].to("fF").magnitude
+        self.assertGreaterEqual(best, 80.0)
+        self.assertLessEqual(best, 140.0)
+
+    def test_success_reuse_and_fresh_process_resolve_are_exact(self):
+        from scnsim.execution.config import get_runtime_configuration
+        from scnsim.execution.jax_backend import JaxBackend
+        from tests.test_workspace_optimization_readback import _saved_values
+        expected = [_saved_values(value) for value in (self.direct, self.root, self.optimization)]
+        with patch.object(JaxBackend, "execute_native", side_effect=AssertionError("warm readback dispatched native work")) as guard:
+            actual = (self.circuit_run.solve(self.circuit_run.original, self.direct_spec),
+                      self.circuit_run.evaluate(self.view, self.root_spec),
+                      self.circuit_run.optimize(self.view, self.optimization_spec, progress=False))
+            self.assertEqual([_saved_values(value) for value in actual], expected)
+            guard.assert_not_called()
+        threads = get_runtime_configuration().cpu_threads
+        child = subprocess.run([sys.executable, "-c",
+            "import json,sys; from tests.test_workspace_readback import _resolve_jax_in_fresh_process; "
+            "print(json.dumps(_resolve_jax_in_fresh_process(sys.argv[1], None if sys.argv[2]=='default' else int(sys.argv[2]))))",
+            str(self.workspace), "default" if threads is None else str(threads)],
+            cwd=Path(__file__).parents[1], capture_output=True, text=True)
+        self.assertEqual(child.returncode, 0, f"fresh resolve stdout:\n{child.stdout}\nstderr:\n{child.stderr}")
+        self.assertEqual(json.loads(child.stdout), expected, child.stderr)
+
+
 @unittest.skipUnless(os.environ.get("SCNSIM_RUN_JULIA_TESTS") == "1",
                      "deferred Julia Workspace inventory/version evidence")
 class JuliaWorkspaceVersioningInventoryTests(unittest.TestCase):

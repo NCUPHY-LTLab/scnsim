@@ -181,6 +181,20 @@ class SelectedNetworkTests(unittest.TestCase):
         spec = DirectSolveSpec(frequencies=[1.0, 2.0] * u.GHz)
         with TemporaryDirectory() as workspace:
             with _closed_run(plan=plan, workspace=Path(workspace), backend="jax", precision="float64") as run:
+                compiled = run.explain(run.original, spec).evidence["compiled"]
+                sections = [row for row in compiled["expanded_branch_rows"]
+                            if row["kind"] == "pi_section"]
+                self.assertEqual([row["section"] for row in sections], [1, 2])
+                self.assertTrue(all(tuple(row["conductors"]) == ("readout", "filter")
+                                    for row in sections))
+                self.assertEqual(len(compiled["node_order"]), 6)
+                capacitance = compiled["c_matrix"]
+                encoded = capacitance["values"]
+                values = np.frombuffer(bytes.fromhex(encoded["data_hex"]),
+                                       dtype=np.dtype(encoded["dtype"]).newbyteorder("<"))
+                self.assertTrue(any(row != column and value != 0
+                                    for row, column, value in zip(capacitance["rows"],
+                                        capacitance["cols"], values, strict=True)))
                 result = run.solve(run.original, spec)
                 self.assertEqual(result.s.view.matrix.shape, (2, 4, 4))
                 self.assertEqual(result.y.view.matrix.shape, (2, 4, 4))
@@ -198,6 +212,32 @@ class SelectedNetworkTests(unittest.TestCase):
                     .retain("feedline_in", "feedline_out", "qubit.differential")
                 )
                 spec = DirectSolveSpec(frequencies=[5.5] * u.GHz)
+                explanation = run.explain(view, spec).evidence
+                compiled = explanation["compiled"]
+                primary = compiled["views"][compiled["primary_view_id"]]
+                lineage = primary["lineage"]
+                declaration = lineage["declaration"]
+                self.assertEqual(tuple(declaration["ptc"]["selected_ports"]),
+                                 ("probe_plus", "probe_minus"))
+                ports = primary["ports"]
+                encoded_mask = ports["load_mask"]
+                load_mask = np.frombuffer(
+                    bytes.fromhex(encoded_mask["data_hex"]),
+                    dtype=np.dtype(encoded_mask["dtype"]).newbyteorder("<"),
+                ).reshape(encoded_mask["shape"])
+                self.assertEqual(load_mask.tolist(),
+                                 [0.0 if port in ("probe_plus", "probe_minus") else 1.0
+                                  for port in ports["ids"]])
+                self.assertEqual(tuple(port for port in ports["ids"]
+                                       if port in ("probe_plus", "probe_minus")),
+                                 ("probe_plus", "probe_minus"))
+                port_nets = {port["id"]: port["net"]
+                             for port in explanation["connectivity"]["ports"]}
+                self.assertEqual(tuple(primary["terminal_ids"]),
+                                 (port_nets["feedline_in"], port_nets["feedline_out"], "qubit.differential"))
+                self.assertEqual(tuple(declaration["retain"]["retained_coordinates"]),
+                                 tuple(primary["terminal_ids"]))
+                self.assertTrue(primary["port_realizable"])
                 result = run.solve(view, spec)
                 self.assertEqual(result.s.view.matrix.shape, (1, 3, 3))
                 self.assertEqual(result.s.view.probe_loads["probe_plus"], "compensated")

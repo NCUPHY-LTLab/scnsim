@@ -1442,7 +1442,7 @@ def _complete_chunked_operation(binding, *, domain, operation_id, task_id, attem
         spec = request.get("spec") if isinstance(request, Mapping) else None
         is_sweep = isinstance(source, Mapping) and source.get("kind") in {"grid", "points"}
         is_direct_points = (
-            isinstance(source, Mapping) and source.get("kind") == "points"
+            isinstance(source, Mapping) and source.get("kind") in {"grid", "points"}
             and isinstance(spec, Mapping) and spec.get("type") == "direct_solve"
         )
         if (not isinstance(request, dict) or record_bytes(request) != request_raw

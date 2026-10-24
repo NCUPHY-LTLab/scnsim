@@ -2142,7 +2142,7 @@ def _read_chunked_success(snapshot, binding_identity, *, descriptor, attempt_id,
     source_kind = source.get("kind") if isinstance(source, Mapping) else None
     direct_points = (
         request.get("operation") == "solve_direct"
-        and source_kind == "points"
+        and source_kind in {"grid", "points"}
         and isinstance(spec, Mapping)
         and spec.get("type") == "direct_solve"
     )

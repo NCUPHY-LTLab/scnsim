@@ -925,6 +925,7 @@ def _execute_physical_optimization(*, binding, plan_document, prepared_analysis,
             computed = run_physical_optimization(
                 plan_document=plan_document, request=request,
                 effective_point=prepared_analysis.effective_point(), precision=precision,
+                parameter_authorizations=prepared_analysis.parameter_authorizations(),
                 backend=backend, operation_resource=operation_resource, trace=trace,
                 program_owner=program_owner, checkpoint_policy=checkpoint_policy,
                 resume_state=resume_state,
@@ -1350,6 +1351,11 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
             result_sink = ChunkedResultSink(
                 spool, domain=chunk_domain,
                 scratch_budget_bytes=policy.scratch_budget_bytes,
+                sweep_grid_shape=(
+                    request["parameter_source"]["shape"]
+                    if chunk_domain == "sweep"
+                    and request["parameter_source"]["kind"] == "grid" else None
+                ),
             )
 
         def emit(kind, payload):
@@ -1605,7 +1611,7 @@ def _chunked_operation_domain(request):
     if operation == "solve_direct" and source_kind == "point":
         return "direct"
     spec = request.get("spec")
-    if (operation == "solve_direct" and source_kind == "points"
+    if (operation == "solve_direct" and source_kind in {"grid", "points"}
             and isinstance(spec, Mapping) and spec.get("type") == "direct_solve"):
         return "sweep"
     if operation == "evaluate_direct" and source_kind in {"grid", "points"}:

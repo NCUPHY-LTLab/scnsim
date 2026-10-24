@@ -140,7 +140,7 @@ def acquire_native_root(program, native, candidate, row, seed, *, backend,
 
 def acquire_completed_root_frame(program, inputs, *, backend, program_owner,
                                  operation_resources=None, compact_evidence=False,
-                                 discover=False):
+                                 discover=False, affine_evidence=None):
     """Acquire current-point packets/archives once for value and local AD.
 
     Only original-point acquisition enables declared discovery. Later points
@@ -148,7 +148,8 @@ def acquire_completed_root_frame(program, inputs, *, backend, program_owner,
     The caller releases this working bundle after synchronous consumption.
     """
     from ..numerics.evidence import require_native_candidate
-    native = program.native_program(inputs,program_owner=program_owner,admit_core=True)
+    native = program.native_program(inputs,program_owner=program_owner,admit_core=True,
+                                    affine_evidence=affine_evidence)
     borrowed = (nullcontext() if program_owner is None else
                 program_owner.hold_exact_core(native.core))
     completed,errors,results,searches = [],[],[],[]
@@ -184,12 +185,15 @@ class ChunkedResultSink:
     time. The sink has no Workspace transaction or success-selection authority.
     """
 
-    def __init__(self, spool, *, domain, scratch_budget_bytes):
+    def __init__(self, spool, *, domain, scratch_budget_bytes, sweep_grid_shape=None):
         if domain not in {"direct", "sweep"}:
             raise ValueError(f"unsupported chunked result domain {domain!r}")
         self._spool = spool
         self._domain = domain
         self._scratch_budget_bytes = scratch_budget_bytes
+        self._sweep_grid_shape = (
+            None if sweep_grid_shape is None else tuple(sweep_grid_shape)
+        )
         self._references = []
         self._native_work_references = {}
         self._point_count = 0
@@ -211,6 +215,10 @@ class ChunkedResultSink:
         if not isinstance(metadata, Mapping):
             raise TypeError("chunked result metadata must be a mapping")
         self._metadata = dict(metadata)
+
+    def set_affine_evidence(self, rows):
+        """Retain the actual Direct check's conditional facts in its fixed metadata."""
+        self._metadata['affine_evidence'] = rows
 
     @property
     def point_count(self):
@@ -319,6 +327,14 @@ class ChunkedResultSink:
             raise ValueError("Sweep occurrence ordinal differs from its source order")
         body = dict(point)
         body["ordinal"] = ordinal
+        if self._sweep_grid_shape is not None:
+            # Publication uses Cartesian request coordinates; scheduling stays flat.
+            remaining = ordinal
+            indices = []
+            for size in reversed(self._sweep_grid_shape):
+                remaining, index = divmod(remaining, size)
+                indices.append(index)
+            body["source_index"] = list(reversed(indices))
         continuation_refs = self._continuations.pop(ordinal, ())
         if continuation_refs:
             body["continuations"] = [
@@ -498,6 +514,8 @@ class PhysicalAnalysis:
         self.ephemeral = bool(getattr(result_sink, "in_memory_analysis", False))
         self.operation_resources = operation_resources
         self._native_slot_admission = None
+        self._affine_point_key = None
+        self._affine_evidence = None
         self.spec = analysis['spec']
         self.baseline = {
             'type': 'parameter_set_v2', 'allow_extrapolation': [],
@@ -593,6 +611,10 @@ class PhysicalAnalysis:
 
     def program_at(self, point):
         key = point_identity(point)
+        if key != self._affine_point_key:
+            from ..compilation.program import _AffineEvidence
+            self._affine_evidence = _AffineEvidence(parameter_set=point['allow_extrapolation'])
+            self._affine_point_key = key
         if key == self._active_point_key:
             return self._active_point_program
         if key == self._initial_point_key and hasattr(self, 'program'):
@@ -639,10 +661,22 @@ class PhysicalAnalysis:
             return {('root_start', index): result for index, result in results.items()}
         return dict(quantity_body_id(result) for result in results.values())
 
+    @staticmethod
+    def _bind_affine_evidence(result, observation):
+        """Detach this actual check's facts before the result enters a cache."""
+        if observation is None or not observation.rows:
+            return result
+        return replace(result, evidence_bytes=record_bytes({
+            **record_document(result.evidence_bytes),
+            'affine_evidence': observation.rows,
+        }))
+
     def evaluate(self, point, identity, *, baseline=False):
         branch_results = {}
+        observation = None
         try:
             program = self.program_at(point)
+            observation = self._affine_evidence
             if baseline or not self.roots:
                 # The complete baseline/healthy value frame already returns
                 # its actual root packets. Do not solve those roots in a
@@ -650,7 +684,8 @@ class PhysicalAnalysis:
                 inputs = program.inputs(point)
                 if any(row['spec'].get('search') for row in program.observable_metadata()
                        if row['start_index'] is not None):
-                    native = program.native_program(inputs,program_owner=self._program_owner,admit_core=True)
+                    native = program.native_program(inputs,program_owner=self._program_owner,admit_core=True,
+                                                    affine_evidence=self._affine_evidence)
                     candidate = self._execute_native_candidate(native,inputs,operation='evaluate')
                     completed,completed_errors = [],[]
                     for row in native.root_layout:
@@ -794,18 +829,20 @@ class PhysicalAnalysis:
                     if not row['hidden']:
                         anchor = result
                     self.anchors[self._dependency_key(row)] = anchor
-            return result, dependencies
+            return self._bind_affine_evidence(result, observation), dependencies
         except EvaluationFailure as error:
             result = error.result if error.result is not None else EvaluationResult(identity, failure=error.failure)
             result = replace(result, id=identity)
             dependencies = dict(error.dependencies)
             dependencies.pop(quantity_body_id(result)[0], None)
-            return result, dependencies
+            return self._bind_affine_evidence(result, observation), dependencies
         except SCNSimError as error:
             if error.kind not in _NUMERICAL_FAILURES:
                 raise
             failure = NumericalFailure(error.kind, error.stage, str(error), record_bytes(error.evidence))
-            return EvaluationResult(identity, failure=failure), self._dependencies(branch_results)
+            return self._bind_affine_evidence(
+                EvaluationResult(identity, failure=failure), observation
+            ), self._dependencies(branch_results)
 
 
     def record(self, point, result, dependencies, **occurrence):
@@ -925,6 +962,7 @@ class PhysicalAnalysis:
 
         native = program.native_program(
             inputs, program_owner=self._program_owner, admit_core=True,
+            affine_evidence=self._affine_evidence,
         )
         source_indices = tuple(native.input_layout['omega']['source_indices'])
         with self.backend.jax.enable_x64(True), self.backend.jax.default_device(self.backend.device):
@@ -968,6 +1006,7 @@ class PhysicalAnalysis:
         inputs = program.inputs(point, branch_starts_rad_s=starts)
         native = program.native_program(
             inputs, program_owner=self._program_owner, admit_core=True,
+            affine_evidence=self._affine_evidence,
         )
         branch_starts = tuple(start for start, _ in completed_branches)
         packets = tuple(packet for _, packet in completed_branches)
@@ -1120,6 +1159,7 @@ class PhysicalAnalysis:
         inputs = program.inputs(point, branch_starts_rad_s=branch_starts_rad_s)
         native = program.native_program(
             inputs, program_owner=self._program_owner, admit_core=True,
+            affine_evidence=self._affine_evidence,
         )
         work_rows = tuple(native.work_layout)
         source_indices = tuple(native.input_layout['omega']['source_indices'])
@@ -1339,6 +1379,8 @@ class PhysicalAnalysis:
             frequency_slots=None, prepare_work=prepare_work,
             raw_failure_certificates=in_memory,
         )
+        if self._affine_evidence.rows:
+            self.result_sink.set_affine_evidence(self._affine_evidence.rows)
         occurrence_layouts = tuple(native.occurrence_layout)
         if not occurrence_layouts:
             raise RuntimeError('native Direct program has no declared matrix occurrences')
@@ -1384,6 +1426,8 @@ class PhysicalAnalysis:
                     'reference_impedances_ohm', 'load_mask',
                 )},
                 'realized_capabilities': capabilities,
+                **({'affine_evidence':self._affine_evidence.rows}
+                   if self._affine_evidence.rows else {}),
                 'work_evidence': work_summaries,
             }))
             self.result_sink.append_direct_chunk(
@@ -1402,13 +1446,16 @@ class PhysicalAnalysis:
         inputs = program.inputs(point, branch_starts_rad_s=starts)
         native = program.native_program(
             inputs, program_owner=self._program_owner, admit_core=True,
+            affine_evidence=self._affine_evidence,
         )
+        observation = self._affine_evidence
         with ExitStack() as stack:
             self._pin_native_core(native, stack)
             candidate = self._execute_native_candidate(native, inputs, operation=operation)
-            return execute_native_branch_packet(native,candidate,start_index,omega,
+            result, packet, error = execute_native_branch_packet(native,candidate,start_index,omega,
                 backend=self.backend,program_owner=self._program_owner,
                 operation_resources=self.operation_resources,compact_evidence=self.ephemeral)
+            return self._bind_affine_evidence(result, observation), packet, error
 
     def _native_branch_starts(self, point, *, baseline):
         program = self.program_at(point)
@@ -1484,6 +1531,7 @@ class PhysicalAnalysis:
             )
 
         starts = self._native_branch_starts(point, baseline=baseline)
+        observation = self._affine_evidence
         try:
             program, inputs, native, candidate, root_results, root_packets, root_errors = self._execute_native_work(
                 point, operation=operation, validate_work=validate_work,
@@ -1546,10 +1594,10 @@ class PhysicalAnalysis:
                     ),
                     'work_evidence': work_evidence,
                 })
-                return EvaluationResult(
+                return self._bind_affine_evidence(EvaluationResult(
                     str(identity), S=families['S'], Y=families['Y'], Z=families['Z'],
                     evidence_bytes=evidence,
-                ), {}
+                ), observation), {}
             branch_rows = {
                 row['start_index']: row for row in native.root_layout
             }
@@ -1697,7 +1745,8 @@ class PhysicalAnalysis:
                 if selected.failure is not None:
                     raise EvaluationFailure(selected.failure, result=selected,
                                             dependencies=dependencies)
-                return replace(selected, id=str(identity)), dependencies
+                return self._bind_affine_evidence(
+                    replace(selected, id=str(identity)), observation), dependencies
 
             matrices = []
             for occurrence in native.occurrence_layout:
@@ -1751,17 +1800,19 @@ class PhysicalAnalysis:
                 raise TypeError(f'native Sweep result projection is not integrated for {self.spec["type"]!r}')
 
             dependencies = {}
-            return result, dependencies
+            return self._bind_affine_evidence(result, observation), dependencies
         except EvaluationFailure as error:
             result = error.result if error.result is not None else EvaluationResult(
                 str(identity), failure=error.failure,
             )
-            return replace(result, id=str(identity)), dict(error.dependencies)
+            return self._bind_affine_evidence(
+                replace(result, id=str(identity)), observation), dict(error.dependencies)
         except SCNSimError as error:
             if error.kind not in _NUMERICAL_FAILURES:
                 raise
             failure = NumericalFailure(error.kind, error.stage, str(error), record_bytes(error.evidence))
-            return EvaluationResult(str(identity), failure=failure), {}
+            return self._bind_affine_evidence(
+                EvaluationResult(str(identity), failure=failure), observation), {}
         finally:
             self.result_sink.release_native_work(namespace)
 

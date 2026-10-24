@@ -19,9 +19,9 @@ installed wheel when adding locked display dependencies to those environments.
 | `test_rlgc.py` | Ordered immutable RLGC values, defensive isolation, physical matrices and Q2D source loading. |
 | `test_component_models.py` | Library provenance/factory-once, JJ/IDC/SQUID expansion, non-SPD rejection and an independent coupled-inductor stiffness stamp. |
 | `test_direct_analysis.py` | Ordered multiconductor and selected-network S/Y/Z, PTC, transform/retain, complex anchors and analytic operator/response/pole/coupling/residue/zero comparisons. |
-| `test_affine_parameters.py` | Ordinary unauthorized affine points fail in authoring before request creation. Optimization-candidate physical rejection remains a distinct boundary. |
+| `test_affine_parameters.py` | Ordinary unauthorized affine points fail in authoring before request creation. Same-call authorized fan-out and rejected/authorized CMA candidate evidence run on JAX in memory and Workspace; source lists distinguish ParameterSet and OptimizationSpec approval. |
 | `test_optimization.py` | Seven-selector explanation and actual JAX CMA selector execution with a zero-cost baseline; no cross-backend candidate-trajectory equality. |
-| `test_workspace_readback.py` | JAX Workspace version upgrade/downgrade plus the retained Julia attempt/inventory cases below. |
+| `test_workspace_readback.py` | JAX Workspace version upgrade/downgrade, shared-Plan Direct/root/CMA identities, exact warm reuse and guarded fresh-process resolve; retained Julia attempt/inventory cases remain below. |
 | `test_workspace_optimization_readback.py` | Actual CMA and L-BFGS-B completion, repeated optimize/resolve with zero native work, fresh-process guarded resolve, exact saved values and identities. |
 | `test_harmonic_balance.py` | HB declaration/preflight, typed numerical failures and sealed readback; packaged Julia execution requires the opt-in below. |
 | `test_julia_replay.py` | Retained Julia CMA interruption/replay and corruption rejection. |
@@ -62,17 +62,39 @@ SCNSIM_RUN_JULIA_TESTS=1 uv run --locked --extra julia --group course-generation
   python -W error::ResourceWarning -m unittest discover -s tests -t . -v
 ```
 
-These assertions remain under their original Julia gate while their evidence
-interfaces await migration:
+These backend-specific assertions remain under their original Julia gate until
+the ordered HB/Julia retirement. Their physical purposes and JAX replacements
+are listed below; inventory and attempt-directory behavior are not redefined
+as a JAX API.
 
 | Group | Retained assertions |
 | --- | --- |
-| `JuliaSelectedNetworkEvidenceTests` | `transmission_line_audit`/stations, `ref_lineage`, inventory requests. |
+| `JuliaSelectedNetworkEvidenceTests` | Julia audit/stations layout and inventory retire with their features. JAX `SelectedNetworkTests` checks actual `pi_section`, matrix node/order/cross-coupling and `compiled.views[primary_view_id].lineage`. |
 | `JuliaComponentEvidenceTests` | Julia mutual-inductance row/derived-M encoding and no-request inventory. The physical stiffness comparison also runs independently on JAX. |
-| `JuliaAffineEvidenceTests` | Receipt fan-out, candidate rejection/authorization and its ledger fields. Ordinary evaluate rejection is an authoring error, distinct from candidate `affine_support`. |
-| `JuliaOptimizationRetainedTests` | Julia selector/inventory and CMA ledger/branch observations. |
-| `JuliaWorkspaceVersioningInventoryTests`, `WorkspaceReadbackTests` | Inventory, exact attempt selection, interruption/retry and fresh-process attempt readback. |
+| `JuliaAffineEvidenceTests` | Original receipt layout stays gated. JAX `AffineEvidenceTests` reads recorded fan-out rows from the actual Result/history, including candidate values, consumer edges and ordered authorization sources. Ordinary authoring rejection remains distinct from candidate `affine_support` plus infinite candidate cost. |
+| `JuliaOptimizationRetainedTests` | Julia inventory/ledger/seed observations retire with those features. Existing JAX selector and exact zero-baseline assertions remain unchanged; no cross-backend candidate trajectory is required. |
+| `JuliaWorkspaceVersioningInventoryTests`, `WorkspaceReadbackTests` | Julia inventory/attempt selection/interruption/retry remain gated until retirement. JAX versioning and `JaxWorkspaceReadbackTests` preserve shared-Plan identities, warm reuse and fresh-process resolve. No new JAX retry promise is introduced. |
 | `JuliaComplexAnchorDecodingTests` | Exact packaged Julia complex-anchor decoding. Public anchor execution lives in the JAX Direct tests. |
 
 HB and Julia replay remain in scope for their retained backend. A reported skip
 means that group did not execute; it is not a passing numerical observation.
+
+## Same-call affine evidence
+
+`AffineEvidenceTests` uses the existing two-consumer affine fixture and authored
+support interval. Only actual out-of-support edges add `affine_evidence` rows.
+Each row retains the exact binary64 input/support/distance, consumer path/field,
+side and `authorization_sources`: `parameter_set`, then `optimization_spec` when
+applicable; an unauthorized candidate records an empty list.
+
+The ordinary test preserves the original Operator execution/readback, and reads
+the rows through the existing scalar Y Result evidence at the same point and
+5 GHz. Operator has no new public evidence field. Workspace optimization history
+mappings and memory trial objective-component mappings expose the actual
+candidate rows. A saved cache read retains the sources of its original execution.
+Absent rows add no empty key to non-affine Results.
+
+The test preserves the original CMA fixture, seed and budget. Rejected affine
+candidates must retain `invalid_candidate_physical_parameter` / `affine_support`
+and infinite cost; unknown preparation errors remain fatal. Julia receipt
+helpers are removed only with the later ordered backend retirement.

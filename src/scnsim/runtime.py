@@ -2053,6 +2053,8 @@ class CircuitRun:
                 selector_views=selector_views,
             )
         parameter_source, resolved = self._parameter_source(parameters)
+        parameter_authorizations = tuple(ref._key_record()
+            for ref in resolved.effective_parameters.allow_extrapolation)
         if isinstance(spec, OptimizationSpec):
             active = {_parameter_key(variable.parameter) for variable in spec.variables}
             if parameters is not None and any(
@@ -2129,6 +2131,7 @@ class CircuitRun:
             view=_view_declaration(ref._lineage), encoded_spec=encoded_spec,
             parameter_source=parameter_source, runtime_base=self._runtime_base,
             source_units=source_units, backend=backend, precision=precision,
+            parameter_authorizations=parameter_authorizations,
         )
 
     def _preflight(self, request: Mapping[str, object], *, native_supervisor) -> Mapping[str, object]:
