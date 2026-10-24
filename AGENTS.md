@@ -1,52 +1,58 @@
-# SCNSim collaboration
+# Working on SCNSim
 
-Human may work directly with **Lead — SCNSim Documentation** on reader-facing
-information architecture, narrative, navigation, terminology and writing quality
-in the README, guides and documentation.
+The SCNSim Repo Lead owns product code, documentation, tests, CI and packaging.
+Bring documentation and Preview work to the same Lead. Use the current task
+and the affected source as the starting point; read additional guidance only
+when it applies to that work.
 
-**Documentation owns documentation writing and presentation**, including authored
-README and guides; explanations of established public APIs, existing behavior
-and formulas; navigation, links, anchors, cards, CSS and theme adoption; and
-documentation-only settings and helpers. The Documentation Lead plans, assigns
-and reviews this work, then closes the documentation task. The Lead's existing
-reusable Luna writers author it.
+## Work within one team
 
-**SCNSim Development** retains product ownership: product/runtime APIs, schemas,
-formula definitions and scientific interpretation, solver and research
-execution, executable model and knowledge-generator behavior, executable
-notebooks and teaching code, tests, CI, packaging and release. Documentation
-owns docstrings and embedded documentation text, coordinating only the exact
-text hunk with the current product-file writer. Generated product artifacts
-continue through the original generator and are not edited by hand.
-Documentation can explain established APIs, behavior and formulas while
-preserving existing contracts and research requirements. New product or
-scientific meaning and actual implementation defects remain with Development
-and the applicable Human authority.
+The Lead can make small, closely related changes directly. Delegate substantial
+implementation, documentation-site work or long-running work when useful. Use
+an existing team member as `docs_writer` for delegated documentation; keep one
+writer per path or overlapping hunk. Workers return their work to the Lead
+without creating another delegation layer.
 
-For mixed documentation/product files, Documentation writes prose and
-Development owns behavior-bearing code and semantics. Coordinate only a concrete
-overlapping hunk with its current writer. Preserve existing changes and active
-writers; a one-time handoff identifies current active edits, WIP and exact
-overlaps. Once that handoff is complete, ordinary documentation work does not
-need a fresh Development release, prose approval or packet for each change.
-Executable cells and generated product content remain with their existing
-owners; generated product files change through their owning generator.
+Use the shared collaboration and model-routing Skills for worker limits,
+model selection and cross-repository ownership. Preserve existing worker IDs,
+active assignments and services when responsibilities change.
 
-After an exact handoff, Documentation owns the existing documentation Preview
-operation. Record its URL, host, command, working directory, process/session,
-source revision, outputs and shutdown responsibility in the handoff. Preserve
-the running service and process; Preview ownership remains separate from formal
-publication by the existing publisher.
+## Maintain behavior and its documentation together
 
-After each coherent documentation change, Documentation sends Development the
-exact source identity and implementation-facing delta for synchronization.
-This update is not a request for Development to write or approve documentation
-and does not block ordinary documentation work. Development handles any actual
-implementation, semantic or test changes under the existing authority.
+An authorized feature, fix, refactor or removal includes its directly related
+documentation, tests and ordinary local checks. Retiring a feature includes
+removing its obsolete dedicated tests. Diagnose failures; do not hide them by
+skipping tests, weakening assertions or reducing coverage.
 
-The existing Git owner and Integration serialize Git delivery under the selected
-delivery profile. The reviewed documentation candidate goes to the original
-Git owner for mechanical commit, push and readback. A documentation handoff does
-not authorize a new publisher, branch switch, merge or release. Use the
-applicable collaboration and lifecycle Skills for delivery and verification
-requirements.
+Keep Human-defined research conditions, numerical tolerances, acceptance
+criteria and privacy boundaries. Resolve changes to those requirements with
+the Human. Follow the task's assigned numerical and verification scope; a
+documentation change does not restart simulations or paused work.
+
+Reuse valid results when their relevant inputs and behavior are unchanged.
+Check the affected surface after a change. Run a full numerical comparison
+only at the milestone assigned by the Human, not after every commit.
+
+## Documentation and Preview
+
+Keep public API explanations, docstrings, tutorials and examples aligned with
+the implementation. Introductory tutorials use in-memory storage; advanced
+material explains Workspace. Change generated pages and catalogues through
+their owning sources and generators.
+
+Preserve an existing Preview and its source snapshot during a handoff. The
+Repo Lead owns its operation and shutdown; refreshing a Preview and publishing
+the documentation site are separate actions.
+
+## Preserve work and deliver coherent changes
+
+Preserve Human edits, other writers' work, held overlays and unrelated staged
+changes. Compose each candidate from its declared base and owned changes.
+Historical results remain attached to the source and artifact that produced
+them.
+
+Use the existing Git owner for ordinary commit, push and remote readback on
+the assigned branch. Keep the current PR and delivery scope. Merge, release,
+deployment, dependency pins and external data transfer retain their own
+authorization. Use the shared lifecycle Skill for semantic and delivery status;
+passing checks does not itself grant Human acceptance.
