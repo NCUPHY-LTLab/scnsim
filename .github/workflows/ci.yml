@@ -86,8 +86,7 @@ jobs:
       - name: Record convergence validation scope
         run: |
           echo "### Test coverage in this job" >> "$GITHUB_STEP_SUMMARY"
-          echo "This job and each installed-wheel runtime job discover the current purpose-based unittest suite with the Julia opt-in unset. Julia-only groups reported as skipped are not native execution coverage." >> "$GITHUB_STEP_SUMMARY"
-          echo "The Linux/macOS runtime-preparation matrix also provisions the pinned Julia runtime and discovers the same suite with its explicit opt-in. Job results report actual failures; skips are not treated as passes." >> "$GITHUB_STEP_SUMMARY"
+          echo "This job and each installed-wheel runtime job discover the current purpose-based JAX unittest suite. Job results report actual failures; skips are not treated as passes." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and inspect the wheel
         run: |
@@ -102,11 +101,7 @@ jobs:
               names = wheel.namelist()
           assert "scnsim/py.typed" in names
           assert "scnsim/_native/compensated_cpu.cpp" in names
-          assert "scnsim/_julia/Project.toml" in names
-          assert "scnsim/_julia/Manifest.toml" in names
-          assert "scnsim/_julia/runtime.json" in names
-          assert "scnsim/_julia/src/SCNSimBackend.jl" in names
-          assert "scnsim/_julia/bin/scnsim_request.jl" in names
+          assert not any(name.startswith("scnsim/_julia/") for name in names), names
           assert any(name.endswith("/licenses/LICENSE") for name in names)
           assert any(name.endswith("/licenses/NOTICE") for name in names)
           PY
@@ -530,6 +525,7 @@ jobs:
           # auditwheel may preserve a second equivalent Linux platform tag.
           assert expected in wheels[0] or (platform.system() == "Linux" and "manylinux_2_28_x86_64" in wheels[0] and "cp312-cp312" in wheels[0]), wheels[0]
           with zipfile.ZipFile(wheels[0]) as archive:
+              assert not any(name.startswith("scnsim/_julia/") for name in archive.namelist()), archive.namelist()
               binaries = [name for name in archive.namelist() if name.startswith("scnsim/_native/_compensated_cpu") and name.endswith(".so")]
               assert len(binaries) == 1, binaries
               source = "scnsim/_native/compensated_cpu.cpp"
@@ -777,7 +773,7 @@ jobs:
               exec(compile(block, str(source) + ':' + cell_id, 'exec'), namespace)
           capacitance, inductance = namespace['capacitance'], namespace['inductance']
           with TemporaryDirectory() as workspace:
-              run = CircuitRun(plan=namespace['plan'], workspace=workspace, backend='jax')
+              run = CircuitRun(plan=namespace['plan'], workspace=workspace)
               view = run.original.reduce(ReductionPipeline().retain(namespace['resonator_coordinate']))
               root = DiagonalRootSpec(coordinate=namespace['resonator_coordinate'], root_hint=6.0*u.GHz)
               quantities = {'frequency': root.frequency.on(view)}
@@ -846,74 +842,3 @@ jobs:
           test="$repository/tests/test_path_portability.py"
           cd "$RUNNER_TEMP"
           "$python" -W error::ResourceWarning "$test"
-      - name: Explicitly provision Julia and prepare the packaged runtime
-        env:
-          JULIA_DEPOT_PATH: ${{ runner.temp }}/scnsim-julia-depot
-        run: |
-          uv venv --clear --python 3.12 .venv-wheel
-          for wheel in native-wheelhouse/*.whl; do
-            uv pip install --python .venv-wheel/bin/python "${wheel}[julia]"
-          done
-          uv pip install --python .venv-wheel/bin/python -r "$RUNNER_TEMP/scnsim-course-generation-requirements.txt"
-          .venv-wheel/bin/python - <<'PY'
-          from juliapkg.compat import Compat
-          from juliapkg.find_julia import find_julia
-          from juliapkg.state import STATE
-          from scnsim.execution.preparation import prepare_runtime
-
-          # CI setup explicitly acquires Julia; package feature calls never do.
-          find_julia(
-              compat=Compat.parse("=1.12.6"), prefix=STATE["install"],
-              install=True, upgrade=False,
-          )
-          runtime = prepare_runtime()
-          assert runtime.julia_version == "1.12.6"
-          PY
-          SCNSIM_RUN_JULIA_TESTS=1 \
-            .venv-wheel/bin/python -W error::ResourceWarning \
-            -m unittest discover -s tests -t . -v
-          .venv-wheel/bin/python -W error::ResourceWarning - <<'PY'
-          import sys
-          from pathlib import Path
-          from tempfile import TemporaryDirectory
-          from unittest.mock import patch
-
-          from examples.tutorials.fixtures.primitive_resonator import build_primitive_resonator
-          from scnsim import (
-              CircuitRun, CurrentDrive, DirectSolveSpec, HBCaseSpec,
-              HBSolveSpec, HBTruncation, PumpAxis, SParameterTrace, units as u,
-          )
-
-          fixture = build_primitive_resonator()
-          with TemporaryDirectory() as workspace:
-              run = CircuitRun(plan=fixture.plan, workspace=Path(workspace), backend="julia")
-              direct_spec = DirectSolveSpec(frequencies=[5.5, 6.0, 6.5] * u.GHz)
-              direct = run.solve(run.original, direct_spec)
-              pump = PumpAxis(id="pump", frequency=9.0 * u.GHz)
-              drive = CurrentDrive(id="pump_drive", at=fixture.signal_port, mode=(1,))
-              hb_spec = HBSolveSpec(
-                  pump_axes=(pump,), drives=(drive,),
-                  frequencies=[5.5, 6.0, 6.5] * u.GHz,
-                  cases=(HBCaseSpec(id="pump_off", currents={}),),
-                  truncation=HBTruncation(
-                      pump_harmonics=(3,), modulation_harmonics=(1,),
-                      three_wave_mixing=False, four_wave_mixing=True,
-                  ),
-                  traces=(SParameterTrace(
-                      id="reflection", input_port="signal_in", input_mode=(0,),
-                      output_port="signal_in", output_mode=(0,),
-                  ),),
-              )
-              hb = run.solve(run.original, hb_spec)
-              assert hb.cases["pump_off"].succeeded, hb.cases["pump_off"]
-              with patch("subprocess.Popen", side_effect=AssertionError("resolve launched a process")):
-                  assert run.resolve(run.original, direct_spec).identity == direct.identity
-                  assert run.resolve(run.original, hb_spec).identity == hb.identity
-              assert not any(
-                  name == "scnsim.visualization.diagram" or name.startswith("scnsim.visualization.diagram.")
-                  or name in {"scnsim.schematic", "scnsim.composition"}
-                  for name in sys.modules
-              ), "numerical smoke imported the renderer"
-              print("structured Direct, pump-off HB and zero-launch exact resolve passed")
-          PY
-          git diff --check

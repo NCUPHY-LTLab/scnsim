@@ -3,8 +3,8 @@
 This CI-only consumer never changes numerical rules or supplies a fallback.
 Build audit and installed public use have separate records; exceptions remain
 fatal after preserving completed observations. The isolated consumer runs plain
-uv sync against the downloaded wheel; only existing pure-Python asciitree may
-build from source. No native compiler is used by consumer installation or smoke.
+uv sync against the downloaded wheel with wheel-only dependencies. No native
+compiler is used by consumer installation or smoke.
 """
 from __future__ import annotations
 
@@ -266,6 +266,8 @@ def audit(args):
         raise RuntimeError(f'unexpected Windows wheel tag: {wheel.name}')
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
+        if any(name.startswith('scnsim/_julia/') for name in names):
+            raise RuntimeError('JAX-only wheel contains retired Julia resources')
         binaries = [name for name in names if name.startswith('scnsim/_native/_compensated_cpu') and name.endswith('.pyd')]
         if len(binaries) != 1:
             raise RuntimeError('wheel must contain exactly one compensated .pyd')
@@ -511,7 +513,7 @@ def sync_consumer(args):
         'version = "0.0.0"\nrequires-python = ">=3.12,<3.13"\n'
         f'dependencies = [{quote("scnsim==" + package["Version"])}]\n\n'
         '[tool.uv]\npackage = false\nno-build = true\n'
-        'no-binary-package = ["asciitree"]\n\n'
+        '\n'
         '[tool.uv.sources]\n'
         f'scnsim = {{ path = {quote(wheel.as_posix())} }}\n'
     )
@@ -526,7 +528,7 @@ def sync_consumer(args):
               'candidate_version': package['Version'], 'command': ['uv', 'sync'],
               'cwd': str(consumer),
               'uv_version': subprocess.check_output(['uv', '--version'], text=True).strip(),
-              'source_build_exception': ['asciitree'],
+              'source_build_exception': [],
               'all_other_dependencies': 'wheel-only', 'sync_exit_code': None}
 
     def retain():
