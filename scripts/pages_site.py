@@ -255,14 +255,19 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
             if path.name == '_quarto-pages.yml':
                 continue
             text = path.read_text(encoding='utf-8')
-            path.write_text(link.sub(lambda match: match[1] + entry['root'] + 'en/', text), encoding='utf-8')
+            path.write_text(link.sub(lambda match: match[1] + version_url + 'en/', text), encoding='utf-8')
     print(f"prepared {label} package={version} content={source_sha} presentation={presentation_sha}")
 
 
 def _local_reference(site: Path, page: Path, value: str, root: str) -> Path | None:
     parsed = urlsplit(value)
-    if parsed.scheme or parsed.netloc or value.startswith("#"):
+    if value.startswith("#"):
         return None
+    if parsed.scheme or parsed.netloc:
+        # Quarto preserves full URLs between separately rendered language
+        # projects. Still validate same-site destinations against the artifact.
+        if not value.startswith(SITE):
+            return None
     path = unquote(parsed.path)
     if not path:
         return None
