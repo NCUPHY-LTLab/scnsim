@@ -5,32 +5,34 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Capture the live develop head and every pinned release after one shared lock.
+# One serialized combined publication, independent of the product branch head.
 concurrency:
   group: scnsim-dual-branch-pages
   cancel-in-progress: false
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      - name: Check out presentation and deployment authority
+      - name: Check out publication authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up locked Python dependencies
+      - name: Set up locked documentation tooling
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.12.6"
           python-version: "3.12"
 
-      - name: Snapshot source and verify every catalog tag
+      - name: Snapshot pinned documentation and verify historical catalog sources
         id: sources
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -47,28 +49,33 @@ jobs:
             exit 1
           fi
           python_bin=$(uv python find 3.12)
-          presentation_sha=$(git rev-parse HEAD)
-          develop_live=$(git ls-remote --exit-code origin refs/heads/develop | cut -f1)
-          [[ "$presentation_sha" =~ ^[0-9a-f]{40}$ && "$develop_live" =~ ^[0-9a-f]{40}$ ]]
-          git fetch --no-tags --depth=1 origin "$develop_live"
-          develop_sha=$develop_live
-          if [[ "$EVENT_NAME" == pull_request && "$TARGET_BRANCH" == develop ]]; then
-            develop_sha=$presentation_sha
+          authority="$GITHUB_WORKSPACE"
+          publication_sha=$(git rev-parse HEAD)
+          docs_source_sha=$("$python_bin" -I "$authority/scripts/pages_site.py" source --pointer "$authority/scripts/pages_source.json")
+          [[ "$publication_sha" =~ ^[0-9a-f]{40}$ && "$docs_source_sha" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags --depth=1 origin "$docs_source_sha"
+          actual=$(git rev-parse 'FETCH_HEAD^{commit}')
+          if [[ "$actual" != "$docs_source_sha" ]]; then
+            echo "Pinned documentation commit is unavailable" >&2
+            exit 1
           fi
           staging="$RUNNER_TEMP/scnsim-pages"
-          mkdir -p "$staging/presentation" "$staging/sources"
-          git archive "$presentation_sha" | tar -xf - -C "$staging/presentation"
-          plan=$("$python_bin" "$staging/presentation/scripts/pages_site.py" plan --catalog "$staging/presentation/scripts/pages_versions.json")
+          mkdir -p "$staging/sources" "$staging/theme"
+          # Theme bytes come from the same pinned docs source, not the publisher.
+          git archive "$docs_source_sha" _extensions/arfiligol/askr | tar -xf - -C "$staging/theme"
+          plan=$("$python_bin" -I "$authority/scripts/pages_site.py" plan --catalog "$authority/scripts/pages_versions.json")
+          docs_source_dir=""
           while IFS='|' read -r kind label slug tag commit; do
             source="$staging/sources/$slug"
             mkdir -p "$source"
             if [[ "$kind" == development ]]; then
-              git archive "$develop_sha" | tar -xf - -C "$source"
+              git archive "$docs_source_sha" | tar -xf - -C "$source"
+              docs_source_dir="$source"
             elif [[ "$kind" == pinned-development ]]; then
               git fetch --no-tags --depth=1 origin "$commit"
               actual=$(git rev-parse 'FETCH_HEAD^{commit}')
               if [[ "$actual" != "$commit" ]]; then
-                echo "Pinned development commit $commit is unavailable" >&2
+                echo "Pinned historical documentation commit is unavailable" >&2
                 exit 1
               fi
               git archive "$commit" | tar -xf - -C "$source"
@@ -82,67 +89,79 @@ jobs:
               git archive "$commit" | tar -xf - -C "$source"
             fi
           done <<< "$plan"
+          [[ -n "$docs_source_dir" && -f "$docs_source_dir/uv.lock" ]]
           {
-            echo "develop_sha=$develop_sha"
-            echo "develop_live=$develop_live"
-            echo "presentation_sha=$presentation_sha"
+            echo "docs_source_sha=$docs_source_sha"
+            echo "docs_source_dir=$docs_source_dir"
+            echo "publication_sha=$publication_sha"
           } >> "$GITHUB_OUTPUT"
-          echo "content develop=$develop_sha; presentation=$presentation_sha; pinned release tags verified"
+          echo "docs=$docs_source_sha; publisher=$publication_sha; historical catalog identities verified"
 
       - name: Set up Quarto 1.10.18
         uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
         with:
           version: "1.10.18"
 
-      - name: Render each exact source with reviewed presentation
+      - name: Prepare one isolated documentation environment
         env:
-          DEVELOP_SHA: ${{ steps.sources.outputs.develop_sha }}
-          PRESENTATION_SHA: ${{ steps.sources.outputs.presentation_sha }}
+          DOCS_SOURCE_DIR: ${{ steps.sources.outputs.docs_source_dir }}
         run: |
           set -euo pipefail
-          python_bin=$(uv python find 3.12)
+          unset PYTHONPATH PYTHONHOME
+          cd "$DOCS_SOURCE_DIR"
+          UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/scnsim-pages/docs-env" \
+            uv sync --locked --only-group course-generation --no-install-project --no-build
+          "$RUNNER_TEMP/scnsim-pages/docs-env/bin/python" -I -c \
+            'import importlib.util; names=("scnsim", "jax", "julia", "juliacall"); found=[name for name in names if importlib.util.find_spec(name) is not None]; assert not found, found'
+
+      - name: Render both exact documentation versions without execution
+        env:
+          DOCS_SOURCE_SHA: ${{ steps.sources.outputs.docs_source_sha }}
+          PUBLICATION_SHA: ${{ steps.sources.outputs.publication_sha }}
+        run: |
+          set -euo pipefail
+          unset PYTHONPATH PYTHONHOME
           staging="$RUNNER_TEMP/scnsim-pages"
-          authority="$staging/presentation"
-          plan=$("$python_bin" "$authority/scripts/pages_site.py" plan --catalog "$authority/scripts/pages_versions.json")
+          authority="$GITHUB_WORKSPACE"
+          export PATH="$staging/docs-env/bin:$PATH"
+          python_bin="$staging/docs-env/bin/python"
+          plan=$("$python_bin" -I "$authority/scripts/pages_site.py" plan --catalog "$authority/scripts/pages_versions.json")
           while IFS='|' read -r kind label slug tag commit; do
             source="$staging/sources/$slug"
-            if [[ "$kind" == development ]]; then source_sha=$DEVELOP_SHA; else source_sha=$commit; fi
-            "$python_bin" "$authority/scripts/pages_site.py" prepare \
+            if [[ "$kind" == development ]]; then source_sha=$DOCS_SOURCE_SHA; else source_sha=$commit; fi
+            "$python_bin" -I "$authority/scripts/pages_site.py" prepare \
               --catalog "$authority/scripts/pages_versions.json" \
-              --vendor "$authority/_extensions/arfiligol/askr" \
+              --vendor "$staging/theme/_extensions/arfiligol/askr" \
               --source "$source" --label "$label" \
-              --source-sha "$source_sha" --presentation-sha "$PRESENTATION_SHA"
+              --source-sha "$source_sha" --publication-sha "$PUBLICATION_SHA"
             (
               cd "$source"
-              uv lock --check
-              UV_PROJECT_ENVIRONMENT="$staging/venv-$slug" uv sync --locked
               quarto render --profile pages --no-execute
             )
           done <<< "$plan"
 
-      - name: Validate and assemble one Pages tree
+      - name: Validate and atomically assemble one Pages tree
         env:
-          DEVELOP_SHA: ${{ steps.sources.outputs.develop_sha }}
-          PRESENTATION_SHA: ${{ steps.sources.outputs.presentation_sha }}
+          DOCS_SOURCE_SHA: ${{ steps.sources.outputs.docs_source_sha }}
+          PUBLICATION_SHA: ${{ steps.sources.outputs.publication_sha }}
         run: |
           set -euo pipefail
-          python_bin=$(uv python find 3.12)
           staging="$RUNNER_TEMP/scnsim-pages"
-          authority="$staging/presentation"
-          "$python_bin" "$authority/scripts/pages_site.py" assemble \
+          authority="$GITHUB_WORKSPACE"
+          "$staging/docs-env/bin/python" -I "$authority/scripts/pages_site.py" assemble \
             --catalog "$authority/scripts/pages_versions.json" \
             --template "$authority/scripts/pages_root_template.html" \
-            --sources "$staging/sources" --develop-sha "$DEVELOP_SHA" \
-            --presentation-sha "$PRESENTATION_SHA" --output "$staging/site"
+            --sources "$staging/sources" --docs-source-sha "$DOCS_SOURCE_SHA" \
+            --publication-sha "$PUBLICATION_SHA" --output "$staging/site"
 
-      - name: Upload one Pages artifact
-        if: github.event_name != 'pull_request'
+      - name: Upload one Pages artifact after successful validation
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
           path: ${{ runner.temp }}/scnsim-pages/site
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     needs: build
     runs-on: ubuntu-latest
     permissions:
