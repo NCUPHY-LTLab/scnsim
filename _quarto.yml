@@ -8,6 +8,7 @@ project:
   render:
     - index.qmd
     - examples/README.md
+    - tests/README.md
     - docs/index.qmd
     - examples/engineer/setup.qmd
     - examples/engineer/chapter-01/01-build.qmd
@@ -109,7 +110,7 @@ website:
   page-navigation: true
   reader-mode: false
   search: true
-  repo-url: "https://github.com/OrPenStrike/scnsim"
+  repo-url: "https://github.com/NCUPHY-LTLab/scnsim"
   repo-actions: [source, issue]
   navbar:
     left:
@@ -121,6 +122,8 @@ website:
         href: docs/concepts/index.qmd
       - text: "Contract"
         href: docs/contracts/index.qmd
+      - text: "Testing"
+        href: tests/README.md
   sidebar:
     - id: overview
       title: "Overview"

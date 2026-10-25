@@ -24,7 +24,14 @@ installed wheel when adding locked display dependencies to those environments.
 | `test_workspace_readback.py` | JAX Workspace version upgrade/downgrade, shared-Plan Direct/root/CMA identities, exact warm reuse and guarded fresh-process resolve. |
 | `test_workspace_optimization_readback.py` | Actual CMA and L-BFGS-B completion, repeated optimize/resolve with zero native work, fresh-process guarded resolve, exact saved values and identities. |
 | `test_manual_diagrams.py` | Explicit diagram declarations, missing/stale drawings, presentation and actual connectivity-sensitive geometry. |
+| `test_evidence_v3.py` | Evidence v3 bit preservation and corruption checks, interrupted/partial publication, unsupported-version rejection before Workspace mutation, partial-sweep failure/order retention, and exact post-close/fresh-process readback across Direct, Operator, roots, sensitivity and optimization. |
+| `test_native_failure_routing.py` | Scalar and batched native failures preserve owned error payloads; unknown/mixed errors re-raise, invalid wrappers are rejected, and inactive checks do not throw. |
 | `test_path_portability.py` | Native paths/URIs, source provenance and public Memory/Workspace handle lifetime. |
+| `test_portable_notebook.py` | Portable notebook cleanup preserves cell and kernel identity, removes only the machine-local kernel path, and leaves path-free bytes unchanged. |
+| `test_solve_diagnostics.py` | Per-RHS componentwise diagnostics and dense, sparse and compensated solve paths retain the original solve outcome. |
+| `test_engineer_chapter3_generation.py` | Chapter 3 prepares the declared Direct request and exports its explicit schematic certificate without solving. |
+| `test_engineer_chapter4_generation.py` | Chapter 4 exports the explicit capstone layout certificate from its authored declarations. |
+| `test_engineer_publication_binding.py` | Course helper binding preserves foreign namespaces and import state, and checks owned kernel temporary-directory cleanup without invoking the producer. |
 | `test_direct_admittance.py` | Retained coordinate Y/Z and matched-S TransferZero refinement. |
 | `test_root_certificates.py` | Five existing Hybrid complex anchors and shared passive-root rejection. |
 | `test_local_coordinate_defaults.py` | Resolved local-coordinate defaults and actual C1 optimization. |
@@ -49,13 +56,12 @@ normalization requires a separately justified scale; the suite adds no epsilon
 floor. Shape/order, declared encodings, unit projections and exact saved-result
 readback remain structural assertions rather than forward accuracy claims.
 
-## Retired Julia-specific assertions
+## Backend scope
 
-The Julia execution path and its receipt, inventory, attempt-directory and exact
-CMA trajectory assertions are retired. Current JAX tests retain the physical
-matrix, mutual-inductance, affine fan-out, selector, Workspace versioning and
-saved-result readback purposes. No cross-backend candidate trajectory or new
-JAX retry promise is implied.
+The default unittest suite exercises the JAX path and does not launch Julia.
+The retained affine and CMA evidence cases run through JAX; they do not assert
+Julia receipt or attempt-directory formats, or exact cross-backend CMA
+trajectories. Julia-specific execution records are outside this suite.
 
 ## Same-call affine evidence
 
@@ -65,13 +71,12 @@ Each row retains the exact binary64 input/support/distance, consumer path/field,
 side and `authorization_sources`: `parameter_set`, then `optimization_spec` when
 applicable; an unauthorized candidate records an empty list.
 
-The ordinary test preserves the original Operator execution/readback, and reads
-the rows through the existing scalar Y Result evidence at the same point and
-5 GHz. Operator has no new public evidence field. Workspace optimization history
-mappings and memory trial objective-component mappings expose the actual
-candidate rows. A saved cache read retains the sources of its original execution.
+Direct and Operator results expose the same-call rows through their read-only
+`evidence` mapping. Workspace optimization history mappings and memory trial
+objective-component mappings expose the actual candidate rows. A saved cache
+read retains the sources of its original execution.
 Absent rows add no empty key to non-affine Results.
 
 The test preserves the original CMA fixture, seed and budget. Rejected affine
 candidates must retain `invalid_candidate_physical_parameter` / `affine_support`
-and infinite cost; unknown preparation errors remain fatal. The retired Julia receipt helpers are no longer part of this suite.
+and infinite cost; unknown preparation errors remain fatal.
