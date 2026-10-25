@@ -9,6 +9,23 @@ project:
     - index.qmd
     - examples/README.md
     - tests/README.md
+    - tests/ci.md
+    - tests/circuit-data.md
+    - tests/network-roots.md
+    - tests/parameters-optimization.md
+    - tests/evidence-readback.md
+    - tests/diagnostics.md
+    - tests/portability-diagrams.md
+    - tests/numerical-checks.md
+    - tests/zh-TW/README.md
+    - tests/zh-TW/ci.md
+    - tests/zh-TW/circuit-data.md
+    - tests/zh-TW/network-roots.md
+    - tests/zh-TW/parameters-optimization.md
+    - tests/zh-TW/evidence-readback.md
+    - tests/zh-TW/diagnostics.md
+    - tests/zh-TW/portability-diagrams.md
+    - tests/zh-TW/numerical-checks.md
     - docs/index.qmd
     - examples/engineer/setup.qmd
     - examples/engineer/chapter-01/01-build.qmd
@@ -125,6 +142,52 @@ website:
       - text: "Testing"
         href: tests/README.md
   sidebar:
+    - id: testing
+      title: "Testing"
+      style: "floating"
+      collapse-level: 1
+      contents:
+        - text: "Overview"
+          href: tests/README.md
+        - text: "CI and Pages"
+          href: tests/ci.md
+        - text: "Circuit inputs and components"
+          href: tests/circuit-data.md
+        - text: "Network equations and roots"
+          href: tests/network-roots.md
+        - text: "Parameters and optimization"
+          href: tests/parameters-optimization.md
+        - text: "Evidence and readback"
+          href: tests/evidence-readback.md
+        - text: "Failure handling and diagnostics"
+          href: tests/diagnostics.md
+        - text: "Paths, diagrams, and teaching outputs"
+          href: tests/portability-diagrams.md
+        - text: "Numerical checks and local run"
+          href: tests/numerical-checks.md
+    - id: testing-zh-tw
+      title: "測試（繁體中文）"
+      style: "floating"
+      collapse-level: 1
+      contents:
+        - text: "測試總覽"
+          href: tests/zh-TW/README.md
+        - text: "CI 與 Pages"
+          href: tests/zh-TW/ci.md
+        - text: "電路輸入與元件"
+          href: tests/zh-TW/circuit-data.md
+        - text: "網路方程式與根"
+          href: tests/zh-TW/network-roots.md
+        - text: "參數與最佳化"
+          href: tests/zh-TW/parameters-optimization.md
+        - text: "證據與讀回"
+          href: tests/zh-TW/evidence-readback.md
+        - text: "錯誤處理與診斷"
+          href: tests/zh-TW/diagnostics.md
+        - text: "路徑、電路圖與教材輸出"
+          href: tests/zh-TW/portability-diagrams.md
+        - text: "數值檢查與本機執行"
+          href: tests/zh-TW/numerical-checks.md
     - id: overview
       title: "Overview"
       style: "floating"
