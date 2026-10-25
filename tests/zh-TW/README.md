@@ -6,74 +6,70 @@ sidebar: testing-zh-tw
 
 [English](../README.md) · [繁體中文](README.md)
 
-CI 會驗證套件安裝、物理小案例、資料儲存與讀回，以及文件。這些測試使用明確宣告的小型案例。
+SCNSim 的測試使用小型且明確宣告的電路案例，說明套件如何計算、已儲存結果如何讀回，以及無效輸入如何回報。本指南介紹測試案例與持續整合（CI）執行的檢查。
 
-## 主題
+## 測試主題
 
-::::: {.vstack .gap-3}
+::::{.askr-card}
+::: {.askr-card-body}
+### [CI 與 Pages](ci.md) {.askr-card-title .unlisted}
 
-::: {.card .position-relative}
-::: {.card-body}
-[**CI 與 Pages**](ci.md){.stretched-link}
-
-工作流程何時執行、變更如何分類、產品工作與版本化文件發布。
+了解工作流程何時執行、產品工作會檢查什麼，以及文件建置與 Pages 部署的差異。
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**電路輸入（Circuit inputs）與元件（Components）**](circuit-data.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [電路輸入（Circuit inputs）與元件（Components）](circuit-data.md) {.askr-card-title .unlisted}
 
-RLGC 資料、Q2D 載入、元件工廠（Component factories）與電感耦合（Inductive coupling）。
+查看合成 RLGC／Q2D 載入案例，以及型錄宣告的小型元件模型和無效輸入案例。
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**網路方程式（Network equations）與根（Roots）**](network-roots.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [網路方程式（Network equations）與根（Roots）](network-roots.md) {.askr-card-title .unlisted}
 
-Direct 物理量（Physical quantities）、運算子（Operators）與響應（Responses）、導納（Admittance）、導數（Derivatives），以及極點（Poles）或零點（Zeros）證書（Certificates）。
+了解 Direct 直接分析的網路物理量、導納（admittance）、傳輸零點，以及根證書如何與獨立案例比較。
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**參數（Parameters）與最佳化（Optimization）**](parameters-optimization.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [參數（Parameters）與最佳化（Optimization）](parameters-optimization.md) {.askr-card-title .unlisted}
 
-仿射（Affine）授權、區域座標尺度（Local-coordinate scales）與最佳化（Optimization）案例。
+追蹤仿射參數授權、區域座標尺度，以及小型最佳化案例；不同最佳化器不必走出相同路徑。
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**證據（Evidence）與讀回（Readback）**](evidence-readback.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [證據（Evidence）與讀回（Readback）](evidence-readback.md) {.askr-card-title .unlisted}
 
-v3 成品，以及 Memory／Workspace 解析。
+從已完成的計算一路查看 v3 證據，再經過 Memory 或 Workspace 關閉與讀回。
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**錯誤處理（Failure handling）與診斷（Diagnostics）**](diagnostics.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [錯誤處理（Failure handling）與診斷（Diagnostics）](diagnostics.md) {.askr-card-title .unlisted}
 
-原生錯誤路由（Native error routing）與求解診斷（Solve diagnostics）。
+了解原生錯誤如何保留原始內容，以及求解診斷如何區分彙總指標與逐右手邊結果。
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**路徑可攜性（Path portability）、電路圖（Diagrams）與教材輸出（Teaching outputs）**](portability-diagrams.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [路徑（Paths）、電路圖（Diagrams）與教材輸出（Teaching outputs）](portability-diagrams.md) {.askr-card-title .unlisted}
 
-路徑可攜性、手繪電路圖、筆記本與課程輔助程式。
+查看檔案 URI 轉換、符合宣告的圖、可攜式筆記本，以及在求解前停止的課程準備流程。
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**數值檢查（Numerical checks）與本機執行（Local run）**](numerical-checks.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [數值檢查（Numerical checks）與本機執行（Local run）](numerical-checks.md) {.askr-card-title .unlisted}
 
-比較界限與本機 unittest 指令。
+了解前向界限、後向殘差、精確比較，以及預設本機 unittest 指令各自檢查什麼。
 :::
-:::
-
-:::::
+::::

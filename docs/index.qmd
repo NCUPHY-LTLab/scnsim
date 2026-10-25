@@ -28,41 +28,41 @@ Build a 110 fF / 5.8 nH grounded resonator, connect it through a 6 fF coupler to
 a terminated 50 ohm Port, inspect its authoring diagram, read one-port S11 and
 the loaded root, then select 120 fF on the same Plan.
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 1 — Build](../examples/engineer/chapter-01/01-build.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 1 — Build](../examples/engineer/chapter-01/01-build.qmd) {.askr-card-title .unlisted}
 Define the independent capacitance, author the child LC, publish its Pin and
 Coordinate, and assemble the root coupler and Port.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 2 — Diagram](../examples/engineer/chapter-01/02-diagram.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 2 — Diagram](../examples/engineer/chapter-01/02-diagram.qmd) {.askr-card-title .unlisted}
 Render and independently audit the authored Plan without selecting an analysis
 View.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 3 — S11](../examples/engineer/chapter-01/03-s11.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 3 — S11](../examples/engineer/chapter-01/03-s11.qmd) {.askr-card-title .unlisted}
 Request the exact 401-point one-port response and read magnitude and phase from
 the typed Direct Result.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 4 — Loaded root](../examples/engineer/chapter-01/04-root.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 4 — Loaded root](../examples/engineer/chapter-01/04-root.qmd) {.askr-card-title .unlisted}
 Retain the exposed child Coordinate and evaluate its loaded frequency and
 linewidth with a 6 GHz root hint.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 5 — Change capacitance](../examples/engineer/chapter-01/05-change-capacitance.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 5 — Change capacitance](../examples/engineer/chapter-01/05-change-capacitance.qmd) {.askr-card-title .unlisted}
 Select 120 fF without mutating the Plan, then repeat the same response and root
 questions.
 :::
@@ -79,33 +79,33 @@ Rebuild the coupled grounded LC with independent C and L inputs, evaluate the
 ordered 100/110/120 fF sweep at fixed 5.8 nH, then optionally run the declared
 capacitance Optimization and explore complete grid versus listed C/L spaces.
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 1 — Build](../examples/engineer/chapter-02/01-build.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 1 — Build](../examples/engineer/chapter-02/01-build.qmd) {.askr-card-title .unlisted}
 Bind C and L to real child fields, publish a same-bus Pin and Coordinate, and
 connect the fixed root coupler directly to that Pin.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 2 — Sweep capacitance](../examples/engineer/chapter-02/02-sweep.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 2 — Sweep capacitance](../examples/engineer/chapter-02/02-sweep.qmd) {.askr-card-title .unlisted}
 Evaluate three author-ordered capacitance points and read their typed outcomes
 and loaded-frequency field. This is the Chapter's core stopping point.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 3 — Optimize and verify](../examples/engineer/chapter-02/03-optimize.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 3 — Optimize and verify](../examples/engineer/chapter-02/03-optimize.qmd) {.askr-card-title .unlisted}
 Run the fixed seed-17 request, then independently evaluate and render its
 returned best `ParameterSet` without changing the Plan baseline.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 4 — Optional C/L spaces](../examples/engineer/chapter-02/04-optional-spaces.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 4 — Optional C/L spaces](../examples/engineer/chapter-02/04-optional-spaces.qmd) {.askr-card-title .unlisted}
 Reuse the same Plan for a complete 3 × 2 grid and two explicitly listed points
 without reshaping, interpolation, or another model construction.
 :::
@@ -123,26 +123,26 @@ Build an ordered two-section scalar-RLGC feedline, couple a grounded readout,
 and inspect the named two-Port S21 response at three explicitly declared
 frequencies.
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 1 — Build](../examples/engineer/chapter-03/01-build.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 1 — Build](../examples/engineer/chapter-03/01-build.qmd) {.askr-card-title .unlisted}
 Declare the two physical feedline sections, their public boundaries, the
 readout, the coupling capacitor, and two terminated Ports.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 2 — Diagram evidence and limitation](../examples/engineer/chapter-03/02-diagram.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 2 — Diagram evidence and limitation](../examples/engineer/chapter-03/02-diagram.qmd) {.askr-card-title .unlisted}
 Declare the complete Plan's manual layout and inspect its correspondence.
 Distinguish the earlier layout outcome and separately declared subcircuit
 illustrations from the complete Plan's current source recipe.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 3 — Named S21](../examples/engineer/chapter-03/03-s21.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 3 — Named S21](../examples/engineer/chapter-03/03-s21.qmd) {.askr-card-title .unlisted}
 Run one Direct request and read the `transmission` trace on its exact
 5.5/6.0/6.5 GHz sample grid; no interpolation or resonance estimate is made.
 :::
@@ -160,34 +160,34 @@ feedline response, then applies PTC and retains the two feedline Ports for a
 separately labeled response. Transform and one scalar response element are
 optional continuations.
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 1 — Physical Plan](../examples/engineer/chapter-04/01-physical-plan.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 1 — Physical Plan](../examples/engineer/chapter-04/01-physical-plan.qmd) {.askr-card-title .unlisted}
 Declare the feedline, readout, floating branches, three couplers, and four
 logical Ports without analysis-time rewiring.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 2 — Explicit capstone](../examples/engineer/chapter-04/02-explicit-capstone.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 2 — Explicit capstone](../examples/engineer/chapter-04/02-explicit-capstone.qmd) {.askr-card-title .unlisted}
 Apply the established explicit probe-tee composition and inspect its certified
 authoring projection.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 3 — PTC core](../examples/engineer/chapter-04/03-ptc-core.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 3 — PTC core](../examples/engineer/chapter-04/03-ptc-core.qmd) {.askr-card-title .unlisted}
 Read the raw four-Port feedline trace, compensate both probe Ports, retain the
 feedline pair, and read the separately labeled three-sample PTC Direct S21
 Result. This is the Chapter's core stopping point.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lessons 4–6 — Optional analysis](../examples/engineer/chapter-04/04-optional-transform.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lessons 4–6 — Optional analysis](../examples/engineer/chapter-04/04-optional-transform.qmd) {.askr-card-title .unlisted}
 Continue with the same Plan through paired-coordinate transformation, a direct
 6.2 GHz response-element lookup and a separate Direct Result.
 :::

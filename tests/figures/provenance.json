@@ -1,0 +1,341 @@
+{
+  "source_commit": null,
+  "figures": [
+    {
+      "id": "rlgc-inputs",
+      "kind": "authored-input or static-fixture illustration, not a new solver observation",
+      "caption_zh_TW": "合成 Q2D CSV 的兩個訊號導體、ground 參考與四個每單位長度矩陣。這是測試輸入，不是 CAD 幾何或場求解結果。",
+      "source": [
+        {
+          "path": "tests/test_rlgc.py",
+          "function": "_coupled_rlgc",
+          "lines": [
+            15,
+            24
+          ],
+          "sha256": "0aa1f91b92b65ae00798b6476cf9de9dfc55e1d2c620d469956bbf9563814188"
+        },
+        {
+          "path": "tests/test_rlgc.py",
+          "function": "_q2d_bytes",
+          "lines": [
+            26,
+            51
+          ],
+          "sha256": "0aa1f91b92b65ae00798b6476cf9de9dfc55e1d2c620d469956bbf9563814188"
+        }
+      ],
+      "input_facts": {
+        "conductors": [
+          "readout",
+          "filter"
+        ],
+        "reference": "ground",
+        "R": [
+          [
+            0.18,
+            0.0
+          ],
+          [
+            0.0,
+            0.22
+          ]
+        ],
+        "L": [
+          [
+            420.0,
+            75.0
+          ],
+          [
+            75.0,
+            395.0
+          ]
+        ],
+        "G": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ],
+        "C": [
+          [
+            175.0,
+            -22.0
+          ],
+          [
+            -22.0,
+            168.0
+          ]
+        ],
+        "GHz": 5.0
+      },
+      "svg": {
+        "path": "tests/figures/rlgc-inputs.svg",
+        "bytes": 32826,
+        "sha256": "96c8fe8af24515271eb17f9127794d5b41b1779af151231077107d830fe0ca27"
+      },
+      "interactive_html": {
+        "path": "tests/figures/rlgc-inputs.html",
+        "bytes": 16497,
+        "sha256": "dc7a4e0efcfc79976109af94665af67bf0dadfb26d81e4b44dfc25c17b967d4a"
+      },
+      "same_figure": "SVG and HTML exported from this exact same Plotly Figure instance",
+      "uses_shared_js": "plotly.min.js"
+    },
+    {
+      "id": "lc-networks",
+      "kind": "authored-input or static-fixture illustration, not a new solver observation",
+      "caption_zh_TW": "上圖是 80/95 fF 的耦合 LC；下圖是獨立的匹配 RLC 與 Port。R 與 Port 參考阻抗為兩個獨立的 50 Ω 宣告。",
+      "source": [
+        {
+          "path": "tests/test_direct_analysis.py",
+          "function": "_advanced_direct_plan",
+          "lines": [
+            31,
+            43
+          ],
+          "sha256": "8ea7c34250b375503ef2f7a2bb9ecf505fa36c51b4e216e945fdd808814799b4"
+        },
+        {
+          "path": "tests/test_direct_analysis.py",
+          "function": "_matched_zero_plan",
+          "lines": [
+            46,
+            55
+          ],
+          "sha256": "8ea7c34250b375503ef2f7a2bb9ecf505fa36c51b4e216e945fdd808814799b4"
+        }
+      ],
+      "input_facts": {
+        "advanced": {
+          "capacitor_a": {
+            "kind": "capacitor",
+            "value": 80.0
+          },
+          "inductor_a": {
+            "kind": "inductor",
+            "value": 8.0
+          },
+          "capacitor_b": {
+            "kind": "capacitor",
+            "value": 95.0
+          },
+          "inductor_b": {
+            "kind": "inductor",
+            "value": 7.0
+          },
+          "coupling_capacitor": {
+            "kind": "capacitor",
+            "value": 2.0
+          },
+          "coupling_inductor": {
+            "kind": "inductor",
+            "value": 500.0
+          }
+        },
+        "matched": {
+          "resistor": {
+            "kind": "resistor",
+            "value": 50.0
+          },
+          "capacitor": {
+            "kind": "capacitor",
+            "value": 80.0
+          },
+          "inductor": {
+            "kind": "inductor",
+            "value": 8.0
+          },
+          "port": {
+            "id": "p",
+            "role": "terminated",
+            "Z0": 50.0
+          }
+        }
+      },
+      "svg": {
+        "path": "tests/figures/lc-networks.svg",
+        "bytes": 36362,
+        "sha256": "7ecf73492c1abdcbb4f87040db2c92408794f4914b8558c7c3963aeb225c4563"
+      },
+      "interactive_html": {
+        "path": "tests/figures/lc-networks.html",
+        "bytes": 31640,
+        "sha256": "fa354f5f2980bb95b0e9c74c02117b77c9d8851b509227b99c39c1012304a5ac"
+      },
+      "same_figure": "SVG and HTML exported from this exact same Plotly Figure instance",
+      "uses_shared_js": "plotly.min.js"
+    },
+    {
+      "id": "affine-domain",
+      "kind": "authored-input or static-fixture illustration, not a new solver observation",
+      "caption_zh_TW": "length 的 baseline 為 1 m，support 為 [0.99,1.01] m；1.05 m 位於 support 外，須有明確授權。較寬的最佳化 bounds 不等於 support。",
+      "source": [
+        {
+          "path": "tests/test_affine_parameters.py",
+          "function": "mapped_resonator",
+          "lines": [
+            25,
+            65
+          ],
+          "sha256": "d5a66dd99ac2449869b5e085e537ebe6b5fc2c5e24ccb041434c4c52b01590a8"
+        },
+        {
+          "path": "tests/test_affine_parameters.py",
+          "function": "test_cma_records_rejected_and_authorized_affine_candidates",
+          "lines": [
+            286,
+            334
+          ],
+          "sha256": "d5a66dd99ac2449869b5e085e537ebe6b5fc2c5e24ccb041434c4c52b01590a8"
+        },
+        {
+          "path": "tests/test_affine_parameters.py",
+          "function": "test_ordinary_unauthorized_extrapolation_is_an_authoring_error",
+          "lines": [
+            86,
+            104
+          ],
+          "sha256": "d5a66dd99ac2449869b5e085e537ebe6b5fc2c5e24ccb041434c4c52b01590a8"
+        }
+      ],
+      "input_facts": {
+        "maps": [
+          {
+            "slope": 20.0,
+            "intercept": 10.0,
+            "support": [
+              0.99,
+              1.01
+            ]
+          },
+          {
+            "slope": 30.0,
+            "intercept": 5.0,
+            "support": [
+              0.99,
+              1.01
+            ]
+          }
+        ],
+        "baseline": 1.0,
+        "bounds": [
+          0.9,
+          1.1
+        ],
+        "outside": 1.05
+      },
+      "svg": {
+        "path": "tests/figures/affine-domain.svg",
+        "bytes": 14556,
+        "sha256": "98a11f24f9ee5a0d5cb98e5e6d445e8510a13332778c4b18167980409e633a15"
+      },
+      "interactive_html": {
+        "path": "tests/figures/affine-domain.html",
+        "bytes": 12198,
+        "sha256": "576da1620f969ce6dfa4a4d11b839fab14c0905febfe9e63cdca6b00ae1b4889"
+      },
+      "same_figure": "SVG and HTML exported from this exact same Plotly Figure instance",
+      "uses_shared_js": "plotly.min.js"
+    },
+    {
+      "id": "residual-metrics",
+      "kind": "authored-input or static-fixture illustration, not a new solver observation",
+      "caption_zh_TW": "A=I 的多尺度 fixture：同一殘差的 aggregate 為 5×10⁻²¹，而逐 RHS 的 componentwise 診斷為 [1]。這裡呈現指定近似解的算式，沒有重新求解。",
+      "source": [
+        {
+          "path": "tests/test_solve_diagnostics.py",
+          "function": "test_approximate_identity_solution_distinguishes_the_two_metrics",
+          "lines": [
+            8,
+            23
+          ],
+          "sha256": "1873984ff9ff3afaeda5f59938bb4bd34898ea7b6a6f1737ed9a9bb1a8a3175e"
+        }
+      ],
+      "input_facts": {
+        "A": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "b": [
+          1.0,
+          1e-20
+        ],
+        "x": [
+          1.0,
+          0.0
+        ],
+        "error": [
+          0.0,
+          1e-20
+        ],
+        "scale": [
+          2.0,
+          1e-20
+        ],
+        "component_ratios": [
+          0.0,
+          1.0
+        ],
+        "aggregate": 5e-21
+      },
+      "svg": {
+        "path": "tests/figures/residual-metrics.svg",
+        "bytes": 18293,
+        "sha256": "489da63ea4fcf41af002776df77c40153c7b2c05b535b8bde0e66204f55c329b"
+      },
+      "interactive_html": {
+        "path": "tests/figures/residual-metrics.html",
+        "bytes": 12267,
+        "sha256": "4e6f9713635e86349c9dd9bb6cd825efb83c037ac42772e01ecf7402e6aebf7a"
+      },
+      "same_figure": "SVG and HTML exported from this exact same Plotly Figure instance",
+      "uses_shared_js": "plotly.min.js"
+    }
+  ],
+  "shared_plotly": {
+    "path": "tests/figures/plotly.min.js",
+    "bytes": 4851164,
+    "sha256": "8ef4c6ab1369f0019611cbcd2d5b8aafef23e5d19ef58c39d4b4249831fe2180"
+  },
+  "maintenance_script": {
+    "path": "tests/docs_figures.py",
+    "sha256": "46a530f3e160eff5ed577f044cdf495b0955330d9d17ba210dddfd70e08ac20a"
+  },
+  "versions": {
+    "python": "3.12.14",
+    "plotly": "6.9.0",
+    "kaleido": "1.4.0"
+  },
+  "generation": {
+    "solver_calls": 0,
+    "SCNSim_JAX_imports": [],
+    "local_chrome": true,
+    "renderer_returned": true,
+    "browser_process_waited": true,
+    "browser_process_absent": true,
+    "browser_owned_group_empty": true,
+    "temporary_renderer_directory_closed": true,
+    "asset_cap_bytes": 8000000
+  },
+  "render_contract": "SVG/PNG/JPEG ImageViewer uses the SVG; HTML is a separate offline interactive link, not ImageViewer input. Logical topology has no CAD dimensions.",
+  "source_checks": {
+    "q2d_literal_blocks": "AST literal extraction; exact four titles/shapes and equality to the illustrated manual matrices",
+    "current_input_values_unchanged": true
+  },
+  "render_reuse": {
+    "SVG_and_PNG": "unchanged previously rendered bytes",
+    "HTML_change": "page wrapper CSS removed; Plotly scientific figure data/style unchanged"
+  }
+}

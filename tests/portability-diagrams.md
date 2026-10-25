@@ -6,20 +6,27 @@ sidebar: testing
 
 [English](portability-diagrams.md) · [繁體中文](zh-TW/portability-diagrams.md)
 
-## Paths across platforms and storage modes
+This group tests portable paths and authored presentation artifacts around declared circuits. A diagram or notebook-preparation test does not by itself validate CAD geometry or run a physical solver.
 
-Path cases cover native filesystem paths, file URIs, Windows drive and UNC conversion, package-source provenance, and Memory/Workspace path lifetimes. Unreadable required paths retain their strict failure cause, catching double decoding and platform-specific path interpretation errors.
+## File paths across platforms
 
-Source: [test_path_portability.py](test_path_portability.py).
+The path fixture creates and reads temporary files whose directory names include spaces, Traditional Chinese characters, a literal percent sign, and the text `%20`. It checks a native path and a `file:` URI with an empty or `localhost` authority. URI path decoding happens once: a literal `%20` in the name must remain literal, and the resolved path and file contents must match.
 
-## Manual circuit diagrams
+1. Create and read a temporary file named `內容 %20.txt`; compare the native path with its `file:` URI.
+2. On Windows, check drive-letter and UNC path conversion. Other platforms skip these platform-specific cases; the test checks path strings and does not access a network share.
+3. Make a required path unreadable and confirm that the original failure cause is retained. Source: [`test_path_portability.py`](test_path_portability.py).
 
-Manual drawings are checked against current circuit declarations. Presentation settings must not change connectivity, `show` requires a current declaration, and wrong wire endpoints, MTL pins, missing crossing jumps, or layouts from another plan are rejected; these checks catch drawings that do not represent the declared circuit.
+## Drawings must represent the declared circuit
 
-Source: [test_manual_diagrams.py](test_manual_diagrams.py).
+A single-resonator drawing fixture uses 110 fF, 5.8 nH, 6 fF coupling, and a 50-ohm port. It renders a selected 120 fF point with automatic layout and dark presentation. The schematic audit checks that parameter and presentation changes do not alter the plan’s declared connectivity; the `show` operation must use the current declaration.
 
-## Notebooks and course helpers
+1. Draw the declared resonator at 120 fF, then confirm the parameter and presentation choices keep the plan’s declared connectivity and the `show` operation uses the current declaration.
+2. For the 1.6 mm, two-section readout/filter multiconductor transmission line (MTL), preserve ordered head and tail ports. Swap a physical capacitor terminal or connect an MTL pin to the wrong endpoint; the schematic audit rejects the drawing. A missing crossing jumper is also rejected, while a previously declared drawing remains available when a later layout is invalid.
 
-Notebook and course-helper cases preserve cell and kernel identity while removing a machine-local kernel path, prepare declared chapter requests without solving, and export certificates for authored diagrams. Publication-binding cases preserve foreign namespaces and keep cleanup failures from replacing the primary error; together these checks catch nonportable notebooks, accidental solves during documentation preparation, and unsafe cleanup.
+These checks concern connectivity, not conductor dimensions. Source: [`test_manual_diagrams.py`](test_manual_diagrams.py).
 
-Sources: [test_portable_notebook.py](test_portable_notebook.py), [test_engineer_chapter3_generation.py](test_engineer_chapter3_generation.py), [test_engineer_chapter4_generation.py](test_engineer_chapter4_generation.py), and [test_engineer_publication_binding.py](test_engineer_publication_binding.py).
+## Notebook and course preparation
+
+The notebook portability converter removes only the machine-local `kernelspec.path`. It preserves cell content, portable kernel identity, and all other parsed fields. The course-preparation cases execute the declared chapter inputs and Direct trace where specified, then stop before solving; authored circuit drawings can export their audit certificates.
+
+Publication-binding cases preserve foreign namespaces and make cleanup errors secondary to the original error. Together, these tests catch a notebook tied to one machine, documentation preparation that unexpectedly starts a solver, or cleanup that hides the actual failure. Sources: [`test_portable_notebook.py`](test_portable_notebook.py), [`test_engineer_chapter3_generation.py`](test_engineer_chapter3_generation.py), [`test_engineer_chapter4_generation.py`](test_engineer_chapter4_generation.py), and [`test_engineer_publication_binding.py`](test_engineer_publication_binding.py).

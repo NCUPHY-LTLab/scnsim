@@ -2,6 +2,7 @@ project:
   type: website
   output-dir: _site
   resources:
+    - tests/figures/**
     - src/scnsim/_schemas/identity-v2.schema.json
     - src/scnsim/_schemas/identity-v3.schema.json
     - src/scnsim/_schemas/identity-common.schema.json
@@ -125,8 +126,10 @@ website:
   title: "SCNSim"
   description: "Superconducting Circuit Network Simulation"
   page-navigation: true
+  search:
+    location: navbar
+    type: overlay
   reader-mode: false
-  search: true
   repo-url: "https://github.com/NCUPHY-LTLab/scnsim"
   repo-actions: [source, issue]
   navbar:
@@ -399,12 +402,5 @@ format:
   askr-html:
     toc: true
     code-copy: true
-    page-layout: article
-    grid:
-      sidebar-width: 264px
-      body-width: 630px
-      margin-width: 264px
-      gutter-width: 26px
-    css: docs/styles.css
     html-math-method: mathjax
     respect-user-color-scheme: true

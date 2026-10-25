@@ -6,74 +6,70 @@ sidebar: testing
 
 [English](README.md) · [繁體中文](zh-TW/README.md)
 
-This section explains what continuous integration (CI) checks, which problems the existing tests cover, and how to run the default suite. The test cases use small declared fixtures.
+SCNSim’s tests use small, declared circuit fixtures to explain what the package computes, how saved results behave, and how invalid inputs are reported. Use the pages below to explore those cases and the checks CI runs.
 
-## Topics
+## Explore the test topics
 
-::::: {.vstack .gap-3}
+::::{.askr-card}
+::: {.askr-card-body}
+### [CI and Pages](ci.md) {.askr-card-title .unlisted}
 
-::: {.card .position-relative}
-::: {.card-body}
-[**CI and Pages**](ci.md){.stretched-link}
-
-Explains workflow triggers, change classification, product jobs, and versioned documentation publishing.
+Learn when the workflows run, what each product job checks, and how documentation builds differ from Pages deployment.
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**Circuit inputs and components**](circuit-data.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [Circuit inputs and components](circuit-data.md) {.askr-card-title .unlisted}
 
-Covers RLGC data, Q2D loading, component factories, and inductive coupling.
+Follow the synthetic RLGC/Q2D loader fixture and small catalog-declared component models, including their invalid-input cases.
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**Network equations and roots**](network-roots.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [Network equations and roots](network-roots.md) {.askr-card-title .unlisted}
 
-Describes Direct quantities, admittance, derivatives, and pole or zero certificates.
+See how Direct network quantities, admittance, transfer zeros, and root certificates are checked against independent fixtures.
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**Parameters and optimization**](parameters-optimization.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [Parameters and optimization](parameters-optimization.md) {.askr-card-title .unlisted}
 
-Explains affine authorization, local-coordinate scales, and optimizer cases.
+Trace affine parameter authorization, local-coordinate scales, and the small optimizer cases without assuming different optimizers follow the same path.
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**Evidence and readback**](evidence-readback.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [Evidence and readback](evidence-readback.md) {.askr-card-title .unlisted}
 
-Covers v3 artifacts and Memory/Workspace resolution.
+Follow values from a completed calculation into v3 evidence, then through Memory or Workspace close and readback.
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**Failure handling and diagnostics**](diagnostics.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [Failure handling and diagnostics](diagnostics.md) {.askr-card-title .unlisted}
 
-Describes native error routing and solve diagnostics.
+Understand how owned native failures preserve their payloads and how solve diagnostics distinguish aggregate from per-right-hand-side behavior.
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**Paths, diagrams, and teaching outputs**](portability-diagrams.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [Paths, diagrams, and teaching outputs](portability-diagrams.md) {.askr-card-title .unlisted}
 
-Covers path portability, manual drawings, notebooks, and course helpers.
+Review file-URI conversion, declaration-matched drawings, portable notebooks, and course preparation that stops before solving.
 :::
-:::
+::::
 
-::: {.card .position-relative}
-::: {.card-body}
-[**Numerical checks and local run**](numerical-checks.md){.stretched-link}
+::::{.askr-card}
+::: {.askr-card-body}
+### [Numerical checks and local run](numerical-checks.md) {.askr-card-title .unlisted}
 
-Gives the comparison bounds and local unittest command.
+Learn what forward bounds, backward residuals, exact comparisons, and the default local unittest command each cover.
 :::
-:::
-
-:::::
+::::
