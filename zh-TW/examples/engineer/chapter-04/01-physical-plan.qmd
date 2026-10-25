@@ -1,0 +1,17 @@
+---
+title: "第 4 章 · 第 1 課 — 實體 Plan"
+subtitle: "四埠完整範例工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="本章執行方式" appearance="simple"}
+本網頁課程供閱讀。請先參閱[工程課程環境設定](../setup.qmd)，再下載[完整本章 Notebook（英文）](/en/examples/engineer/chapter-04/chapter.ipynb)，於乾淨核心中依序執行全部六課。
+:::
+
+{{< include _01-physical-plan.qmd >}}
+
+[下一課：第 2 課 — 明確宣告的整合範例（Capstone）](02-explicit-capstone.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-04/chapter.ipynb)

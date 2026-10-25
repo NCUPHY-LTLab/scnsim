@@ -4,7 +4,6 @@ lang: en
 sidebar: testing
 ---
 
-[English](numerical-checks.md) · [繁體中文](zh-TW/numerical-checks.md)
 
 SCNSim’s numerical tests use different checks for different questions. A forward comparison asks whether the computed observable (`actual`) agrees with an independently calculated reference (`oracle`). A backward residual asks how closely the computed values satisfy the original equation. Exact checks compare representation and saved data; these checks answer different questions.
 

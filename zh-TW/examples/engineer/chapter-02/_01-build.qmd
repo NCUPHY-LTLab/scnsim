@@ -1,0 +1,19 @@
+## 第 1 課 — 建立可參數化的耦合 LC {#lesson-ch2-build}
+
+### 從乾淨的本章核心開始
+
+請依照[工程課程環境設定](../setup.qmd)，開啟本章的 `chapter.ipynb`，重新啟動 Python 核心後按 **Run All**。第 2 章會重新建立下方電路，不會延續第 1 章的核心狀態。
+
+C 與 L 都是獨立實體輸入，因為最後的選讀課程會同時改變兩者。耦合電容與終端 Port 維持固定常數。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_01-build.qmd/block-001.qmd >}}
+
+只有實際元件欄位使用定義時，它才會成為此 Plan 的一部分。Subsystem 持有可重用且易於理解的 LC 單元；耦合器與 Port 則由父層持有，負責連接外部電路。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_01-build.qmd/block-002.qmd >}}
+
+Pin 是父層配線邊界；Coordinate 則選取同一條子層訊號 Bus 進行分析，不是導線端點，也不會增加電氣節點。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_01-build.qmd/block-003.qmd >}}
+
+6 fF 耦合支路直接連至子層公開的 Pin，不需要僅供分析使用的 root Bus 或零元件 Link。

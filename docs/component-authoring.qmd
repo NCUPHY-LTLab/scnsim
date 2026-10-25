@@ -971,7 +971,6 @@ declared branch permits it; negative or non-finite values are not.
 - AEDT Q2D import freezes one primary R/L/G/C extraction at its recorded
   frequency. It does not verify a solver receipt, interpolate/extrapolate in
   frequency, or create a broadband line.
-  Direct does.
 - Composite mapping is limited to exact identity fan-out and `AffineMap`; V1
   has no arbitrary callback, expression tree, or calibration-table
   interpolation.
@@ -979,8 +978,6 @@ declared branch permits it; negative or non-finite values are not.
   per-arm parameter injection.
 - Direct JJ/SQUID analysis is limited to the declared zero-phase, zero-bias
   `L_J0` small-signal realization.
-- JosephsonCircuits flux-pump and three-wave-mixing capability retains the
-  upstream validation limitation described above.
 - `LinearizedFloatingQubit` and `ReflectiveJPA` are not V1 built-ins; consumers
   build those circuits from the declared generic components.
 - Caller-declared schematic rendering remains a projection of the Plan,

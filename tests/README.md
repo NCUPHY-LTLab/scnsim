@@ -4,7 +4,6 @@ lang: en
 sidebar: testing
 ---
 
-[English](README.md) · [繁體中文](zh-TW/README.md)
 
 SCNSim’s tests use small, declared circuit fixtures to explain what the package computes, how saved results behave, and how invalid inputs are reported. Use the pages below to explore those cases and the checks CI runs.
 

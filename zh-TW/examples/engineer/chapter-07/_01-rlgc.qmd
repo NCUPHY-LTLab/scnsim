@@ -1,0 +1,13 @@
+## 第 1 課 — 宣告有序 N=2 RLGC {#lesson-ch7-rlgc}
+
+### 明確保留導體順序與完整矩陣
+
+依序排列的訊號導體是 `readout` 與 `filter`。`ground` 是參考中繼資料，不是第五個電氣 Pin 或 Port。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_01-rlgc.qmd/block-001.qmd >}}
+
+R 是對角矩陣；L 為對稱矩陣，互感項為 +75 nH/m；G 恰為零；C 為對稱矩陣，非對角項為 −22 pF/m。完整 RLGC 值是一個結構化參數，個別矩陣元素不是掃描軸。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_01-rlgc.qmd/block-002.qmd >}}
+
+`n_sections=8` 是固定模型結構。有限 π 展開會保留完整耦合矩陣，不會把此線段拆成兩條純量線路。

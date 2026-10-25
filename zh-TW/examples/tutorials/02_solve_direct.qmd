@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 請求 Direct 響應"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+單埠響應請參閱新版[第 1 章 — 讀取 S11](../engineer/chapter-01/03-s11.qmd)，雙埠路徑請參閱[第 3 章 — 具名 S21](../engineer/chapter-03/03-s21.qmd)。Direct 請求與 Result 的權威規範見英文[執行期契約](/en/docs/v1-runtime-contract.html)。
+
+本短頁保留舊網址。已取代的可執行內容與 Notebook 仍可在 Git 歷史中找到。

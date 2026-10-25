@@ -1,0 +1,18 @@
+---
+title: "第 8 章 · 第 2 課 — 重新啟動並讀回"
+subtitle: "報告與讀回工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="第二個獨立核心" appearance="simple"}
+請先完成[第 1 課](01-persist.qmd)並停止其核心。於相同保留工作目錄啟動新核心，再從[完整本章 Notebook（英文）](/en/examples/engineer/chapter-08/chapter.ipynb)只執行本課三個程式區塊。
+:::
+
+{{< include _02-resolve.qmd >}}
+
+[上一課：第 1 課 — 儲存 Result](01-persist.qmd) ·
+[課程總覽](../../../docs/index.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-08/chapter.ipynb)

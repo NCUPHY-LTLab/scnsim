@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 定義並綁定實體參數"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+目前課程請參閱[第 2 章 — 綁定獨立輸入](../engineer/chapter-02/01-build.qmd)。精確定義、綁定、身分、檢視與失敗行為以英文[參數系統契約](/en/docs/contracts/parameter-system.html)為準。
+
+本簡短頁面保留舊網址。已取代的可執行內容、Notebook 與選定點圖可在 Git 歷史中找到。

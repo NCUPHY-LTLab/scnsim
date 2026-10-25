@@ -1,0 +1,13 @@
+---
+title: "進階 — 報告與讀回精確請求"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 進階：持久化與重新啟動
+
+入門的第 1–7 章將 Result 保留在記憶體中。明確 Report 輸入請參閱[第 8 章 — 儲存結果](../engineer/chapter-08/01-persist.qmd)，獨立核心的僅讀回流程請參閱[第 8 章 — 重啟並讀回](../engineer/chapter-08/02-resolve.qmd)。Result 與 Workspace 的精確行為以英文[執行期契約](/en/docs/v1-runtime-contract.html)為準。
+
+本短頁保留舊網址。已取代的可執行內容與 Notebook 仍可在 Git 歷史中找到。

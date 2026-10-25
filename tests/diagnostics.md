@@ -4,7 +4,6 @@ lang: en
 sidebar: testing
 ---
 
-[English](diagnostics.md) · [繁體中文](zh-TW/diagnostics.md)
 
 These tests show two separate responsibilities: route an actual owned native error without hiding it, and describe the solution that a linear solve actually returned. The routing fixtures transport errors; they do not solve a physical circuit.
 

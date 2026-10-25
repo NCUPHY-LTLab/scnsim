@@ -1,0 +1,17 @@
+---
+title: "第 3 章 · 第 1 課 — 建立模型"
+subtitle: "CPW 饋線與讀出 S21 工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="本章執行方式" appearance="simple"}
+本網頁課程供閱讀。請先參閱[工程課程環境設定](../setup.qmd)，再下載[完整本章 Notebook（英文）](/en/examples/engineer/chapter-03/chapter.ipynb)，於乾淨核心中依序執行全部三課。
+:::
+
+{{< include _01-build.qmd >}}
+
+[下一課：第 2 課 — 電路圖證據與限制](02-diagram.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-03/chapter.ipynb)

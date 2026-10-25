@@ -1,0 +1,25 @@
+## 第 2 課 — 檢視建立的電路 {#lesson-diagram}
+
+目前的程式區塊使用完整、明確的配置，並綁定至新準備的狀態。已保存的圖與 Notebook 輸出維持原有執行身分；本次來源更新不會重新產生它們。
+
+**先備條件：**請在整章 Notebook 中執行第 1 課的所有程式區塊。
+
+電路圖是前述 Plan 的呈現，不會選取數值 View，也不會執行求解器。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_02-diagram.qmd/block-001.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_02-diagram.qmd/block-002.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![耦合接地 LC 基準 Plan。](../figures/01-authoring.svg){#fig-engineer-ch1-authoring .lightbox fig-alt="已終端 Port 與 6 fF 串聯耦合電容直接連接至接地並聯諧振器的公開端點；諧振器含 110 fF 電容與 5.8 nH 電感。"}
+
+{{< askr-image-view target="fig-engineer-ch1-authoring" label="檢視電路（Inspect circuit）" >}}
+
+[開啟建立用 SVG 圖](../figures/01-authoring.svg).
+
+:::
+
+獨立稽核會檢查可見連線與包含關係是否符合擷取的 Plan；不可見的來源宣告仍保留為來源證據。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_02-diagram.qmd/block-003.qmd >}}

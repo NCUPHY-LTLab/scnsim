@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 補償探針"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+目前饋線／讀出宣告請參閱[第 3 章 — 建立電路](../engineer/chapter-03/01-build.qmd)，四埠實體 Plan 與 PTC 主線請參閱第 4 章的[實體 Plan](../engineer/chapter-04/01-physical-plan.qmd)及[PTC 主線](../engineer/chapter-04/03-ptc-core.qmd)。
+
+本簡短頁面保留舊網址。已取代的可執行內容、Notebook 與檢查點圖可在 Git 歷史中找到。

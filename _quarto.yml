@@ -1,6 +1,8 @@
 project:
   type: website
-  output-dir: _site
+  output-dir: _site/en
+  pre-render: python3 scripts/bilingual_site.py prepare
+  post-render: python3 scripts/bilingual_site.py post-render
   resources:
     - tests/figures/**
     - src/scnsim/_schemas/identity-v2.schema.json
@@ -18,15 +20,6 @@ project:
     - tests/diagnostics.md
     - tests/portability-diagrams.md
     - tests/numerical-checks.md
-    - tests/zh-TW/README.md
-    - tests/zh-TW/ci.md
-    - tests/zh-TW/circuit-data.md
-    - tests/zh-TW/network-roots.md
-    - tests/zh-TW/parameters-optimization.md
-    - tests/zh-TW/evidence-readback.md
-    - tests/zh-TW/diagnostics.md
-    - tests/zh-TW/portability-diagrams.md
-    - tests/zh-TW/numerical-checks.md
     - docs/index.qmd
     - examples/engineer/setup.qmd
     - examples/engineer/chapter-01/01-build.qmd
@@ -122,6 +115,10 @@ project:
     - docs/implementation/external-inputs-and-delivery.qmd
     - docs/implementation/engineer-course-migration-map.qmd
 
+lang: en
+execute:
+  enabled: false
+
 website:
   title: "SCNSim"
   description: "Superconducting Circuit Network Simulation"
@@ -133,6 +130,12 @@ website:
   repo-url: "https://github.com/NCUPHY-LTLab/scnsim"
   repo-actions: [source, issue]
   navbar:
+    tools-collapse: true
+    tools:
+      - icon: github
+        href: https://github.com/NCUPHY-LTLab/scnsim
+        text: GitHub repository
+        aria-label: GitHub repository
     left:
       - text: "Overview"
         href: index.qmd
@@ -140,6 +143,8 @@ website:
         href: docs/index.qmd
       - text: "Concept"
         href: docs/concepts/index.qmd
+      - text: "Guides"
+        href: docs/guides/benchmark.qmd
       - text: "Contract"
         href: docs/contracts/index.qmd
       - text: "Testing"
@@ -168,29 +173,6 @@ website:
           href: tests/portability-diagrams.md
         - text: "Numerical checks and local run"
           href: tests/numerical-checks.md
-    - id: testing-zh-tw
-      title: "測試（Testing，繁體中文）"
-      style: "floating"
-      collapse-level: 1
-      contents:
-        - text: "測試總覽"
-          href: tests/zh-TW/README.md
-        - text: "CI 與 Pages"
-          href: tests/zh-TW/ci.md
-        - text: "電路輸入（Circuit inputs）與元件（Components）"
-          href: tests/zh-TW/circuit-data.md
-        - text: "網路方程式（Network equations）與根（Roots）"
-          href: tests/zh-TW/network-roots.md
-        - text: "參數（Parameters）與最佳化（Optimization）"
-          href: tests/zh-TW/parameters-optimization.md
-        - text: "證據（Evidence）與讀回（Readback）"
-          href: tests/zh-TW/evidence-readback.md
-        - text: "錯誤處理（Failure handling）與診斷（Diagnostics）"
-          href: tests/zh-TW/diagnostics.md
-        - text: "路徑可攜性（Path portability）、電路圖（Diagrams）與教材輸出（Teaching outputs）"
-          href: tests/zh-TW/portability-diagrams.md
-        - text: "數值檢查（Numerical checks）與本機執行（Local run）"
-          href: tests/zh-TW/numerical-checks.md
     - id: overview
       title: "Overview"
       style: "floating"
@@ -397,6 +379,29 @@ website:
               href: docs/implementation/engineer-course-migration-map.qmd
         - text: "Historical evidence record"
           href: docs/contracts/implementation-evidence-history.qmd
+    - id: guides
+      title: "Guides"
+      style: "floating"
+      contents:
+        - text: "Benchmark"
+          href: docs/guides/benchmark.qmd
+        - text: "Sensitivity"
+          href: docs/guides/sensitivity.qmd
+        - text: "Static capacitance"
+          href: docs/guides/static-capacitance.qmd
+        - text: "Roots and branch selection"
+          href: docs/guides/roots-and-branch-selection.qmd
+
+askr:
+  languages:
+    current: en
+    items:
+      - code: zh-TW
+        label: 繁體中文
+        href: /
+      - code: en
+        label: English
+        href: /en/
 
 format:
   askr-html:

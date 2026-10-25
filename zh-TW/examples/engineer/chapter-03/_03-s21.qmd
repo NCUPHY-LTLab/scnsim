@@ -1,0 +1,32 @@
+## 第 3 課 — 請求具名雙埠 S21 軌跡 {#lesson-ch3-s21}
+
+### 宣告有限取樣網格與一個通道
+
+輸出列／輸入欄的通道方向與波參考，請參閱[模擬慣例](../../../docs/concepts/simulation-conventions.qmd#matrix-axes-and-power-waves)。
+
+選取的網路是 `run.original`：完整主 Plan 恰有本請求需要的兩個終端饋線 Port。`transmission` 是完整 Direct S 矩陣中「輸入至輸出」投影的名稱，不會啟動另一個求解。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-03/_03-s21.qmd/block-001.qmd >}}
+
+編譯器說明請見進階的 [Workspace 課程](../chapter-08/chapter.qmd)。
+
+網格恰有三個明確宣告的取樣點。點間連線只供呈現；本課不推斷連續諧振、不尋找凹陷、不插值，也不計算未宣告的頻率。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-03/_03-s21.qmd/block-002.qmd >}}
+
+`transmission.value` 保留無因次複數 S21 值。下圖以 dB 呈現振幅；產生的 CSV 則保留每個宣告頻率的實部與虛部。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-03/_03-s21.qmd/block-003.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![具名 Direct 傳輸軌跡在三個宣告取樣點的振幅。](../figures/03-direct-s21.svg){#fig-ch3-direct-s21 .lightbox fig-alt="饋線輸入至饋線輸出的具名 Direct S21 軌跡，其三個取樣點振幅。"}
+
+{{< include ../figures/03-direct-s21.md >}}
+
+[開啟 SVG 圖](../figures/03-direct-s21.svg) ·
+[下載精確複數取樣](../figures/03-direct-s21.csv)
+
+:::
+
+此數值圖呈現已驗證的 Direct Result，不是 ASCDLS 證明。第 2 課的兩張獨立電路圖各自使用不同的示意 Plan 身分。

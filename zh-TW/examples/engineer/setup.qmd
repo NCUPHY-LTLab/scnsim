@@ -1,0 +1,53 @@
+---
+title: "工程課程環境設定"
+subtitle: "每章使用鎖定環境與乾淨核心（Kernel）"
+lang: zh-TW
+---
+
+## 安裝相符的已發布輪子
+
+`1.0.0.dev40` 是尚未發布的開發候選版本，1.0 beta 仍暫緩發布。先前交付的 `1.0.0.dev39` CPython 3.12 精確版本開發輪子屬於歷史版本，不能用來安裝 dev40。該批輪子目標為 Linux x86_64（`manylinux_2_28`）、macOS arm64（最低部署目標 macOS 12）及 Windows x86_64（AMD64）。這些標記代表二進位目標平台，不代表涵蓋每個作業系統版本或所有電路工作負載。只有在精確相符版本已發布時，才從 [GitHub Releases](https://github.com/OrPenStrike/scnsim/releases) 下載輪子。
+
+若 Windows 使用 CPython 3.12 AMD64，使用端儲存庫的維護者應將精確相符的 SCNSim 預建輪子設為套件來源，並提交相符的 `uv.lock`。完成來源與鎖定檔設定後，請在使用端儲存庫根目錄執行：
+
+{{< include ../../_generated/canonical-code/examples/engineer/setup.qmd/block-001.qmd >}}
+
+dev39 Windows CPU-JAX 輪子的既有證據涵蓋記憶體與 Workspace 操作；該歷史證據不代表 dev40 的行為。
+
+{{< include ../../_generated/canonical-code/examples/engineer/setup.qmd/block-002.qmd >}}
+
+請使用新的環境，不要安裝到仍在執行的 Notebook 核心中，並選取該環境的 Python 核心。相符的 SCNSim 輪子不需要 C++ 編譯器；相容的相依套件會照常安裝，而純 Python 套件建置不同於編譯原生擴充功能。若不支援的平台必須從原始碼建置原生相依套件，便不屬於免編譯器的輪子安裝流程。
+
+手動電路圖使用 Notebook 的 IPython 豐富顯示功能，不需要另外安裝 GUI 圖形管理器。
+
+## 使用課程來源
+
+`v1.0.0b1` beta 課程仍暫緩發布，目前不能作為安裝目標。`develop` 分支持續開發，內容可能與已發布版本不同。從原始碼安裝會建置 SCNSim 原生擴充功能，並需要 C++17 編譯器；這與安裝預建輪子是不同流程。
+
+在選定的來源檢出中，安裝既有鎖定的課程工具，並從儲存庫根目錄啟動 Jupyter：
+
+{{< include ../../_generated/canonical-code/examples/engineer/setup.qmd/block-003.qmd >}}
+
+`jupyterlab` 僅供該命令暫時使用，不會加入 SCNSim 或其鎖定檔。也可在完成鎖定同步後，使用編輯器提供的 Jupyter 介面開啟章節 Notebook。請選取儲存庫 `.venv` 的 Python 核心，重新啟動後按 **Run All**。課程來源另含電路圖程式區塊所用的手動配置輔助程式；它們是一般範例程式碼，不是自動安裝的配置服務。
+
+解讀 S/Y/Z、相位（Phase）、PTC 或負載根之前，請先閱讀[模擬慣例](../../docs/concepts/simulation-conventions.qmd)，了解相量（Phasor）、波參考（Wave reference）與線寬（Linewidth）的定義。明確選取的 View 決定這三種矩陣表示方式。
+
+第 1–4 章是主線課程，第 5–8 章為選讀延伸。第 1–7 章各自使用乾淨核心執行。第 8 章採用明確的雙核心流程：先執行第 1 課並停止該核心，再啟動第二個全新核心，在同一個保留的工作目錄中只執行第 2 課。較短的網頁課程是依序排列的來源片段閱讀頁，不能獨立執行。
+
+第 1–7 章使用 `CircuitRun(plan=plan, storage="memory")`。Result 會保留在目前 Python 程序中供呼叫端使用；這些課程不建立持久化 Workspace。首次請求可能包含 JAX CPU 準備與編譯時間。讀取或匯出 Result 時請保持 Run 開啟，完成後呼叫 `run.close()`。
+
+第 8 章是進階持久化課程，使用明確的 Workspace 與兩個獨立核心保存 Result，並在重新啟動後讀回。請保留該課程的 Workspace 資料，供第二個核心使用。
+
+一般設計迭代時，請先分類變更，再決定能否重用 Run。新的 `ParameterSet` 可重用相同的已擷取 Plan、Run 與 View。若修改目標式、比較方式、目標值、尺度或權重，請在相同物件上建立新的 `OptimizationSpec`。若修改模型預設值、拓撲、Port 或已擷取的參數定義，則必須重建輸入、Plan、Run、View 與 Spec。即使 Python 名稱或列印出的宣告相同，重建後的 Plan 也不接受舊 View 或 ParameterRef。可以在同一核心中重建，但必須一併使用新回傳的 ParameterRef、Plan、Run、View 與 Spec；不可將舊 Plan 的控制代碼混入新物件圖。
+
+進階 Workspace 流程請參閱[第 8 章](chapter-08/01-persist.qmd)。該課程的儲存與版本規則不會改變入門章節的記憶體範例。
+
+- [開始第 1 章](chapter-01/01-build.qmd)
+- [開始第 2 章](chapter-02/01-build.qmd)
+- [開始第 3 章](chapter-03/01-build.qmd)
+- [開始第 4 章](chapter-04/01-physical-plan.qmd)
+- [開始第 5 章](chapter-05/01-library.qmd)
+- [開始第 6 章](chapter-06/01-default.qmd)
+- [開始第 7 章](chapter-07/01-rlgc.qmd)
+- [開始第 8 章](chapter-08/01-persist.qmd)
+- [課程總覽](../../docs/index.qmd)

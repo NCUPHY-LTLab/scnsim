@@ -4,7 +4,6 @@ lang: en
 sidebar: testing
 ---
 
-[English](portability-diagrams.md) · [繁體中文](zh-TW/portability-diagrams.md)
 
 This group tests portable paths and authored presentation artifacts around declared circuits. A diagram or notebook-preparation test does not by itself validate CAD geometry or run a physical solver.
 

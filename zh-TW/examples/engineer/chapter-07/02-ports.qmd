@@ -1,0 +1,18 @@
+---
+title: "第 7 章 · 第 2 課 — 四個訊號 Port"
+subtitle: "多導體傳輸線工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1 課" appearance="simple"}
+請先完成[第 1 課](01-rlgc.qmd)，再使用[完整本章 Notebook（英文）](/en/examples/engineer/chapter-07/chapter.ipynb)。
+:::
+
+{{< include _02-ports.qmd >}}
+
+[上一課：第 1 課 — 有序 RLGC](01-rlgc.qmd) ·
+[下一課：第 3 課 — 電路圖](03-diagrams.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-07/chapter.ipynb)

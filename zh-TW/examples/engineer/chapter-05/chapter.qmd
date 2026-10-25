@@ -1,0 +1,17 @@
+---
+title: "第 5 章 — 元件庫與可重用 Composite"
+subtitle: "工程課程 · 繁體中文"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 第 5 章 — 元件庫與可重用 Composite
+
+本章在乾淨核心中獨立執行。三個網頁課程呈現相同順序的來源片段。QMD 是可編輯權威來源；`chapter.ipynb` 是產生的零輸出傳遞檔。
+
+本章將接地 LC 封裝於 Library 工廠，公開必要的參數與邊界，再從父層重用此 Composite。
+{{< include _01-library.qmd >}}
+{{< include _02-instance.qmd >}}
+{{< include _03-reuse.qmd >}}

@@ -1,0 +1,17 @@
+---
+title: "第 4 章 · 第 5 課 — 選讀響應量值"
+subtitle: "四埠完整範例工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1–4 課" appearance="simple"}
+請先完成[第 4 課](04-optional-transform.qmd)，再依序執行[完整本章 Notebook（英文）](/en/examples/engineer/chapter-04/chapter.ipynb)。本頁不能單獨執行。
+:::
+
+{{< include _05-optional-quantity.qmd >}}
+
+[上一課：第 4 課 — 座標轉換](04-optional-transform.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-04/chapter.ipynb)

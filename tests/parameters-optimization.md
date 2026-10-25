@@ -4,7 +4,6 @@ lang: en
 sidebar: testing
 ---
 
-[English](parameters-optimization.md) · [繁體中文](zh-TW/parameters-optimization.md)
 
 These cases distinguish an ordinary parameter change from an affine model that has explicit authorization to evaluate candidates inside its declared support. They also check how a physical coordinate is mapped to an optimizer coordinate before a bounded search begins.
 

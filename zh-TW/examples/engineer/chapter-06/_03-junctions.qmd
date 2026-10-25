@@ -1,0 +1,39 @@
+## 第 3 課 — 宣告實際的 T 形與十字接點 {#lesson-ch6-junctions}
+
+目前的程式區塊使用完整、明確的配置，並綁定至新準備的狀態。已保存的圖與 Notebook 輸出維持原有執行身分；本次來源更新不會重新產生它們。
+
+### 建立三接點抽頭饋線
+
+T 形範例重用既有的兩段純量 CPW 宣告。三個接點分別是左線段末端、右線段起點，以及同一條所有者局部 Bus 上公開的抽頭 Pin。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-06/_03-junctions.qmd/block-001.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-06/_03-junctions.qmd/block-002.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/06-tapped-feedline-t.md >}}
+
+:::
+
+T 形接點是非元件的導電呈現圖元，不會建立新的 net、Tap 或 Coordinate，也不會授權存取 Composite 私有內容。
+
+### 再次檢視明確宣告的 Cross
+
+四臂配置已將四個支路接至 `central_cross`。此呼叫再次繪製相同的完整配置，供檢視可見接點與獨立稽核；它不會替換接點幾何。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-06/_03-junctions.qmd/block-003.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![一個明確宣告的 Cross 連接中央四個不同接點。](../figures/06-four-arm-cross.svg){#fig-ch6-four-arm-cross .lightbox fig-alt="四個電容支路分別連接至明確請求之 Cross 的四個方向。"}
+
+{{< askr-image-view target="fig-ch6-four-arm-cross" label="檢視電路（Inspect circuit）" >}}
+
+[開啟 SVG 圖](../figures/06-four-arm-cross.svg)
+
+:::
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-06/_03-junctions.qmd/block-004.qmd >}}
+
+既有配置要求一個十字接點，而非兩個 T 形接點。僅有電氣連通並不足以確立指定形狀；圖中會各自呈現四個實際連接與四個宣告支臂。

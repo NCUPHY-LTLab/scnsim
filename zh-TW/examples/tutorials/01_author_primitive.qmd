@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 建立基本電路"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+接地 LC 宣告請參閱新版[第 1 章 — 建立電路](../engineer/chapter-01/01-build.qmd)，電路圖呈現請參閱[第 1 章 — 電路圖](../engineer/chapter-01/02-diagram.qmd)。精確組裝行為以英文[電路 Plan 組裝契約](/en/docs/contracts/circuit-plan-assembly.html)為準。
+
+本短頁保留舊網址。已取代的可執行內容、Notebook 與檢查點圖仍可在 Git 歷史中找到。

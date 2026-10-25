@@ -1,0 +1,23 @@
+## 第 3 課 — 選取探針補償雙埠 View {#lesson-ch4-ptc}
+
+### 比較原始負載 View 與 PTC 推導結果
+
+原始負載運算子包含全部四個宣告的 Port 負載。對外提供的原始四埠 S/Y/Z 網路，SCNSim 會在選定散射邊界去嵌入來源導納；這些矩陣不是負載運算子。PTC 只移除指定的兩個探針負載戳記，`retain()` 則選取兩個饋線座標作為散射邊界。單靠保留座標不會卸除省略的探針或量測 Port。此差異與 S、Y、Z 共用的 View 權威，請參閱[模擬慣例](../../../docs/concepts/simulation-conventions.qmd#loads-and-selected-views)。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_03-ptc-core.qmd/block-001.qmd >}}
+
+這三個頻率是明確宣告的取樣點，不是連續掃描或諧振搜尋器。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_03-ptc-core.qmd/block-002.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/04-raw-direct-s21.md >}}
+
+{{< include ../figures/04-ptc-direct-s21.md >}}
+
+:::
+
+::: {.callout-important title="本章主線到此為止"}
+第 4 章主線包含原始四埠實體 Plan、通過證明的明確電路圖、原始四埠 View 的饋線 Direct Result，以及另行標示的 PTC 雙埠 Direct Result。其餘課程是在同一 Plan 上進行的選讀分析延伸。
+:::

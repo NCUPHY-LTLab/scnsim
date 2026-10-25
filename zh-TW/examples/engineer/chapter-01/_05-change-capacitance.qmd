@@ -1,0 +1,40 @@
+## 第 5 課 — 在同一 Plan 上改變電容 {#lesson-change-capacitance}
+
+**先備條件：**請在整章 Notebook 中執行第 1–4 課。
+
+`ParameterSet` 為已綁定電容選取 120 fF；它不會修改 Plan 的 110 fF 基準值，也不會建立第二個電路。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-001.qmd >}}
+
+沿用相同的頻率網格、已封存的 Run、原始 View 與 Direct 請求。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-002.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-003.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![選定 120 fF 點的單埠 S11 振幅與相位。](../figures/01-s11-selected.svg){#fig-engineer-ch1-s11-selected .lightbox fig-alt="雙圖呈現選定電容的 S11：振幅接近 0 dB，相位特徵在 5.75 至 6.25 GHz 間移動。"}
+
+[開啟所選 S11 SVG 圖](../figures/01-s11-selected.svg) ·
+[下載複數響應資料](../figures/01-s11-data.csv).
+
+:::
+
+在所選參數點上評估相同的負載根請求。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-004.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-005.qmd >}}
+
+產生的物理量表會並列兩個負載 Result 與獨立的未載入 LC 計算值。它不會從近乎平坦的理想單埠振幅推斷凹陷。
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/01-quantities.md >}}
+
+[下載基準值與選定量值表](../figures/01-quantities.csv).
+
+:::
+
+改變所選實體電容會移動相位特徵與負載根，但不會重新定義電路。Plan、請求、參數點與每個 Result 都保有各自的身分。

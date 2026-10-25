@@ -1,0 +1,18 @@
+---
+title: "第 3 章 · 第 2 課 — 檢視電路圖 evidence and limitation"
+subtitle: "CPW 饋線與讀出 S21 工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1 課" appearance="simple"}
+請先完成[第 1 課](01-build.qmd)。本網頁不會重建該課的狀態；請在乾淨核心中執行[完整本章 Notebook（英文）](/en/examples/engineer/chapter-03/chapter.ipynb)。
+:::
+
+{{< include _02-diagram.qmd >}}
+
+[上一課：第 1 課 — 建立電路](01-build.qmd) ·
+[下一課：第 3 課 — Direct S21](03-s21.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-03/chapter.ipynb)

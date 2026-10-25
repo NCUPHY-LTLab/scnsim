@@ -1,0 +1,18 @@
+---
+title: "第 2 章 · 第 3 課 — 最佳化與驗證"
+subtitle: "掃描與最佳化工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1–2 課" appearance="simple"}
+本頁沿用前兩課建立的 Plan、Run、View 與輸入。請依序執行[完整本章 Notebook（英文）](/en/examples/engineer/chapter-02/chapter.ipynb)，不可只執行本頁。
+:::
+
+{{< include _03-optimize.qmd >}}
+
+[上一課：第 2 課 — 掃描電容](02-sweep.qmd) ·
+[下一課：第 4 課 — 選讀 C/L 參數空間](04-optional-spaces.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-02/chapter.ipynb)

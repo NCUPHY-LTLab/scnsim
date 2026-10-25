@@ -1,0 +1,19 @@
+## 第 1 課 — 建立原始四埠 Plan {#lesson-ch4-physical-plan}
+
+### 重新建立每個實體子系統
+
+請依照[工程課程環境設定](../setup.qmd)，開啟本章 `chapter.ipynb`，重新啟動 Python 核心後按 **Run All**。第 4 章不會延續其他章節的狀態。
+
+這是從四埠完整範例移植而來的精確實體宣告：兩段 1 mm 純量 CPW 線段、接地讀出電路與一組浮接節點。有限 π 型線段不是精確的分佈參數等效模型。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_01-physical-plan.qmd/block-001.qmd >}}
+
+CPW 參考導體保留為 RLGC 中繼資料。三個公開訊號 Pin 是饋線唯一面向父 Plan 的邊界。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_01-physical-plan.qmd/block-002.qmd >}}
+
+浮接子系統為兩個內部節點各公開兩個 Pin。這些別名不會建立額外座標，也不會合併父層中彼此不同的局部配線群組。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_01-physical-plan.qmd/block-003.qmd >}}
+
+原始 Plan 宣告四個 Port：兩個饋線終端邊界，以及兩個不載入的探針負載。後續 PTC 會選擇分析用 View，但不會刪除這些 Port 或改變實體宣告。

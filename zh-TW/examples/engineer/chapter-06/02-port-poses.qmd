@@ -1,0 +1,18 @@
+---
+title: "第 6 章 · 第 2 課 — 設定埠方向"
+subtitle: "電路圖自訂工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1 課" appearance="simple"}
+請先完成[第 1 課](01-default.qmd)，再使用[完整本章 Notebook（英文）](/en/examples/engineer/chapter-06/chapter.ipynb)。
+:::
+
+{{< include _02-port-poses.qmd >}}
+
+[上一課：第 1 課 — 明確配置](01-default.qmd) ·
+[下一課：第 3 課 — T 形與十字接點](03-junctions.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-06/chapter.ipynb)

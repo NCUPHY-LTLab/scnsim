@@ -4,7 +4,6 @@ lang: en
 sidebar: testing
 ---
 
-[English](ci.md) · [繁體中文](zh-TW/ci.md)
 
 CI checks the declared unittest suite, installed platform wheels, package contents, and documentation. Pushes to `develop` or `main`, pull requests opened, synchronized, reopened, or marked ready for review, and manual dispatch start the workflow; a draft pull request runs only change classification and `ci-status`.
 

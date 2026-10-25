@@ -4,7 +4,6 @@ lang: en
 sidebar: testing
 ---
 
-[English](network-roots.md) · [繁體中文](zh-TW/network-roots.md)
 
 These cases start with declared circuit branches and compare requested network quantities with independent calculations. `Q(ω)` is the frequency-dependent dynamic-stiffness matrix; it is distinct from the quality factor `Q` used in the resonator examples. Similar-looking circuits on this page are separate fixtures.
 

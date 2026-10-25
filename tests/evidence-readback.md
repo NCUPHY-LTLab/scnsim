@@ -4,7 +4,6 @@ lang: en
 sidebar: testing
 ---
 
-[English](evidence-readback.md) · [繁體中文](zh-TW/evidence-readback.md)
 
 Memory keeps results in the running process. Workspace persists plans and results in a SQLite store. The evidence tests follow small calculations through encoding, completion, close, and readback; they check that saved values and failures are read from storage rather than recalculated. The SCNSim software version identifies a package release, while evidence format version `v3` identifies the encoded array layout.
 

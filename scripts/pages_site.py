@@ -8,6 +8,7 @@ from html import escape
 from html.parser import HTMLParser
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 import shutil
@@ -18,13 +19,13 @@ from urllib.parse import unquote, urlsplit
 
 SITE = "https://orpenstrike.github.io/scnsim/"
 PREFIX = "/scnsim/"
-REPO = "https://github.com/OrPenStrike/scnsim"
+REPO = "https://github.com/NCUPHY-LTLab/scnsim"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 RELEASE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:(?P<alpha>a\d+)|(?P<beta>b\d+))?\Z")
 DEVELOPMENT = re.compile(r"(?P<line>\d+\.\d+\.\d+) dev\Z")
 DEVELOPMENT_SOURCE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:a\d+|b\d+|\.dev\d+)?\Z")
-# The 35 unmodified files in arfiligol/askr@d5434b3c24a9fd146aca85a0c40b1ca93064d7da (v0.8.0).
-ASKR_SHA256 = "df2a65fc18cebdd9271d7a8ff7026a49a724688c8d69156676d4ff012bbb27ca"
+# The 40 unmodified files in the selected Askr v0.12.0 vendor tree.
+ASKR_SHA256 = "f76819381640ac6a00c74f6f7a918902355948dd1eb6b9d791389c019a243017"
 
 
 class References(HTMLParser):
@@ -97,12 +98,17 @@ def _slug(entry: dict[str, str]) -> str:
     return entry["root"].removeprefix(PREFIX).rstrip("/")
 
 
-def _manifest(catalog: dict[str, object], current_slug: str) -> bytes:
+def _manifest(catalog: dict[str, object], current_slug: str, *, english: bool = False, bilingual: set[str] | None = None) -> bytes:
     versions = []
     for entry in _entries(catalog):
         # Askr resolves roots from this version directory, not the origin.
         slug = _slug(entry)
-        root = "./" if slug == current_slug else f"../{slug}/"
+        if english:
+            target = slug + ('/en' if bilingual and slug in bilingual else '')
+            relative = posixpath.relpath(target, current_slug + '/en')
+            root = './' if relative == '.' else relative + '/'
+        else:
+            root = "./" if slug == current_slug else f"../{slug}/"
         row: dict[str, object] = {"label": entry["label"], "root": root}
         versions.append(row)
     return (json.dumps({"mode": "inline", "versions": versions}, indent=2) + "\n").encode()
@@ -122,9 +128,47 @@ def _vendor_digest(root: Path) -> str:
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in root.rglob("*") if path.is_file()
     }
-    if len(rows) != 35:
+    if len(rows) != 40:
         raise ValueError("Pages Askr vendor does not have the reviewed file set")
     return hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _bind_language_hrefs(config: Path, version_root: str, current: str) -> None:
+    """Bind the two native selector entries in an exported project config.
+
+    Quarto profiles concatenate distinct list entries. Keep exactly one items
+    authority per project instead of adding a second list through the profile.
+    """
+    lines = config.read_text(encoding="utf-8").splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines) if line.rstrip() == "askr:"]
+    if len(starts) != 1:
+        raise ValueError("Bilingual project must have one native Askr configuration")
+    start = starts[0]
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].strip() and not lines[i][0].isspace()), len(lines))
+    block = lines[start:end]
+    if sum(line.rstrip() == "  languages:" for line in block) != 1:
+        raise ValueError("Bilingual project must have one native language configuration")
+    if sum(line.strip() == "current: " + current for line in block) != 1:
+        raise ValueError("Bilingual project's current language differs from its role")
+    entries = []
+    for i, line in enumerate(block):
+        match = re.fullmatch(r" {4,6}- code: (.+?)\s*", line)
+        if match:
+            entries.append((i, match[1]))
+    if len(entries) != 2 or {code for _, code in entries} != {"en", "zh-TW"}:
+        raise ValueError("Bilingual selector must contain exactly en and zh-TW")
+    for ordinal, (index, code) in enumerate(entries):
+        limit = entries[ordinal + 1][0] if ordinal + 1 < len(entries) else len(block)
+        hrefs = [i for i in range(index + 1, limit) if re.match(r"^\s+href:", block[i])]
+        if len(hrefs) != 1:
+            raise ValueError("Native language selector entry must contain one href")
+        index = hrefs[0]
+        indentation = block[index][:len(block[index]) - len(block[index].lstrip())]
+        href = version_root + ("en/" if code == "en" else "")
+        block[index] = indentation + "href: " + json.dumps(href) + "\n"
+    lines[start:end] = block
+    config.write_text("".join(lines), encoding="utf-8")
 
 
 def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str, source_sha: str, presentation_sha: str) -> None:
@@ -147,22 +191,49 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
     if profile.exists():
         raise ValueError("Pages render profile already exists in exported source")
     if _vendor_digest(vendor) != ASKR_SHA256:
-        raise ValueError("Pages presentation vendor differs from Askr 0.8.0")
+        raise ValueError("Pages presentation vendor differs from Askr 0.12.0")
     destination = source / "_extensions/arfiligol/askr"
     if destination.exists():
         _regular_tree(destination)
     shutil.copytree(vendor, destination, dirs_exist_ok=True)
     if _vendor_digest(destination) != ASKR_SHA256:
-        raise ValueError("Pages presentation overlay is not exact Askr 0.8.0")
-    site_url = SITE + _slug(entry) + "/"
+        raise ValueError("Pages presentation overlay is not exact Askr 0.12.0")
+    version_url = SITE + _slug(entry) + "/"
+    bilingual = (source / 'zh-TW/_quarto.yml').is_file()
+    site_url = version_url + ('en/' if bilingual else '')
     profile.write_text(
         "website:\n"
         f"  site-url: {json.dumps(site_url)}\n"
+        f"  repo-url: {json.dumps(REPO)}\n"
         f"  repo-branch: {json.dumps(source_sha)}\n"
         "  page-footer:\n"
         f"    center: {json.dumps(label + ' · package ' + version + ' · content [' + source_sha + '](' + REPO + '/tree/' + source_sha + ') · presentation [' + presentation_sha + '](' + REPO + '/tree/' + presentation_sha + ')')}\n",
         encoding="utf-8",
     )
+    if bilingual:
+        # Current bilingual source only; pinned historical projects stay as-is.
+        _bind_language_hrefs(source / '_quarto.yml', entry['root'], 'en')
+        _bind_language_hrefs(source / 'zh-TW/_quarto.yml', entry['root'], 'zh-TW')
+        child_profile = source / 'zh-TW/_quarto-pages.yml'
+        child_profile.write_text(
+            profile.read_text(encoding='utf-8').replace(
+                f"  site-url: {json.dumps(site_url)}\n",
+                f"  site-url: {json.dumps(version_url)}\n"), encoding='utf-8')
+        # English-only links are explicit /en/ routes in authored Chinese prose.
+        # Bind just those Markdown/YAML/HTML hrefs in the exported source, not
+        # code includes, scientific assets or historical project sources.
+        link = re.compile(r'(\]\(|href:\s*|href=["\'])/en/')
+        child = source / 'zh-TW'
+        for path in child.rglob('*'):
+            relative = path.relative_to(child)
+            if not path.is_file() or path.suffix not in ('.qmd', '.md', '.yml'):
+                continue
+            if any(part in ('_extensions', '_generated', 'figures', 'position-figures') for part in relative.parts):
+                continue
+            if path.name == '_quarto-pages.yml':
+                continue
+            text = path.read_text(encoding='utf-8')
+            path.write_text(link.sub(lambda match: match[1] + entry['root'] + 'en/', text), encoding='utf-8')
     print(f"prepared {label} package={version} content={source_sha} presentation={presentation_sha}")
 
 
@@ -177,14 +248,21 @@ def _local_reference(site: Path, page: Path, value: str, root: str) -> Path | No
         return site / path.removeprefix(root)
     if path.startswith("/"):
         raise ValueError(f"cross-site absolute reference in {root}: {value}")
-    return (page.parent / path).resolve()
+    target = (page.parent / path).resolve()
+    try:
+        target.relative_to(site.resolve())
+    except ValueError:
+        raise ValueError(f"local reference escapes the version directory: {value}") from None
+    return target
 
 
 def _inspect(source: Path, entry: dict[str, str], source_sha: str, presentation_sha: str) -> Path:
     site = source / "_site"
     site_url = SITE + _slug(entry) + "/"
+    bilingual = (source / "zh-TW/_quarto.yml").is_file()
+    profile_url = site_url + ("en/" if bilingual else "")
     profile = source / "_quarto-pages.yml"
-    if not profile.is_file() or f"  site-url: {json.dumps(site_url)}\n" not in profile.read_text(encoding="utf-8"):
+    if not profile.is_file() or f"  site-url: {json.dumps(profile_url)}\n" not in profile.read_text(encoding="utf-8"):
         raise ValueError(f"{entry['label']} render profile has the wrong version root")
     _regular_tree(site)
     index = site / "index.html"
@@ -213,7 +291,24 @@ def _inspect(source: Path, entry: dict[str, str], source_sha: str, presentation_
             target = _local_reference(site, page, value, entry["root"])
             if target is not None and not target.is_file() and not target.is_dir():
                 raise ValueError(f"{entry['label']} render has a broken home/course asset: {value}")
-    math_page = site / "docs/implementation/diagonal-root-numerical-procedure.html"
+    if bilingual:
+        if not (site / 'en/index.html').is_file() or not (site / 'en/search.json').is_file():
+            raise ValueError('Bilingual render lacks English home or per-language search')
+        json.loads((site / 'en/search.json').read_text(encoding='utf-8'))
+        child_profile = source / 'zh-TW/_quarto-pages.yml'
+        if not child_profile.is_file() or f"  site-url: {json.dumps(site_url)}\n" not in child_profile.read_text(encoding='utf-8'):
+            raise ValueError('Chinese Pages profile has the wrong version root')
+        # Include both project homes and course maps in the existing local-link guard.
+        for page in (site / 'en/index.html', site / 'en/docs/index.html'):
+            if not page.is_file():
+                raise ValueError(f'English navigation page missing: {page}')
+            refs = References()
+            refs.feed(page.read_text(encoding='utf-8'))
+            for value in refs.paths:
+                target = _local_reference(site, page, value, entry['root'])
+                if target is not None and not target.is_file() and not target.is_dir():
+                    raise ValueError(f'English render has a broken home/course asset: {value}')
+    math_page = site / ("en" if bilingual else "") / "docs/implementation/diagonal-root-numerical-procedure.html"
     if not math_page.is_file() or "mathjax" not in math_page.read_text(encoding="utf-8").lower():
         raise ValueError(f"{entry['label']} render lacks declared MathJax support")
     return site
@@ -287,9 +382,13 @@ def _assemble(catalog: dict[str, object], template: Path, sources: Path, develop
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix="scnsim-pages-", dir=output.parent))
     try:
+        bilingual = {slug for slug, site in sites.items() if (site / 'en/index.html').is_file()}
         for slug, site in sites.items():
             shutil.copytree(site, temporary / slug)
             (temporary / slug / "askr-versions.json").write_bytes(_manifest(catalog, slug))
+            if slug in bilingual:
+                (temporary / slug / 'en/askr-versions.json').write_bytes(
+                    _manifest(catalog, slug, english=True, bilingual=bilingual))
         (temporary / "index.html").write_text(root_html, encoding="utf-8")
         not_found = _missing_page(catalog)
         (temporary / "404.html").write_text(not_found, encoding="utf-8")

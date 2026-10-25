@@ -4,7 +4,6 @@ lang: en
 sidebar: testing
 ---
 
-[English](circuit-data.md) · [繁體中文](zh-TW/circuit-data.md)
 
 These tests begin with explicit input data and declarations. They check that SCNSim keeps conductor order and source identity, and that a small component network is assembled from the declared branches.
 

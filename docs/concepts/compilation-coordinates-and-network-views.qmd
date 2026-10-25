@@ -14,8 +14,7 @@ belong to the linked Runtime Contract.
 :::
 
 Read [Simulation conventions](simulation-conventions.qmd) for phasor signs,
-Port current direction, matrix axes, wave references, load boundaries, and the
-one-conjugation HB adapter rule.
+Port current direction, matrix axes, wave references, and load boundaries.
 
 ## One circuit can support several questions
 
@@ -82,7 +81,7 @@ CONVERGING dev36 extension; it does not change the existing dynamic equations:
 | PTC in a View lineage | Existing port-load compensation selection | A valid PTC lineage remains usable. Its resistive/reference load mask does not change C or transform weights, and static C does not apply RF port eligibility or normalization. |
 
 For static C, `retain()` induces the C-only boundary $q_e=0$. Existing dynamic
-Direct/HB response, operator, root, and residue-coupling equations continue to
+Direct response, operator, root, and residue-coupling equations continue to
 use their full dynamic Schur behavior on the same retained View. See the
 [static-capacitance contract](../contracts/static-capacitance.qmd) and
 [guide](../guides/static-capacitance.qmd) for the static equation and API.
@@ -97,7 +96,7 @@ do not become new public retain handles. See the
 [assembly boundary](../contracts/circuit-plan-assembly.qmd#public-boundaries)
 for deliberate coordinate exposure.
 
-The order matters and remains visible in the Ref lineage. Direct and HB must
+The order matters and remains visible in the Ref lineage. Direct must
 either realize that same final View faithfully or fail closed.
 
 Engineer [Chapter 3](../../examples/engineer/chapter-03/01-build.qmd) first
@@ -121,7 +120,7 @@ ordered collection of points. Every point reassembles parameter-dependent
 native values, transforms, matrices, and reductions; the Plan topology and the
 View lineage do not become mutable batch state.
 
-Frequency grids, matrix indices, HB cases, and modes remain Result dimensions,
+Frequency grids and matrix indices remain Result dimensions,
 not parameter axes. A scalar sweep at a fixed transmission-line RLGC value may
 track an accepted root branch. This target does not track that same root across
 changing complete RLGC matrices; an unsupported request fails rather than

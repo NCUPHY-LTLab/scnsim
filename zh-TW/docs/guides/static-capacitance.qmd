@@ -1,0 +1,64 @@
+---
+title: "在 View 上評估靜態電容（Static capacitance）"
+subtitle: "檢視有限 C、保留座標（Retained coordinate）縮減與座標元素"
+lang: zh-TW
+toc-depth: 2
+sidebar: guides
+---
+
+先以 View 的 `retain()` 選擇座標邊界，再以 `StaticCapacitanceSpec()` 評估靜態電容。本指南示範同一有效參數點（Parameter point）的完整矩陣（Matrix）、保留座標縮減、座標元素與靈敏度（Sensitivity）。[靜態電容契約（英文）](/en/docs/contracts/static-capacitance.html)規定候選 API 與失敗邊界。
+
+## 評估編譯後矩陣（Compiled matrix）
+
+重用已封存 Plan、其原始 View 或既有僅含座標轉換（Coordinate transformation）的 View，以及一個有效參數點。靜態矩陣綁定該請求相同的編譯有限模型，包括離散傳輸線的有限 π 電容。
+
+{{< include ../../_generated/canonical-code/docs/guides/static-capacitance.qmd/block-001.qmd >}}
+
+Spec 沒有 `zero_charge` 引數。未使用保留 View 時，返回選定 View 的完整有序有限矩陣，包括有限 π 內部座標。列欄 ID 可用來讀靜態元素，但不會成為新 View 座標，也不讓內部節點可由 `retain()` 選取。
+
+`matrix_result.row_coordinates` 與 `matrix_result.column_coordinates` 提供矩陣兩軸的有序編譯節點座標 ID。矩陣涵蓋完整座標基底，包括內部非埠座標。`matrix_result.evidence` 綁定 Plan、有效參數點、選定 View、dtype 與有限離散化。這是電容矩陣，不是頻率索引響應。
+
+返回的列欄 ID（含內部有限 π 軸）可用來讀靜態元素；View 保留座標本身仍限於既有公開與轉換座標。
+
+對既有配對座標 View，執行期解析實際相依於參數的實轉換 $T(\theta)$，並評估 $C_y=T(\theta)^T C_x(\theta)T(\theta)$。轉換改變座標表示，不重接 Plan。保留 View 使用所選座標順序，以及下述僅含靜態 C 的零電荷縮減（Zero-charge reduction）。也可使用有效 PTC 沿革（Lineage），其電阻／參考負載遮罩不改變 C 或轉換權重。
+
+## 評估 C 前先保留座標
+
+使用分析管線其他部分相同的 `retain()` View。宣告座標順序就是靜態矩陣順序；完整有限補集（含內部有限 π 節點）在零電荷（Zero charge）條件下消去。縮減從 View 衍生，不在 Spec 另行輸入：
+
+{{< include ../../_generated/canonical-code/docs/guides/static-capacitance.qmd/block-002.qmd >}}
+
+以 $r$ 表示有序保留座標，$e$ 表示其完整有限補集，靜態操作使用：
+
+$$
+C_{\mathrm{eff}}=C_{rr}-C_{re}\,\operatorname{solve}(C_{ee},C_{er}),
+\qquad q_e=0.
+$$
+
+結果的 `zero_charge` 欄位與證據保留實際由 View 衍生的分割及 $q_e=0$ 條件，沒有保留邊界時為空。這不是電壓箝制、實體接地或猜測節點。完整矩陣即使奇異仍可匯出；若選定 $C_{ee}$ 無法求解，請求回報該原生失敗，不以偽逆或正規化取代。
+
+## 選取一個座標元素
+
+`column` 關鍵字刻意命名第二矩陣軸：
+
+{{< include ../../_generated/canonical-code/docs/guides/static-capacitance.qmd/block-003.qmd >}}
+
+元素結果保留 `row`、`column`，以及與矩陣結果相同的 Plan／點／View／離散化來源。從所評估 View 的結果軸選列欄 ID；保留 View 使用保留軸。完整矩陣內部座標 ID 可定位完整 View 元素，但不是新的 retain 控制代碼。
+
+保留矩陣評估後若要選元素，對相同保留 View 使用其保留列欄 ID：
+
+{{< include ../../_generated/canonical-code/docs/guides/static-capacitance.qmd/block-004.qmd >}}
+
+## 對相同矩陣或元素微分
+
+靈敏度使用相同 View、相同有效點的選擇器。例如 Jacobian 對有序實體參數清單微分每個矩陣元素：
+
+{{< include ../../_generated/canonical-code/docs/guides/static-capacitance.qmd/block-005.qmd >}}
+
+元素則改綁定 `retained_entry_spec.value.on(retained_view)`。既有 JVP、VJP 宣告都適用於兩種選定量，其方向與權重遵循[靈敏度指南](sensitivity.qmd)的一般物理單位規則。靜態 C 輸出單位為法拉；原始矩陣 Jacobian 單位因此為 F 除以輸入 SI 單位。輸入本身以 F 量測時，儲存格因單位相消而無因次，不是自動靈敏度正規化。導數穿過相依於參數的 $C(\theta)$、解析後 $T(\theta)$ 與實際消去求解；不以基準常數取代轉換權重。
+
+靈敏度請求使用一份固定實現有限網格。有效 PTC 沿革受支援，但電阻／參考負載遮罩對 C 或轉換權重沒有數值影響；此靜態請求不套用 RF／埠適用條件或正規化。導數不對整數傳輸線區段選擇微分。靜態電容使用共用 JAX 實體程式。
+
+Memory 與 Workspace 結果提供相同靜態矩陣、元素值介面。Memory 結果獨立於 Run；Workspace 結果使用固定選定讀取器，可在 `run.close()` 後檢視。動態響應、根與殘值正規化耦合契約保持獨立。
+
+Dev36 保留 View 靜態方程為新整合項目，尚未觀察其數值使用。先前 dev35 靜態 LC 觀察不驗證此保留請求路徑。既有動態 `retain()` 方程不變，仍使用包含零外部電流邊界的動態 Schur 行為；本靜態量則只在 $q_e=0$ 下消去 C。

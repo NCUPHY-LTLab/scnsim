@@ -1,0 +1,18 @@
+---
+title: "第 4 章 · 第 3 課 — 探針補償雙埠視圖"
+subtitle: "四埠完整範例工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1–2 課" appearance="simple"}
+請先完成[第 1 課](01-physical-plan.qmd)，並檢視[第 2 課](02-explicit-capstone.qmd)的實體電路圖。請在乾淨核心中執行[完整本章 Notebook（英文）](/en/examples/engineer/chapter-04/chapter.ipynb)。
+:::
+
+{{< include _03-ptc-core.qmd >}}
+
+[上一課：第 2 課 — 明確完整電路圖](02-explicit-capstone.qmd) ·
+[選讀下一課：第 4 課 — 座標轉換](04-optional-transform.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-04/chapter.ipynb)

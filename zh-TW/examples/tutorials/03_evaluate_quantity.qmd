@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 評估量值"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+第一個保留座標量值請參閱[第 1 章 — 讀取負載根](../engineer/chapter-01/04-root.qmd)，轉換 View 的純量響應請參閱[第 4 章 — 選讀量值](../engineer/chapter-04/05-optional-quantity.qmd)。精確量值行為以英文[執行期契約](/en/docs/v1-runtime-contract.html)為準。
+
+本短頁保留舊網址。已取代的可執行內容與 Notebook 仍可在 Git 歷史中找到。

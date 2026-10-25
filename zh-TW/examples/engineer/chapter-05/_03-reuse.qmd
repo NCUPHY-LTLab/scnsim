@@ -1,0 +1,27 @@
+## 第 3 課 — 從公開邊界重用元件 {#lesson-ch5-reuse}
+
+目前的程式區塊使用完整、明確的配置，並綁定至新準備的狀態。已保存的圖與 Notebook 輸出維持原有執行身分；本次來源更新不會重新產生它們。
+
+### 讓父層直接耦合至子層 Pin
+
+6 fF 耦合器與 50 Ω 終端 Port 由父層持有。串聯連接止於子層公開 Pin；Coordinate 不需要第二條父層 Bus。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-05/_03-reuse.qmd/block-001.qmd >}}
+
+### 檢視父元件與子元件（Parent／child）的宣告邊界
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-05/_03-reuse.qmd/block-002.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![父層 Plan 直接耦合至可重用接地 LC Composite 的一個公開 Pin。](../figures/05-reusable-composite.svg){#fig-ch5-reusable-composite .lightbox fig-alt="父層擁有的耦合電容與已終端 Port 連接至可重用接地 LC 的公開端點；另一個等效公開 Pin 保持開路。"}
+
+{{< askr-image-view target="fig-ch5-reusable-composite" label="檢視電路（Inspect circuit）" >}}
+
+[開啟 SVG 圖](../figures/05-reusable-composite.svg)
+
+:::
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-05/_03-reuse.qmd/block-003.qmd >}}
+
+建立證明與稽核描述精確的 Plan 邊界，不會公開已建 Composite 的私有可編輯控制代碼。
