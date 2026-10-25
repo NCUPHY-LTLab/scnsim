@@ -166,7 +166,7 @@ website:
         - text: "Numerical checks and local run"
           href: tests/numerical-checks.md
     - id: testing-zh-tw
-      title: "測試（繁體中文）"
+      title: "測試（Testing，繁體中文）"
       style: "floating"
       collapse-level: 1
       contents:
@@ -174,19 +174,19 @@ website:
           href: tests/zh-TW/README.md
         - text: "CI 與 Pages"
           href: tests/zh-TW/ci.md
-        - text: "電路輸入與元件"
+        - text: "電路輸入（Circuit inputs）與元件（Components）"
           href: tests/zh-TW/circuit-data.md
-        - text: "網路方程式與根"
+        - text: "網路方程式（Network equations）與根（Roots）"
           href: tests/zh-TW/network-roots.md
-        - text: "參數與最佳化"
+        - text: "參數（Parameters）與最佳化（Optimization）"
           href: tests/zh-TW/parameters-optimization.md
-        - text: "證據與讀回"
+        - text: "證據（Evidence）與讀回（Readback）"
           href: tests/zh-TW/evidence-readback.md
-        - text: "錯誤處理與診斷"
+        - text: "錯誤處理（Failure handling）與診斷（Diagnostics）"
           href: tests/zh-TW/diagnostics.md
-        - text: "路徑、電路圖與教材輸出"
+        - text: "路徑可攜性（Path portability）、電路圖（Diagrams）與教材輸出（Teaching outputs）"
           href: tests/zh-TW/portability-diagrams.md
-        - text: "數值檢查與本機執行"
+        - text: "數值檢查（Numerical checks）與本機執行（Local run）"
           href: tests/zh-TW/numerical-checks.md
     - id: overview
       title: "Overview"

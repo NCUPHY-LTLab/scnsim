@@ -8,13 +8,13 @@ sidebar: testing-zh-tw
 
 推送至 `develop` 或 `main`、Pull Request 開啟／更新／重新開啟／標記為可審查，以及手動派送時，CI 都會執行。Draft Pull Request 只執行變更分類與 `ci-status`；產品和文件工作會略過。
 
-## 變更分類
+## 變更分類（Change classification）
 
 只有變更限於根目錄的 `README.md` 或 `docs/` 下的一般 Markdown，且每個變更行都分類為純文字時，才會進入僅適用於這些純文字變更的快速流程。程式碼、受保護標記、可執行內容、無法辨識或混合的路徑，以及不確定的分類，都會選擇產品流程。`tests/README.md` 不在允許清單內，因此變更 Testing 文件會進入產品流程。
 
 判斷方式定義於 [.github/workflows/ci.yml](../../.github/workflows/ci.yml) 與 [.github/scripts/change_scope.py](../../.github/scripts/change_scope.py)。
 
-## 產品工作
+## 產品工作（Product jobs）
 
 產品流程分為五類工作，Linux／macOS 矩陣展開後共七個工作：
 
@@ -24,7 +24,7 @@ sidebar: testing-zh-tw
 4. **`windows-jax-wheel-smoke`** 在消費端環境安裝實際 Windows wheel，測試原生核心與公開 Memory／Workspace JAX 路徑、自動搜尋並執行預設測試，並執行 Windows Path Portability Set。
 5. **`runtime-preparation-smoke`** 在安裝平台 wheel 的 Linux 與 macOS 環境執行。它涵蓋 Direct 與根計算、敏感度導數、CMA 最佳化、已存結果解析、預設套件及該平台的 Path Portability Set。
 
-## 文件工作與狀態
+## 文件工作與狀態（Documentation jobs and status）
 
 獨立的 **`documentation`** 工作服務於純文字流程。它執行 `uv sync --locked --no-install-project --no-build`，再以 Quarto 1.10.18 在不執行程式碼下渲染。來源檢查會確認本機 include 與 Markdown／QMD 連結目標存在，並確認生成輸出未被追蹤；它不檢查渲染後的 HTML 連結。
 

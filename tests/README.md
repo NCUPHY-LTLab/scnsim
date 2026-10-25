@@ -10,11 +10,70 @@ This section explains what continuous integration (CI) checks, which problems th
 
 ## Topics
 
-- [CI and Pages](ci.md) explains workflow triggers, change classification, product jobs, and versioned documentation publishing.
-- [Circuit inputs and components](circuit-data.md) covers RLGC data, Q2D loading, component factories, and inductive coupling.
-- [Network equations and roots](network-roots.md) describes Direct quantities, admittance, derivatives, and pole or zero certificates.
-- [Parameters and optimization](parameters-optimization.md) explains affine authorization, local-coordinate scales, and optimizer cases.
-- [Evidence and readback](evidence-readback.md) covers v3 artifacts and Memory/Workspace resolution.
-- [Failure handling and diagnostics](diagnostics.md) describes native error routing and solve diagnostics.
-- [Paths, diagrams, and teaching outputs](portability-diagrams.md) covers path portability, manual drawings, notebooks, and course helpers.
-- [Numerical checks and local run](numerical-checks.md) gives the comparison bounds and local unittest command.
+::::: {.vstack .gap-3}
+
+::: {.card .position-relative}
+::: {.card-body}
+[**CI and Pages**](ci.md){.stretched-link}
+
+Explains workflow triggers, change classification, product jobs, and versioned documentation publishing.
+:::
+:::
+
+::: {.card .position-relative}
+::: {.card-body}
+[**Circuit inputs and components**](circuit-data.md){.stretched-link}
+
+Covers RLGC data, Q2D loading, component factories, and inductive coupling.
+:::
+:::
+
+::: {.card .position-relative}
+::: {.card-body}
+[**Network equations and roots**](network-roots.md){.stretched-link}
+
+Describes Direct quantities, admittance, derivatives, and pole or zero certificates.
+:::
+:::
+
+::: {.card .position-relative}
+::: {.card-body}
+[**Parameters and optimization**](parameters-optimization.md){.stretched-link}
+
+Explains affine authorization, local-coordinate scales, and optimizer cases.
+:::
+:::
+
+::: {.card .position-relative}
+::: {.card-body}
+[**Evidence and readback**](evidence-readback.md){.stretched-link}
+
+Covers v3 artifacts and Memory/Workspace resolution.
+:::
+:::
+
+::: {.card .position-relative}
+::: {.card-body}
+[**Failure handling and diagnostics**](diagnostics.md){.stretched-link}
+
+Describes native error routing and solve diagnostics.
+:::
+:::
+
+::: {.card .position-relative}
+::: {.card-body}
+[**Paths, diagrams, and teaching outputs**](portability-diagrams.md){.stretched-link}
+
+Covers path portability, manual drawings, notebooks, and course helpers.
+:::
+:::
+
+::: {.card .position-relative}
+::: {.card-body}
+[**Numerical checks and local run**](numerical-checks.md){.stretched-link}
+
+Gives the comparison bounds and local unittest command.
+:::
+:::
+
+:::::
