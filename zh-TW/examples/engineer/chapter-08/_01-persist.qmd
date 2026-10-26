@@ -14,11 +14,17 @@ Workspace 證據會綁定建立它的精確 Plan 與套件來源。套件更新�
 
 {{< include ../../../_generated/canonical-code/examples/engineer/chapter-08/_01-persist.qmd/block-003.qmd >}}
 
-Direct 請求使用恰好四個明確宣告的取樣點。負載根使用 6 GHz Newton 提示值；提示值不是答案或搜尋區間。
+Direct 請求使用恰好四個明確宣告的取樣點。S11 圖只呈現幅值（Magnitude）；保存的報告沒有相位（Phase）軌跡。負載根使用 6 GHz Newton 提示值；提示值不是答案或搜尋區間。
 
 {{< include ../../../_generated/canonical-code/examples/engineer/chapter-08/_01-persist.qmd/block-004.qmd >}}
 
 ::: {.content-visible when-format="html"}
+
+**Port 1：**`signal_in`；此保存檢視包含單一 magnitude 軌跡。
+
+<iframe title="第 8 章保存的 S11 幅值（Magnitude）" src="../figures/08-s11-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/08-s11-magnitude.svg" label="四個明確頻率取樣點的 S11 幅值。（SVG）" >}}
 
 {{< include ../figures/08-persisted-results.md >}}
 

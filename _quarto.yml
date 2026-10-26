@@ -21,6 +21,8 @@ project:
     - tests/portability-diagrams.md
     - tests/numerical-checks.md
     - docs/index.qmd
+    - docs/contribute.qmd
+    - docs/tutorials/inputs-units.qmd
     - examples/engineer/setup.qmd
     - examples/engineer/chapter-01/01-build.qmd
     - examples/engineer/chapter-01/02-diagram.qmd
@@ -123,6 +125,12 @@ website:
   title: "SCNSim"
   description: "Superconducting Circuit Network Simulation"
   page-navigation: true
+  announcement:
+    content: "R2 is under development and has not been officially released."
+    icon: info-circle
+    type: warning
+    dismissable: false
+    position: above-navbar
   search:
     location: navbar
     type: overlay
@@ -145,34 +153,100 @@ website:
         href: docs/concepts/index.qmd
       - text: "Guides"
         href: docs/guides/benchmark.qmd
-      - text: "Contract"
-        href: docs/contracts/index.qmd
-      - text: "Testing"
-        href: tests/README.md
+      - text: "Contribution"
+        href: docs/contribute.qmd
   sidebar:
-    - id: testing
-      title: "Testing"
+    - id: contribution
+      title: "Contribution"
       style: "floating"
       collapse-level: 1
       contents:
         - text: "Overview"
-          href: tests/README.md
-        - text: "CI and Pages"
-          href: tests/ci.md
-        - text: "Circuit inputs and components"
-          href: tests/circuit-data.md
-        - text: "Network equations and roots"
-          href: tests/network-roots.md
-        - text: "Parameters and optimization"
-          href: tests/parameters-optimization.md
-        - text: "Evidence and readback"
-          href: tests/evidence-readback.md
-        - text: "Failure handling and diagnostics"
-          href: tests/diagnostics.md
-        - text: "Paths, diagrams, and teaching outputs"
-          href: tests/portability-diagrams.md
-        - text: "Numerical checks and local run"
-          href: tests/numerical-checks.md
+          href: docs/contribute.qmd
+        - section: "Testing"
+          contents:
+            - text: "Testing overview"
+              href: tests/README.md
+            - text: "CI and Pages"
+              href: tests/ci.md
+            - text: "Circuit inputs and components"
+              href: tests/circuit-data.md
+            - text: "Network equations and roots"
+              href: tests/network-roots.md
+            - text: "Parameters and optimization"
+              href: tests/parameters-optimization.md
+            - text: "Evidence and readback"
+              href: tests/evidence-readback.md
+            - text: "Failure handling and diagnostics"
+              href: tests/diagnostics.md
+            - text: "Paths, diagrams, and teaching outputs"
+              href: tests/portability-diagrams.md
+            - text: "Numerical checks and local run"
+              href: tests/numerical-checks.md
+        - section: "Public contracts"
+          contents:
+            - text: "Contract map"
+              href: docs/contracts/index.qmd
+            - text: "Component Authoring Contract"
+              href: docs/component-authoring.qmd
+            - text: "CircuitPlan Assembly"
+              href: docs/contracts/circuit-plan-assembly.qmd
+            - text: "Manual circuit diagrams"
+              href: docs/contracts/automatic-semantic-circuit-diagram-layout.qmd
+            - text: "Parameter System"
+              href: docs/contracts/parameter-system.qmd
+            - text: "Roots and branch selection"
+              href: docs/guides/roots-and-branch-selection.qmd
+            - text: "Sensitivity guide"
+              href: docs/guides/sensitivity.qmd
+            - text: "Static Capacitance Contract"
+              href: docs/contracts/static-capacitance.qmd
+            - text: "Static capacitance guide"
+              href: docs/guides/static-capacitance.qmd
+            - text: "CPU Benchmark guide"
+              href: docs/guides/benchmark.qmd
+            - text: "Workspace evidence v3"
+              href: docs/contracts/workspace-evidence-v3.qmd
+            - text: "V1 Runtime Contract"
+              href: docs/v1-runtime-contract.qmd
+            - text: "Historical evidence record"
+              href: docs/contracts/implementation-evidence-history.qmd
+        - section: "Implementation"
+          contents:
+            - text: "Implementation overview"
+              href: docs/implementation/index.qmd
+            - text: "System architecture"
+              href: docs/implementation/system-architecture.qmd
+            - text: "Plan sealing and identity"
+              href: docs/implementation/plan-sealing-and-identity.qmd
+            - text: "Canonical identities and schemas"
+              href: docs/implementation/canonical-identities-and-schemas.qmd
+            - text: "Catalog and runtime identity"
+              href: docs/implementation/catalog-and-runtime-identity.qmd
+            - text: "Composite snapshots"
+              href: docs/implementation/composite-snapshots-and-recursive-expansion.qmd
+            - text: "Compilation, Ports, and Views"
+              href: docs/implementation/compilation-ports-and-views.qmd
+            - text: "RLGC and pi expansion"
+              href: docs/implementation/rlgc-q2d-and-pi-expansion.qmd
+            - text: "View lineage"
+              href: docs/implementation/view-lineage-and-selected-networks.qmd
+            - text: "Diagonal-root procedure"
+              href: docs/implementation/diagonal-root-numerical-procedure.qmd
+            - text: "Poles, zeros, couplings, and operators"
+              href: docs/implementation/direct-poles-zeros-and-operators.qmd
+            - text: "Direct quantities and optimization"
+              href: docs/implementation/direct-quantities-and-optimization.qmd
+            - text: "Runtime and Benchmark"
+              href: docs/implementation/benchmark-and-backends.qmd
+            - text: "Workspace and artifacts"
+              href: docs/implementation/workspace-attempts-and-artifacts.qmd
+            - text: "Results, reports, and diagrams"
+              href: docs/implementation/results-reports-and-diagrams.qmd
+            - text: "External inputs and delivery"
+              href: docs/implementation/external-inputs-and-delivery.qmd
+            - text: "Engineer course map"
+              href: docs/implementation/engineer-course-migration-map.qmd
     - id: overview
       title: "Overview"
       style: "floating"
@@ -283,6 +357,8 @@ website:
               href: examples/engineer/chapter-08/02-resolve.qmd
             - text: "Complete Chapter source"
               href: examples/engineer/chapter-08/chapter.qmd
+        - text: "Inputs and units"
+          href: docs/tutorials/inputs-units.qmd
     - id: concept
       title: "Concept"
       style: "floating"
@@ -304,81 +380,6 @@ website:
           href: docs/concepts/units-parameters-and-optimization.qmd
         - text: "Electrical resolution"
           href: docs/concepts/electrical-resolution.qmd
-    - id: contract
-      title: "Contract"
-      style: "floating"
-      collapse-level: 1
-      contents:
-        - text: "Contract map"
-          href: docs/contracts/index.qmd
-        - section: "Public contracts"
-          contents:
-            - text: "Component Authoring Contract"
-              href: docs/component-authoring.qmd
-            - text: "CircuitPlan Assembly"
-              href: docs/contracts/circuit-plan-assembly.qmd
-            - text: "Manual circuit diagrams"
-              href: docs/contracts/automatic-semantic-circuit-diagram-layout.qmd
-            - text: "Parameter System"
-              href: docs/contracts/parameter-system.qmd
-            - text: "Roots and branch selection"
-              href: docs/guides/roots-and-branch-selection.qmd
-            - text: "Sensitivity guide"
-              href: docs/guides/sensitivity.qmd
-            - text: "Static Capacitance Contract"
-              href: docs/contracts/static-capacitance.qmd
-            - text: "Static capacitance guide"
-              href: docs/guides/static-capacitance.qmd
-            - text: "CPU Benchmark guide"
-              href: docs/guides/benchmark.qmd
-            - text: "Workspace evidence v3"
-              href: docs/contracts/workspace-evidence-v3.qmd
-            - text: "V1 Runtime Contract"
-              href: docs/v1-runtime-contract.qmd
-        - text: "Implementation overview"
-          href: docs/implementation/index.qmd
-        - section: "Ownership and identity"
-          contents:
-            - text: "System architecture"
-              href: docs/implementation/system-architecture.qmd
-            - text: "Plan sealing and identity"
-              href: docs/implementation/plan-sealing-and-identity.qmd
-            - text: "Canonical identities and schemas"
-              href: docs/implementation/canonical-identities-and-schemas.qmd
-            - text: "Catalog and runtime identity"
-              href: docs/implementation/catalog-and-runtime-identity.qmd
-        - section: "Physical model and selected network"
-          contents:
-            - text: "Composite snapshots"
-              href: docs/implementation/composite-snapshots-and-recursive-expansion.qmd
-            - text: "Compilation, Ports, and Views"
-              href: docs/implementation/compilation-ports-and-views.qmd
-            - text: "RLGC and pi expansion"
-              href: docs/implementation/rlgc-q2d-and-pi-expansion.qmd
-            - text: "View lineage"
-              href: docs/implementation/view-lineage-and-selected-networks.qmd
-        - section: "Numerical procedures"
-          contents:
-            - text: "Diagonal-root procedure"
-              href: docs/implementation/diagonal-root-numerical-procedure.qmd
-            - text: "Poles, zeros, couplings, and operators"
-              href: docs/implementation/direct-poles-zeros-and-operators.qmd
-            - text: "Direct quantities and optimization"
-              href: docs/implementation/direct-quantities-and-optimization.qmd
-        - section: "Execution, storage, and presentation"
-          contents:
-            - text: "Runtime and Benchmark"
-              href: docs/implementation/benchmark-and-backends.qmd
-            - text: "Workspace and artifacts"
-              href: docs/implementation/workspace-attempts-and-artifacts.qmd
-            - text: "Results, reports, and diagrams"
-              href: docs/implementation/results-reports-and-diagrams.qmd
-            - text: "External inputs and delivery"
-              href: docs/implementation/external-inputs-and-delivery.qmd
-            - text: "Engineer course map"
-              href: docs/implementation/engineer-course-migration-map.qmd
-        - text: "Historical evidence record"
-          href: docs/contracts/implementation-evidence-history.qmd
     - id: guides
       title: "Guides"
       style: "floating"

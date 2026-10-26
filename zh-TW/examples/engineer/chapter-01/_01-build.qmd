@@ -1,5 +1,21 @@
 ## 第 1 課 — 建立耦合諧振器 {#lesson-build}
 
+本章以 50 Ω 終端量測 Port，經由 6 fF 電容耦合至接地並聯 LC 諧振器。諧振器由子層 `Subsystem` 持有；電容基準值為 110 fF，電感為 5.8 nH。
+
+::: {.light-content}
+![第 1 章實體 Plan。](../figures/chapter1-plan.light.svg){#img-ch1-plan-light .lightbox}
+
+{{< askr-image-view target="img-ch1-plan-light" label="放大第 1 章電路圖" >}}
+:::
+
+::: {.dark-content}
+![第 1 章實體 Plan。](../figures/chapter1-plan.dark.svg){#img-ch1-plan-dark .lightbox}
+
+{{< askr-image-view target="img-ch1-plan-dark" label="放大第 1 章電路圖" >}}
+:::
+
+量測 Port 與耦合電容由父層持有，LC 元件由子層持有。接下來會建立此 Plan、檢視 S11、選擇諧振器座標計算負載根，最後選取 120 fF，並將 Result 保留在記憶體中。
+
 ### 從乾淨的工程課程核心開始
 
 請複製儲存庫、安裝鎖定的開發環境，並在儲存庫根目錄啟動 Jupyter：

@@ -1,20 +1,14 @@
 ## 第 3 課 — 宣告電路圖 {#lesson-ch7-diagrams}
 
-目前的程式區塊使用完整、明確的配置，並綁定至新準備的狀態。已保存的圖與 Notebook 輸出維持原有執行身分；本次來源更新不會重新產生它們。
-
 ### 檢視已宣告的線段
 
 {{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_03-diagrams.qmd/block-001.qmd >}}
 
-::: {.content-visible when-format="html"}
+下圖呈現 `readout` 與 `filter` 兩條信號導體及其四個端點。每單位長度的 RLGC 矩陣描述兩導體的自參數與耦合，並作為有限 π 展開的模型輸入。
 
-::: {.callout-warning title="尚未提供的歷史圖面（Retained diagram）"}
+![N=2 作者用電路圖：readout 與 filter 兩條導體及四個端點。](../figures/07-n2-authoring.svg){#img-ch7-n2-authoring .lightbox}
 
-⚠️ 歷史產物記錄列有 N=2 電路圖（Authoring diagram）的 SVG，但目前文件來源未保留該檔案。請搭配上方宣告閱讀[歷史產物記錄（英文）](../figures/chapter-07-artifacts.json)。
-
-:::
-
-:::
+{{< askr-image-view target="img-ch7-n2-authoring" label="開啟 N=2 作者用電路圖" >}}
 
 {{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_03-diagrams.qmd/block-002.qmd >}}
 

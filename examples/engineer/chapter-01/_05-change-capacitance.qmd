@@ -2,8 +2,7 @@
 
 **Prerequisite:** run Lessons 1–4 in the aggregate Chapter Notebook.
 
-A `ParameterSet` selects 120 fF for the already-bound capacitor. It does not
-mutate the Plan's 110 fF baseline or construct a second circuit.
+A `ParameterSet` selects 120 fF for the already-bound capacitor. Compare its S11 with the 110 fF baseline on the same Plan; the parameter selection does not construct a second circuit.
 
 ```{python}
 #| id: ch1-select-capacitance
@@ -23,17 +22,54 @@ selected_response = run.solve(
 
 ```{python}
 #| id: ch1-show-selected-s11
-selected_s11_figure = selected_response.s.plot(magnitude="db")
-selected_s11_figure.update_yaxes(range=[-0.05, 0.05], row=1, col=1)
-selected_s11_figure
+from IPython.display import display
+
+baseline_magnitude = baseline_response.s.plot(component="magnitude", magnitude="db")
+selected_magnitude = selected_response.s.plot(component="magnitude", magnitude="db")
+baseline_phase = baseline_response.s.plot(component="phase")
+selected_phase = selected_response.s.plot(component="phase")
+magnitude_plot = baseline_magnitude
+phase_plot = baseline_phase
+for figure, extra, component, unit in (
+    (magnitude_plot, selected_magnitude, "magnitude", "dB"),
+    (phase_plot, selected_phase, "phase", "deg"),
+):
+    baseline_trace = figure.data[0]
+    baseline_trace.name = "110 fF baseline"
+    baseline_trace.line.color = "#246398"
+    baseline_trace.showlegend = True
+    selected_trace = extra.data[0]
+    selected_trace.name = "120 fF selected"
+    selected_trace.line.color = "#b54b35"
+    selected_trace.showlegend = True
+    figure.add_trace(selected_trace)
+    figure.update_layout(
+        template="plotly_white", autosize=True, height=360,
+        title={"text": f"S11 {component}", "x": 0.02, "xanchor": "left"},
+        font={"family": "Arial, sans-serif", "size": 14, "color": "#243344"},
+        margin={"l": 78, "r": 24, "t": 55, "b": 62},
+        paper_bgcolor="white", plot_bgcolor="white",
+    )
+    figure.update_xaxes(title_text="Frequency (GHz)", automargin=True)
+    figure.update_yaxes(title_text=f"{component.capitalize()} ({unit})", automargin=True)
+magnitude_plot.update_yaxes(range=[-0.05, 0.05])
+display(magnitude_plot)
+display(phase_plot)
 ```
 
 ::: {.content-visible when-format="html"}
 
-![Selected 120 fF one-port S11 magnitude and phase.](../figures/01-s11-selected.svg){#fig-engineer-ch1-s11-selected .lightbox fig-alt="Two-panel selected-capacitance S11 plot with magnitude near zero decibels and a shifted phase feature across 5.75 to 6.25 gigahertz."}
+Baseline is 110 fF and the selected parameter point is 120 fF; both traces are at Port 1, `signal_in`.
 
-[Open the selected S11 SVG](../figures/01-s11-selected.svg) ·
-[download the complex response data](../figures/01-s11-data.csv).
+<iframe class="w-100" height="400" src="../figures/01-s11-comparison-magnitude.html" title="S11 magnitude at 110 and 120 fF" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/01-s11-comparison-magnitude.svg" label="Open S11 magnitude comparison" >}}
+
+<iframe class="w-100" height="400" src="../figures/01-s11-comparison-phase.html" title="S11 phase at 110 and 120 fF" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/01-s11-comparison-phase.svg" label="Open S11 phase comparison" >}}
+
+[Download the baseline/selected complex response data](../figures/01-s11-data.csv).
 
 :::
 

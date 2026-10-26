@@ -1,0 +1,43 @@
+---
+title: "Contribute"
+description: "Find the source that defines a change, its contract, and the checks that cover it."
+sidebar: contribution
+---
+
+Start with the source that owns the behavior you want to change. Use the public contract to preserve caller-visible behavior, then follow the checks for the affected surface.
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Testing and validation](../tests/README.md) {.askr-card-title .unlisted}
+Find test topics, local checks, and evidence conventions for code and documentation changes.
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Public contracts](contracts/index.qmd) {.askr-card-title .unlisted}
+Use the contract map for supported declarations, ownership, units, and failure behavior.
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Implementation](implementation/index.qmd) {.askr-card-title .unlisted}
+Follow the owning mechanism when a contract page does not explain how SCNSim realizes a behavior.
+:::
+::::
+
+## Build from source {#build-from-source}
+
+For the current development source, use Python 3.12 and a C++17 toolchain. Clone the development branch, then sync the locked environment and build the package:
+
+```bash
+git clone --branch codex/r2-jax-only-surface --single-branch https://github.com/NCUPHY-LTLab/scnsim.git
+cd scnsim
+uv sync --locked
+uv build
+```
+
+For user installation after release, use `uv add scnsim`. The [Engineer setup guide](../examples/engineer/setup.qmd) covers notebook environment and platform details.
+
+For public component models, start with the [Component Authoring Contract](component-authoring.qmd). For user workflows, begin with the [Engineer course](index.qmd).

@@ -8,17 +8,20 @@
 
 {{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_03-s11.qmd/block-002.qmd >}}
 
-相量正負號、輸出列／輸入欄順序、包裹相位與 dB 單位，請參閱英文[模擬慣例](../../../docs/concepts/simulation-conventions.qmd)。
-
-圖中呈現回傳具型別 Result 的振幅與相位。此理想無損單埠模型的 `|S11|` 在整個網格上約為 0 dB；響應特徵仍可從相位判讀。因此，本例不以振幅凹陷定義諧振。固定 ±0.05 dB 顯示範圍可避免浮點捨入誤差經自動縮放後看似真實特徵；它不會捨入或改動響應資料。相位依回傳值顯示，包含一般的包裹相位不連續；該跳變是角度呈現，不是數值失敗。水平軸以 GHz 顯示，但 Result 保留原始頻率單位；相位以度顯示。
+相量正負號、輸出列／輸入欄順序、包裹相位與 dB 單位，請參閱英文[模擬慣例](../../../docs/concepts/simulation-conventions.qmd)。此理想無損單埠模型的 `|S11|` 在頻率網格上接近 0 dB，相位則呈現響應特徵。Port 1 是 `signal_in`；S11 表示同一量測 Port 的反射。
 
 {{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_03-s11.qmd/block-003.qmd >}}
 
 ::: {.content-visible when-format="html"}
 
-![單埠基準 S11 的振幅與相位。](../figures/01-s11-baseline.svg){#fig-engineer-ch1-s11-baseline .lightbox fig-alt="雙圖呈現基準 S11：振幅接近 0 dB，相位在 5.75 至 6.25 GHz 間變化。"}
+<iframe class="w-100" height="400" src="../figures/chapter1-s11-magnitude.html" title="互動式 S11 振幅圖" loading="lazy"></iframe>
 
-[開啟基準 S11 SVG 圖](../figures/01-s11-baseline.svg) ·
-[下載複數響應資料](../figures/01-s11-data.csv).
+{{< askr-image-view src="../figures/chapter1-s11-magnitude.svg" label="開啟 S11 振幅圖" >}}
+
+<iframe class="w-100" height="400" src="../figures/chapter1-s11-phase.html" title="互動式 S11 相位圖" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/chapter1-s11-phase.svg" label="開啟 S11 相位圖" >}}
+
+[下載複數響應資料](../figures/01-s11-data.csv)。
 
 :::

@@ -1,5 +1,3 @@
-![04-raw-direct-s21 magnitude at its declared samples.](../figures/04-raw-direct-s21.svg)
-
 | frequency (GHz) | Re(S21) | Im(S21) | |S21| | |S21| (dB) |
 |---:|---:|---:|---:|---:|
 | 5.5 | 0.824498492954 | 0.565734964684 | 0.999926904903 | -0.000634919151987 |
@@ -7,3 +5,5 @@
 | 6.5 | 0.759539679827 | 0.650411636696 | 0.999967910676 | -0.000278728801579 |
 
 [Download exact complex samples](../figures/04-raw-direct-s21.csv).
+
+[Download the exact complex samples](../figures/04-raw-direct-s21.csv).

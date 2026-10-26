@@ -1,0 +1,61 @@
+---
+title: "Inputs and units"
+description: "Declare physical values, bind selected parameters, and read quantities with their units."
+lang: en
+---
+
+Use a unit-bearing `Quantity` for every physical input and output. Keep fixed values literal; create a parameter only when a physical field should vary across calculations.
+
+## Declare physical values
+
+Import SCNSim's unit registry and attach a unit to each value:
+
+```python
+from scnsim import units as u
+
+capacitance_value = 110.0 * u.fF
+inductance = 5.8 * u.nH
+frequency = 6.0 * u.GHz
+```
+
+Ordinary frequency uses Hz; angular frequency uses rad/s. The unit belongs to the value, so `110.0` by itself does not describe a capacitance.
+
+## Bind an input that will vary
+
+Use `ParameterDefinitions` and `ParameterSpec` when a component field needs a named physical input. `ParameterSet` selects a value for that existing binding; it does not create one.
+
+```python
+from scnsim import ParameterDefinitions, ParameterSet, ParameterSpec
+
+inputs = ParameterDefinitions(id="lc_inputs")
+capacitance = inputs.parameter(
+    id="capacitance",
+    baseline=110.0 * u.fF,
+    spec=ParameterSpec(unit=u.fF),
+)
+selected = ParameterSet({capacitance: 120.0 * u.fF})
+```
+
+Pass `capacitance` to the component field when building the Plan. Use `selected` when you want that already-bound field to take the selected value. A fixed inductor or coupling capacitor can remain a literal `Quantity`.
+
+## Read a result in the unit you need
+
+Results retain their physical units. Convert the returned quantity for display or comparison:
+
+```python
+frequency_ghz = root_result.frequency.to("GHz")
+capacitance_farads = matrix_result.matrix.to("farad")
+```
+
+Changing a label or reading only the raw magnitude does not convert a value. Keep the `Quantity` through calculations and convert it at the reporting boundary.
+
+## Common input mistakes
+
+- A bare number has no physical dimension. Attach the intended unit.
+- Hz and rad/s represent different frequency conventions. Use the one required by the request.
+- A `ParameterSet` supplies a value only to a parameter already bound to a component field.
+- A root hint seeds a local search; it is neither the requested answer nor an instruction to discover every root.
+- A circuit drawing describes a Plan. It does not create electrical connections or select an analysis View.
+- A transmission line uses physical length and numeric RLGC matrices with an explicit conductor order. The length drawn on a diagram is not the line's physical length.
+
+Continue with [Simulation conventions](../concepts/simulation-conventions.qmd), [Parameter System](/en/docs/contracts/parameter-system.html), and the [roots and branch-selection guide](../guides/roots-and-branch-selection.qmd).

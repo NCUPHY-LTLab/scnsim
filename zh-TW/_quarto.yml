@@ -24,6 +24,8 @@ project:
   - tests/portability-diagrams.md
   - tests/numerical-checks.md
   - docs/index.qmd
+  - docs/contribute.qmd
+  - docs/tutorials/inputs-units.qmd
   - examples/engineer/setup.qmd
   - examples/engineer/chapter-01/01-build.qmd
   - examples/engineer/chapter-01/02-diagram.qmd
@@ -95,6 +97,12 @@ website:
   title: SCNSim
   description: 超導電路網路模擬
   page-navigation: true
+  announcement:
+    content: "R2 開發中，尚未正式發佈。"
+    icon: info-circle
+    type: warning
+    dismissable: false
+    position: above-navbar
   search:
     location: navbar
     type: overlay
@@ -114,10 +122,8 @@ website:
       href: docs/concepts/index.qmd
     - text: 使用指南
       href: docs/guides/benchmark.qmd
-    - text: 契約與實作（English）
-      href: /en/docs/contracts/index.html
-    - text: 測試
-      href: tests/README.md
+    - text: 貢獻
+      href: docs/contribute.qmd
     tools:
     - icon: github
       href: https://github.com/NCUPHY-LTLab/scnsim
@@ -125,20 +131,97 @@ website:
       aria-label: GitHub 原始碼
     tools-collapse: true
   sidebar:
-  - id: testing-zh-tw
-    title: 測試
+  - id: contribution
+    title: 貢獻
     style: floating
     collapse-level: 1
     contents:
-    - href: tests/README.md
-    - href: tests/ci.md
-    - href: tests/circuit-data.md
-    - href: tests/network-roots.md
-    - href: tests/parameters-optimization.md
-    - href: tests/evidence-readback.md
-    - href: tests/diagnostics.md
-    - href: tests/portability-diagrams.md
-    - href: tests/numerical-checks.md
+    - text: 貢獻總覽
+      href: docs/contribute.qmd
+    - section: 測試
+      contents:
+      - text: 測試總覽
+        href: tests/README.md
+      - text: CI 與 Pages
+        href: tests/ci.md
+      - text: 電路輸入與元件
+        href: tests/circuit-data.md
+      - text: 網路方程式與根
+        href: tests/network-roots.md
+      - text: 參數與最佳化
+        href: tests/parameters-optimization.md
+      - text: 證據與讀回
+        href: tests/evidence-readback.md
+      - text: 失敗處理與診斷
+        href: tests/diagnostics.md
+      - text: 路徑、圖表與教學輸出
+        href: tests/portability-diagrams.md
+      - text: 數值檢查與本機執行
+        href: tests/numerical-checks.md
+    - section: 公開契約
+      contents:
+      - text: 契約總覽
+        href: /en/docs/contracts/index.html
+      - text: 元件撰寫契約
+        href: /en/docs/component-authoring.html
+      - text: CircuitPlan 組裝
+        href: /en/docs/contracts/circuit-plan-assembly.html
+      - text: 電路圖
+        href: /en/docs/contracts/automatic-semantic-circuit-diagram-layout.html
+      - text: 參數系統
+        href: /en/docs/contracts/parameter-system.html
+      - text: 根與分支選擇
+        href: /en/docs/guides/roots-and-branch-selection.html
+      - text: 靈敏度指南
+        href: /en/docs/guides/sensitivity.html
+      - text: 靜態電容契約
+        href: /en/docs/contracts/static-capacitance.html
+      - text: 靜態電容指南
+        href: /en/docs/guides/static-capacitance.html
+      - text: CPU 效能指南
+        href: /en/docs/guides/benchmark.html
+      - text: Workspace 證據 v3
+        href: /en/docs/contracts/workspace-evidence-v3.html
+      - text: V1 執行期契約
+        href: /en/docs/v1-runtime-contract.html
+      - text: 歷史證據紀錄
+        href: /en/docs/contracts/implementation-evidence-history.html
+    - section: 實作
+      contents:
+      - text: 實作總覽
+        href: /en/docs/implementation/index.html
+      - text: 系統架構
+        href: /en/docs/implementation/system-architecture.html
+      - text: Plan 封存與識別
+        href: /en/docs/implementation/plan-sealing-and-identity.html
+      - text: 標準識別與結構描述
+        href: /en/docs/implementation/canonical-identities-and-schemas.html
+      - text: Catalog 與執行期識別
+        href: /en/docs/implementation/catalog-and-runtime-identity.html
+      - text: 複合快照
+        href: /en/docs/implementation/composite-snapshots-and-recursive-expansion.html
+      - text: 編譯、Ports 與 Views
+        href: /en/docs/implementation/compilation-ports-and-views.html
+      - text: RLGC 與 pi 展開
+        href: /en/docs/implementation/rlgc-q2d-and-pi-expansion.html
+      - text: View 血緣
+        href: /en/docs/implementation/view-lineage-and-selected-networks.html
+      - text: 對角根程序
+        href: /en/docs/implementation/diagonal-root-numerical-procedure.html
+      - text: 極點、零點、耦合與算子
+        href: /en/docs/implementation/direct-poles-zeros-and-operators.html
+      - text: Direct 物理量與最佳化
+        href: /en/docs/implementation/direct-quantities-and-optimization.html
+      - text: 執行期與效能
+        href: /en/docs/implementation/benchmark-and-backends.html
+      - text: Workspace 與產物
+        href: /en/docs/implementation/workspace-attempts-and-artifacts.html
+      - text: 結果、報告與圖表
+        href: /en/docs/implementation/results-reports-and-diagrams.html
+      - text: 外部輸入與交付
+        href: /en/docs/implementation/external-inputs-and-delivery.html
+      - text: 工程教學對照表
+        href: /en/docs/implementation/engineer-course-migration-map.html
   - id: overview
     title: 總覽
     style: floating
@@ -208,6 +291,8 @@ website:
       - href: examples/engineer/chapter-08/01-persist.qmd
       - href: examples/engineer/chapter-08/02-resolve.qmd
       - href: examples/engineer/chapter-08/chapter.qmd
+    - text: 輸入與單位
+      href: docs/tutorials/inputs-units.qmd
   - id: concept
     title: 觀念
     style: floating
@@ -230,15 +315,6 @@ website:
     - href: docs/guides/static-capacitance.qmd
     - href: docs/guides/roots-and-branch-selection.qmd
     - href: docs/component-authoring.qmd
-  - id: english-reference
-    title: 英文參考
-    contents:
-    - text: 契約（English）
-      href: /en/docs/contracts/index.html
-    - text: 實作（English）
-      href: /en/docs/implementation/index.html
-    - text: 歷史紀錄（English）
-      href: /en/docs/contracts/implementation-evidence-history.html
 format:
   askr-html:
     toc: true

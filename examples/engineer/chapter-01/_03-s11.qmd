@@ -40,16 +40,46 @@ frequency units. Phase is displayed in degrees.
 
 ```{python}
 #| id: ch1-show-baseline-s11
-baseline_s11_figure = baseline_response.s.plot(magnitude="db")
-baseline_s11_figure.update_yaxes(range=[-0.05, 0.05], row=1, col=1)
-baseline_s11_figure
+import plotly.graph_objects as go
+from IPython.display import display
+
+response_plot = baseline_response.s.plot(magnitude="db")
+magnitude_plot = go.Figure(data=[response_plot.data[0]])
+phase_plot = go.Figure(data=[response_plot.data[1]])
+
+for figure, component, unit in (
+    (magnitude_plot, "magnitude", "dB"),
+    (phase_plot, "phase", "deg"),
+):
+    figure.update_traces(
+        xaxis="x", yaxis="y", line={"color": "#246398", "width": 2},
+        hovertemplate="%{x:.6g} GHz<br>%{y:.6g} " + unit + "<extra></extra>",
+    )
+    figure.update_layout(
+        template="plotly_white", autosize=True, height=340, showlegend=False,
+        title={"text": f"S11 {component}", "x": 0.02, "xanchor": "left"},
+        margin={"l": 78, "r": 24, "t": 55, "b": 62},
+        paper_bgcolor="white", plot_bgcolor="white",
+    )
+    figure.update_xaxes(title_text="Frequency (GHz)", automargin=True)
+    figure.update_yaxes(title_text=f"{component.capitalize()} ({unit})", automargin=True)
+magnitude_plot.update_yaxes(range=[-0.05, 0.05])
+display(magnitude_plot)
+display(phase_plot)
 ```
 
 ::: {.content-visible when-format="html"}
 
-![Baseline one-port S11 magnitude and phase.](../figures/01-s11-baseline.svg){#fig-engineer-ch1-s11-baseline .lightbox fig-alt="Two-panel baseline S11 plot with magnitude near zero decibels and a varying phase across 5.75 to 6.25 gigahertz."}
+Port 1 is `signal_in`; S11 is reflection at that same measurement Port.
 
-[Open the baseline S11 SVG](../figures/01-s11-baseline.svg) ·
-[download the complex response data](../figures/01-s11-data.csv).
+<iframe class="w-100" height="400" src="../figures/chapter1-s11-magnitude.html" title="Interactive S11 magnitude" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/chapter1-s11-magnitude.svg" label="Open the S11 magnitude plot" >}}
+
+<iframe class="w-100" height="400" src="../figures/chapter1-s11-phase.html" title="Interactive S11 phase" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/chapter1-s11-phase.svg" label="Open the S11 phase plot" >}}
+
+[Download the complex response data](../figures/01-s11-data.csv).
 
 :::

@@ -2,7 +2,7 @@
 
 **先備條件：**請在整章 Notebook 中執行第 1–4 課。
 
-`ParameterSet` 為已綁定電容選取 120 fF；它不會修改 Plan 的 110 fF 基準值，也不會建立第二個電路。
+`ParameterSet` 為已綁定電容選取 120 fF；比較同一 Plan 上 110 fF 基準值與此參數點的 S11，不會建立第二個電路。
 
 {{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-001.qmd >}}
 
@@ -14,10 +14,17 @@
 
 ::: {.content-visible when-format="html"}
 
-![選定 120 fF 點的單埠 S11 振幅與相位。](../figures/01-s11-selected.svg){#fig-engineer-ch1-s11-selected .lightbox fig-alt="雙圖呈現選定電容的 S11：振幅接近 0 dB，相位特徵在 5.75 至 6.25 GHz 間移動。"}
+基準值為 110 fF，所選參數點為 120 fF；兩條曲線皆為 Port 1 `signal_in` 的 S11。
 
-[開啟所選 S11 SVG 圖](../figures/01-s11-selected.svg) ·
-[下載複數響應資料](../figures/01-s11-data.csv).
+<iframe class="w-100" height="400" src="../figures/01-s11-comparison-magnitude.html" title="110 與 120 fF 的 S11 振幅" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/01-s11-comparison-magnitude.svg" label="開啟 S11 振幅比較圖" >}}
+
+<iframe class="w-100" height="400" src="../figures/01-s11-comparison-phase.html" title="110 與 120 fF 的 S11 相位" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/01-s11-comparison-phase.svg" label="開啟 S11 相位比較圖" >}}
+
+[下載基準／所選複數響應資料](../figures/01-s11-data.csv)。
 
 :::
 

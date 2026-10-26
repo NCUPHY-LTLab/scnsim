@@ -1,12 +1,28 @@
 ## Lesson 1 — Build the coupled resonator {#lesson-build}
 
+The system in this chapter has a terminated 50 Ω measurement Port coupled through a 6 fF capacitor to a grounded parallel LC resonator. The resonator is owned by a child `Subsystem`; its baseline capacitance is 110 fF and its inductance is 5.8 nH.
+
+::: {.light-content}
+![The Chapter 1 physical Plan.](../figures/chapter1-plan.light.svg){#img-ch1-plan-light .lightbox}
+
+{{< askr-image-view target="img-ch1-plan-light" label="Open the Chapter 1 circuit" >}}
+:::
+
+::: {.dark-content}
+![The Chapter 1 physical Plan.](../figures/chapter1-plan.dark.svg){#img-ch1-plan-dark .lightbox}
+
+{{< askr-image-view target="img-ch1-plan-dark" label="Open the Chapter 1 circuit" >}}
+:::
+
+The measurement Port and coupling capacitor are parent-owned; the LC elements are child-owned. The following lessons build this Plan, inspect S11, select the resonator coordinate for a loaded-root calculation, and then select 120 fF while keeping Results in memory.
+
 ### Start from a clean engineer kernel
 
 Clone the repository, install the locked development environment, and start
 Jupyter from the repository root:
 
 ```bash
-git clone --branch develop --single-branch https://github.com/OrPenStrike/scnsim.git
+git clone --branch codex/r2-jax-only-surface --single-branch https://github.com/NCUPHY-LTLab/scnsim.git
 cd scnsim
 uv sync --locked
 uv run --with jupyterlab jupyter lab

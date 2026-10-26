@@ -76,18 +76,34 @@ for label, point in zip(point_labels, direct_points.points, strict=True):
         display({label: point.failure})
         continue
     display({"point": label, "matrix coordinates": point.result.s.view.coordinates})
-    display(point.result.traces["s_readout_head_from_readout_head"].plot(
-        component="magnitude",
-        magnitude="db",
-    ))
+    reflection = point.result.traces["s_readout_head_from_readout_head"]
+    for component in ("magnitude", "phase"):
+        figure = reflection.plot(
+            component=component,
+            **({"magnitude": "db"} if component == "magnitude" else {}),
+        )
+        figure.update_traces(mode="lines+markers")
+        figure.update_layout(title=label + " — S11 " + component)
+        display(figure)
 ```
 
-The plotted `[0,0]`-position example is explicitly named
-`s_readout_head_from_readout_head`: readout-head reflection. It is not described
-as the complete matrix. The generated table and CSV inventory all sixteen
-named channels for every point.
+The plots show the saved `s_readout_head_from_readout_head` reflection at three
+parameter points: baseline, length 1.8 mm, and the complete capacitance matrix
+scaled by 170/175. Port 1 is `readout_head`; the complete 16-channel matrix is
+available in the table and CSV.
 
 ::: {.content-visible when-format="html"}
+
+**Port 1:** `readout_head`; **channel:** `s_readout_head_from_readout_head`.
+The markers are the three declared samples at 5.5, 6.0, and 6.5 GHz.
+
+<iframe title="Three-point readout-head reflection magnitude" src="../figures/07-readout-head-reflection-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/07-readout-head-reflection-magnitude.svg" label="Open Magnitude of the readout-head reflection at baseline, 1.8 mm, and capacitance scale 170/175. (SVG)" >}}
+
+<iframe title="Three-point readout-head reflection phase" src="../figures/07-readout-head-reflection-phase.html" class="w-100" height="400" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/07-readout-head-reflection-phase.svg" label="Open Phase of the readout-head reflection at baseline, 1.8 mm, and capacitance scale 170/175. (SVG)" >}}
 
 {{< include ../figures/07-response-points.md >}}
 

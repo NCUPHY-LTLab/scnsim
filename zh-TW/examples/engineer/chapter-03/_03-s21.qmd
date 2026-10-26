@@ -20,12 +20,17 @@
 
 ::: {.content-visible when-format="html"}
 
-![具名 Direct 傳輸軌跡在三個宣告取樣點的振幅。](../figures/03-direct-s21.svg){#fig-ch3-direct-s21 .lightbox fig-alt="饋線輸入至饋線輸出的具名 Direct S21 軌跡，其三個取樣點振幅。"}
+Port 1 是 `feedline_in`，Port 2 是 `feedline_out`；S21 表示由 Port 1 輸入至 Port 2 輸出的傳輸。精確取樣點為 5.5、6.0 與 6.5 GHz。
+
+<iframe class="w-100" height="400" src="../figures/03-direct-s21-magnitude.html" title="三個取樣點的 Direct S21 振幅" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/03-direct-s21-magnitude.svg" label="開啟 Direct S21 振幅圖" >}}
+
+<iframe class="w-100" height="400" src="../figures/03-direct-s21-phase.html" title="三個取樣點的 Direct S21 相位" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/03-direct-s21-phase.svg" label="開啟 Direct S21 相位圖" >}}
 
 {{< include ../figures/03-direct-s21.md >}}
-
-[開啟 SVG 圖](../figures/03-direct-s21.svg) ·
-[下載精確複數取樣](../figures/03-direct-s21.csv)
 
 :::
 
