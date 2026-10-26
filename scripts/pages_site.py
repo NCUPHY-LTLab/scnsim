@@ -24,8 +24,8 @@ SHA = re.compile(r"[0-9a-f]{40}\Z")
 RELEASE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:(?P<alpha>a\d+)|(?P<beta>b\d+))?\Z")
 DEVELOPMENT = re.compile(r"(?P<line>\d+\.\d+\.\d+) dev\Z")
 DEVELOPMENT_SOURCE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:a\d+|b\d+|\.dev\d+)?\Z")
-# The 40 unmodified files in the selected Askr v0.12.0 vendor tree.
-ASKR_SHA256 = "f76819381640ac6a00c74f6f7a918902355948dd1eb6b9d791389c019a243017"
+# The 40 unmodified files in the selected Askr v0.12.1 vendor tree.
+ASKR_SHA256 = "c2ead1a3539c004abdc6441ba6a65be65e535a7956c7e121ea1f9c33548a3c9d"
 
 
 class References(HTMLParser):
@@ -202,13 +202,13 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
     if profile.exists():
         raise ValueError("Pages render profile already exists in exported source")
     if _vendor_digest(vendor) != ASKR_SHA256:
-        raise ValueError("Pages presentation vendor differs from Askr 0.12.0")
+        raise ValueError("Pages presentation vendor differs from Askr 0.12.1")
     destination = source / "_extensions/arfiligol/askr"
     if destination.exists():
         _regular_tree(destination)
     shutil.copytree(vendor, destination, dirs_exist_ok=True)
     if _vendor_digest(destination) != ASKR_SHA256:
-        raise ValueError("Pages presentation overlay is not exact Askr 0.12.0")
+        raise ValueError("Pages presentation overlay is not exact Askr 0.12.1")
     version_url = SITE + _slug(entry) + "/"
     bilingual = (source / 'zh-TW/_quarto.yml').is_file()
     site_url = version_url + ('en/' if bilingual else '')
@@ -227,6 +227,7 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
                 "  announcement:\n"
                 "    icon: info-circle\n"
                 "    dismissable: false\n"
+                "    position: above-navbar\n"
                 "    type: warning\n"
                 f"    content: {json.dumps('R2 is under development and has not been officially released.')}\n"
             )

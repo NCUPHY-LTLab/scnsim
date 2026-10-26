@@ -61,8 +61,9 @@ jobs:
           fi
           staging="$RUNNER_TEMP/scnsim-pages"
           mkdir -p "$staging/sources" "$staging/theme"
-          # Theme bytes come from the same pinned docs source, not the publisher.
-          git archive "$docs_source_sha" _extensions/arfiligol/askr | tar -xf - -C "$staging/theme"
+          # The publisher vendors the exact released Askr theme independently
+          # of the unchanged documentation-content commit.
+          git archive "$publication_sha" _extensions/arfiligol/askr | tar -xf - -C "$staging/theme"
           plan=$("$python_bin" -I "$authority/scripts/pages_site.py" plan --catalog "$authority/scripts/pages_versions.json")
           docs_source_dir=""
           while IFS='|' read -r kind label slug tag commit; do
