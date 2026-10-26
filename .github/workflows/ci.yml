@@ -192,6 +192,9 @@ jobs:
           portable_notebook_bytes = runpy.run_path(
               "scripts/generate_portable_notebook.py"
           )["portable_notebook_bytes"]
+          validate_cell_attachments = runpy.run_path(
+              "scripts/check_notebook_attachments.py"
+          )["validate_cell_attachments"]
 
           def source_text(value):
               if isinstance(value, list) and all(isinstance(item, str) for item in value):
@@ -200,7 +203,8 @@ jobs:
                   return value.replace("\r\n", "\n")
               raise AssertionError("cell source must be a string or list of strings")
 
-          def normalized(notebook, label):
+          def normalized(notebook, artifact: Path):
+              label = str(artifact)
               cells = notebook["cells"]
               assert cells, f"empty notebook: {label}"
               first = source_text(cells[0].get("source", ""))
@@ -212,13 +216,13 @@ jobs:
               code_ids = []
               normalized_cells = []
               for index, cell in enumerate(cells):
-                  assert not cell.get("attachments"), f"attachment: {label}"
                   metadata = dict(cell.get("metadata", {}))
                   metadata.pop("id", None)
                   value = {
                       "cell_type": cell["cell_type"],
                       "source": source_text(cell.get("source", "")),
                       "metadata": metadata,
+                      "attachments": validate_cell_attachments(cell, artifact, Path.cwd()),
                   }
                   if cell["cell_type"] == "code":
                       cell_id = cell.get("id")
@@ -406,8 +410,8 @@ jobs:
                   f"non-portable kernelspec metadata: {artifact}: "
                   f"{sorted(set(distributed_kernelspec) - portable_kernelspec_keys)}"
               )
-              assert normalized(distributed, str(artifact)) == normalized(
-                  fresh, f"fresh render of {source}"
+              assert normalized(distributed, artifact) == normalized(
+                  fresh, artifact
               ), f"generated notebook drift: {artifact}"
 
           print("verified", len(aggregates), "expanded Chapter aggregates")

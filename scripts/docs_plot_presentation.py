@@ -7,6 +7,8 @@ Run from the repository root (requires NumPy, Plotly and Kaleido/Chrome):
 This presentation tool never imports SCNSim or executes a circuit calculation.
 CSV columns and embedded Plotly arrays remain the numerical authority. HTML
 uses Plotly's CDN; historical inputs and their manifests are never overwritten.
+Chapter 4/7/8 display files go to output-dir/presentation, including --cases all;
+source CSV/report paths always remain relative to source-dir.
 """
 from __future__ import annotations
 import argparse
@@ -20,6 +22,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 CASES = ('overview', 'chapter1', 'chapter3', 'chapter4-raw', 'chapter4-ptc', 'chapter7', 'chapter8')
+PRESENTATION_CASES = frozenset(('chapter4-raw', 'chapter4-ptc', 'chapter7', 'chapter8'))
 COLORS = ('#246398', '#b65a27', '#487a55')
 
 
@@ -165,6 +168,8 @@ def generate(source, output, cases, *, png=False, verify_only=False):
     manifest = {'operation': 'Saved-data presentation only; no SCNSim import or circuit execution.',
                 'generator_sha256': sha256(Path(__file__)), 'cases': {}, 'assets': {}}
     for name in cases:
+        destination = output / "presentation" if name in PRESENTATION_CASES else output
+        destination.mkdir(parents=True, exist_ok=True)
         figures, inputs, mapping = build_case(name, source)
         entry = {'sources': {path.name: sha256(path) for path in inputs}, 'mapping': mapping, 'figures': {}}
         for stem, figure, arrays in figures:
@@ -172,22 +177,22 @@ def generate(source, output, cases, *, png=False, verify_only=False):
                 assert np.array_equal(values(trace.x), x, equal_nan=True)
                 assert np.array_equal(values(trace.y), y, equal_nan=True)
             if verify_only:
-                existing = saved_figure(output / (stem+'.html'))
+                existing = saved_figure(destination / (stem+'.html'))
                 assert len(existing.data) == len(arrays)
                 for trace, (x, y) in zip(existing.data, arrays, strict=True):
                     assert np.array_equal(values(trace.x), x, equal_nan=True)
                     assert np.array_equal(values(trace.y), y, equal_nan=True)
             else:
-                figure.write_html(output / (stem+'.html'), include_plotlyjs='cdn', full_html=True,
+                figure.write_html(destination / (stem+'.html'), include_plotlyjs='cdn', full_html=True,
                                   auto_open=False, config={'responsive': True, 'displaylogo': False})
-                figure.write_image(output / (stem+'.svg'), format='svg', width=760, height=figure.layout.height)
+                figure.write_image(destination / (stem+'.svg'), format='svg', width=760, height=figure.layout.height)
                 if png:
-                    figure.write_image(output / (stem+'.png'), format='png', width=760, height=figure.layout.height)
+                    figure.write_image(destination / (stem+'.png'), format='png', width=760, height=figure.layout.height)
             entry['figures'][stem] = {'point_counts': [len(x) for x, _ in arrays], 'x_exact': True,
                                      'y_exact': True, 'showlegend': bool(figure.layout.showlegend)}
             for extension in ('html', 'svg'):
-                path = output / (stem+'.'+extension)
-                manifest['assets'][path.name] = {'bytes': path.stat().st_size, 'sha256': sha256(path)}
+                path = destination / (stem+'.'+extension)
+                manifest['assets'][path.relative_to(output).as_posix()] = {'bytes': path.stat().st_size, 'sha256': sha256(path)}
         manifest['cases'][name] = entry
     return manifest
 

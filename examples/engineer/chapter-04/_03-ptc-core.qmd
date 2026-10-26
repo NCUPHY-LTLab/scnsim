@@ -96,13 +96,13 @@ present_s21(ptc_transmission)
 
 Port 1 is `feedline_in` and Port 2 is `feedline_out`; this S21 trace maps input Port 1 to output Port 2 at 5.5, 6.0 and 6.5 GHz.
 
-<iframe class="w-100" height="400" src="../figures/04-raw-direct-s21-magnitude.html" title="Raw loaded S21 magnitude" loading="lazy"></iframe>
+<iframe class="w-100" height="400" src="../figures/presentation/04-raw-direct-s21-magnitude.html" title="Raw loaded S21 magnitude" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/04-raw-direct-s21-magnitude.svg" label="Open raw loaded S21 magnitude" >}}
+{{< askr-image-view src="../figures/presentation/04-raw-direct-s21-magnitude.svg" label="Open raw loaded S21 magnitude" >}}
 
-<iframe class="w-100" height="400" src="../figures/04-raw-direct-s21-phase.html" title="Raw loaded S21 phase" loading="lazy"></iframe>
+<iframe class="w-100" height="400" src="../figures/presentation/04-raw-direct-s21-phase.html" title="Raw loaded S21 phase" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/04-raw-direct-s21-phase.svg" label="Open raw loaded S21 phase" >}}
+{{< askr-image-view src="../figures/presentation/04-raw-direct-s21-phase.svg" label="Open raw loaded S21 phase" >}}
 
 {{< include ../figures/04-raw-direct-s21.md >}}
 
@@ -110,13 +110,13 @@ Port 1 is `feedline_in` and Port 2 is `feedline_out`; this S21 trace maps input 
 
 The same Port mapping and frequency samples show the PTC-selected two-Port View.
 
-<iframe class="w-100" height="400" src="../figures/04-ptc-direct-s21-magnitude.html" title="PTC-selected S21 magnitude" loading="lazy"></iframe>
+<iframe class="w-100" height="400" src="../figures/presentation/04-ptc-direct-s21-magnitude.html" title="PTC-selected S21 magnitude" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/04-ptc-direct-s21-magnitude.svg" label="Open PTC-selected S21 magnitude" >}}
+{{< askr-image-view src="../figures/presentation/04-ptc-direct-s21-magnitude.svg" label="Open PTC-selected S21 magnitude" >}}
 
-<iframe class="w-100" height="400" src="../figures/04-ptc-direct-s21-phase.html" title="PTC-selected S21 phase" loading="lazy"></iframe>
+<iframe class="w-100" height="400" src="../figures/presentation/04-ptc-direct-s21-phase.html" title="PTC-selected S21 phase" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/04-ptc-direct-s21-phase.svg" label="Open PTC-selected S21 phase" >}}
+{{< askr-image-view src="../figures/presentation/04-ptc-direct-s21-phase.svg" label="Open PTC-selected S21 phase" >}}
 
 {{< include ../figures/04-ptc-direct-s21.md >}}
 

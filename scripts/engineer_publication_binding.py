@@ -21,9 +21,9 @@ from pathlib import Path
 from typing import Mapping
 
 
-TRANSITION_ID = "scnsim.r1.numerical_p0_merge.f0fe.20261023"
-PRIOR_PUBLISHED_GIT_COMMIT = "f0fe72059bfcfd171a1bd2f0d466481096deffd4"
-TRANSITION_FILE = Path(__file__).with_name("engineer_publication_transitions_r1_numerical_p0_merge_f0fe_20261023.json")
+TRANSITION_ID = "scnsim.r2.course_presentation_namespace.992ca14.20261027"
+PRIOR_PUBLISHED_GIT_COMMIT = "992ca14c8a6ef677fca29ce0b736f55ababa406d"
+TRANSITION_FILE = Path(__file__).with_name("engineer_publication_transitions_r2_course_presentation_992ca14_20261027.json")
 _TRANSITION_NAMES = {
     f"chapter-{chapter:02d}-artifacts.json" for chapter in range(1, 9)
 }
@@ -297,7 +297,8 @@ def _prior_publication_binding(
 
 
 def _historical_execution(
-    manifest: Mapping[str, object], prior_binding: Mapping[str, object]
+    manifest: Mapping[str, object], prior_binding: Mapping[str, object],
+    *, prior_publication_artifacts: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     executed = manifest.get("binding")
     if not isinstance(executed, Mapping):
@@ -322,7 +323,10 @@ def _historical_execution(
         or payload_sha256 != _canonical_sha256(_execution_payload(manifest, artifacts))
     ):
         raise RuntimeError("engineer historical execution evidence is inconsistent")
-    prior_artifacts = manifest.get("artifacts")
+    prior_artifacts = (
+        manifest.get("artifacts")
+        if prior_publication_artifacts is None else prior_publication_artifacts
+    )
     if not isinstance(prior_artifacts, Mapping):
         raise RuntimeError("engineer prior publication artifacts are malformed")
     redrawn = {
@@ -565,9 +569,22 @@ def _prepare_rebind(
     name, transition = _transition_for(current)
     if name != path.name or hashlib.sha256(raw).hexdigest() != transition.get("prior_manifest_sha256"):
         raise RuntimeError(f"{path} is not the exact trusted prior published manifest")
-    artifacts = manifest.get("artifacts")
-    if not isinstance(artifacts, Mapping) or artifacts != transition.get("artifacts"):
-        raise RuntimeError(f"{path} prior published artifacts are inconsistent")
+    prior_artifacts = manifest.get("artifacts")
+    artifacts = transition.get("artifacts")
+    if (
+        not isinstance(prior_artifacts, Mapping)
+        or not isinstance(artifacts, Mapping)
+        or set(prior_artifacts) != set(artifacts)
+        or any(
+            not isinstance(name, str)
+            or not isinstance(artifacts[name], str)
+            or (prior_artifacts[name] != artifacts[name] and Path(name).suffix != ".md")
+            for name in artifacts
+        )
+    ):
+        raise RuntimeError(f"{path} source-only artifact change is not Markdown-only")
+    # The trusted manifest seals execution history. The closed transition seals
+    # actual published wrappers, which may differ only in reviewed Markdown.
     actual_artifacts = {
         artifact: hashlib.sha256((path.parent / artifact).read_bytes()).hexdigest()
         for artifact in artifacts
@@ -575,13 +592,16 @@ def _prepare_rebind(
     if actual_artifacts != dict(artifacts):
         raise RuntimeError(f"{path} prior published artifact bytes changed")
     if validate_historical is not None:
-        validate_historical(manifest, artifact_sha256=actual_artifacts)  # type: ignore[operator]
+        validate_historical(manifest, artifact_sha256=dict(prior_artifacts))  # type: ignore[operator]
     prior_binding = _prior_publication_binding(
         manifest,
         reviewed_prior=_prior_binding_from_transition(current, transition),
     )
-    historical = _historical_execution(manifest, prior_binding)
+    historical = _historical_execution(
+        manifest, prior_binding, prior_publication_artifacts=artifacts,
+    )
     previous_rebind = manifest.get("publication_rebind")
+    manifest["artifacts"] = dict(artifacts)
     manifest["publication_binding"] = _publication_record(current)
     manifest["publication_rebind"] = _rebind_record(
         prior_manifest_sha256=hashlib.sha256(raw).hexdigest(),

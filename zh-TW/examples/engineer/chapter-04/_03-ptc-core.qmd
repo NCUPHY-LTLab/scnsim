@@ -16,13 +16,13 @@
 
 Port 1 是 `feedline_in`，Port 2 是 `feedline_out`；此 S21 軌跡表示由輸入 Port 1 至輸出 Port 2 的傳輸，取樣點為 5.5、6.0 與 6.5 GHz。
 
-<iframe class="w-100" height="400" src="../figures/04-raw-direct-s21-magnitude.html" title="原始負載 S21 振幅" loading="lazy"></iframe>
+<iframe class="w-100" height="400" src="../figures/presentation/04-raw-direct-s21-magnitude.html" title="原始負載 S21 振幅" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/04-raw-direct-s21-magnitude.svg" label="開啟原始負載 S21 振幅圖" >}}
+{{< askr-image-view src="../figures/presentation/04-raw-direct-s21-magnitude.svg" label="開啟原始負載 S21 振幅圖" >}}
 
-<iframe class="w-100" height="400" src="../figures/04-raw-direct-s21-phase.html" title="原始負載 S21 相位" loading="lazy"></iframe>
+<iframe class="w-100" height="400" src="../figures/presentation/04-raw-direct-s21-phase.html" title="原始負載 S21 相位" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/04-raw-direct-s21-phase.svg" label="開啟原始負載 S21 相位圖" >}}
+{{< askr-image-view src="../figures/presentation/04-raw-direct-s21-phase.svg" label="開啟原始負載 S21 相位圖" >}}
 
 {{< include ../figures/04-raw-direct-s21.md >}}
 
@@ -30,13 +30,13 @@ Port 1 是 `feedline_in`，Port 2 是 `feedline_out`；此 S21 軌跡表示由�
 
 下圖使用相同的 Port 對應與頻率取樣點，呈現 PTC 選取的雙埠 View。
 
-<iframe class="w-100" height="400" src="../figures/04-ptc-direct-s21-magnitude.html" title="PTC 選取的 S21 振幅" loading="lazy"></iframe>
+<iframe class="w-100" height="400" src="../figures/presentation/04-ptc-direct-s21-magnitude.html" title="PTC 選取的 S21 振幅" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/04-ptc-direct-s21-magnitude.svg" label="開啟 PTC 選取的 S21 振幅圖" >}}
+{{< askr-image-view src="../figures/presentation/04-ptc-direct-s21-magnitude.svg" label="開啟 PTC 選取的 S21 振幅圖" >}}
 
-<iframe class="w-100" height="400" src="../figures/04-ptc-direct-s21-phase.html" title="PTC 選取的 S21 相位" loading="lazy"></iframe>
+<iframe class="w-100" height="400" src="../figures/presentation/04-ptc-direct-s21-phase.html" title="PTC 選取的 S21 相位" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/04-ptc-direct-s21-phase.svg" label="開啟 PTC 選取的 S21 相位圖" >}}
+{{< askr-image-view src="../figures/presentation/04-ptc-direct-s21-phase.svg" label="開啟 PTC 選取的 S21 相位圖" >}}
 
 {{< include ../figures/04-ptc-direct-s21.md >}}
 

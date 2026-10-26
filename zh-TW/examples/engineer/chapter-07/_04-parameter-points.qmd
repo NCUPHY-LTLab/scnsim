@@ -26,13 +26,13 @@ Direct Result 包含完整的 4×4 S 矩陣。十六個具名軌跡投影會呈�
 
 **Port 1：**`readout_head`；**通道：**`s_readout_head_from_readout_head`。標記點為明確宣告的 5.5、6.0 與 6.5 GHz 三個取樣頻率。
 
-<iframe title="三組參數點的 readout-head 反射幅值" src="../figures/07-readout-head-reflection-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
+<iframe title="三組參數點的 readout-head 反射幅值" src="../figures/presentation/07-readout-head-reflection-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/07-readout-head-reflection-magnitude.svg" label="基準、1.8 mm 與電容縮放 170/175 的 readout-head 反射幅值。（SVG）" >}}
+{{< askr-image-view src="../figures/presentation/07-readout-head-reflection-magnitude.svg" label="基準、1.8 mm 與電容縮放 170/175 的 readout-head 反射幅值。（SVG）" >}}
 
-<iframe title="三組參數點的 readout-head 反射相位" src="../figures/07-readout-head-reflection-phase.html" class="w-100" height="400" loading="lazy"></iframe>
+<iframe title="三組參數點的 readout-head 反射相位" src="../figures/presentation/07-readout-head-reflection-phase.html" class="w-100" height="400" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/07-readout-head-reflection-phase.svg" label="基準、1.8 mm 與電容縮放 170/175 的 readout-head 反射相位。（SVG）" >}}
+{{< askr-image-view src="../figures/presentation/07-readout-head-reflection-phase.svg" label="基準、1.8 mm 與電容縮放 170/175 的 readout-head 反射相位。（SVG）" >}}
 
 {{< include ../figures/07-response-points.md >}}
 

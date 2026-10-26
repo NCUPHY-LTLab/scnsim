@@ -466,6 +466,121 @@
       "upper_bound_fF": 140.0
     }
   },
+  "publication_binding": {
+    "binding_sha256": "689058bb0c5a10f64753eb5f3e2476595a90b7d2f7e720be4c04e5b25ac2aedc",
+    "generator_sha256": "257cf71e5553ec8fc804395bc759e60439ba58ce01fc08e15eae95f4c312f655",
+    "source_tree_sha256": "0b9e97d815b84c86086ae471325a76f11cc7749543e1fdcbbba139894db3951f"
+  },
+  "publication_rebind": {
+    "deltas": {
+      "cell_ids": {
+        "after": [
+          "ch2-import-and-define-parameters",
+          "ch2-build-grounded-lc-child",
+          "ch2-assemble-coupler-and-port",
+          "ch2-prepare-root-request",
+          "ch2-define-capacitance-sweep",
+          "ch2-run-capacitance-sweep",
+          "ch2-show-capacitance-sweep",
+          "ch2-define-optimization",
+          "ch2-show-optimization-spec",
+          "ch2-run-optimization",
+          "ch2-show-initial-best-comparison",
+          "ch2-evaluate-winner",
+          "ch2-render-winner",
+          "ch2-show-winner",
+          "ch2-define-optional-spaces",
+          "ch2-run-optional-grid",
+          "ch2-show-optional-grid",
+          "ch2-run-and-show-listed-points"
+        ],
+        "before": [
+          "ch2-import-and-define-parameters",
+          "ch2-build-grounded-lc-child",
+          "ch2-assemble-coupler-and-port",
+          "ch2-prepare-root-request",
+          "ch2-define-capacitance-sweep",
+          "ch2-run-capacitance-sweep",
+          "ch2-show-capacitance-sweep",
+          "ch2-define-optimization",
+          "ch2-show-optimization-spec",
+          "ch2-run-optimization",
+          "ch2-show-initial-best-comparison",
+          "ch2-evaluate-winner",
+          "ch2-render-winner",
+          "ch2-show-winner",
+          "ch2-define-optional-spaces",
+          "ch2-run-optional-grid",
+          "ch2-show-optional-grid",
+          "ch2-run-and-show-listed-points"
+        ]
+      },
+      "cells": {},
+      "generator": {
+        "after_sha256": "257cf71e5553ec8fc804395bc759e60439ba58ce01fc08e15eae95f4c312f655",
+        "before_sha256": "257cf71e5553ec8fc804395bc759e60439ba58ce01fc08e15eae95f4c312f655"
+      },
+      "source_files": {},
+      "teaching_sources": {
+        "scripts/engineer_publication_binding.py": {
+          "after_sha256": "afac6117c63ddc68e57c766a3669e5863b9e1541ec44c8d66a3b8a38e601088b",
+          "before_sha256": "0f8b1eddb047377d49081c19be42915052bbf078a1b7dd71757a6525d9fcd78c"
+        }
+      }
+    },
+    "execution_identity_retained": true,
+    "historical_execution": {
+      "artifacts": {
+        "02-capacitance-sweep.csv": "26b87127b7062dca1e4a644d9805460115973bd6afe4300540b741f756d0c971",
+        "02-capacitance-sweep.md": "4ff4a2e59498ea48b127e29c77f73411bdcfbe62e54330ad45fc9da1cfab6e2b",
+        "02-capacitance-sweep.svg": "fd2a18961a421bc3d5e3d329de5ddd98b7ac9743354979365015884f91177d09",
+        "02-optimized-winner.csv": "f5712470551e22a62c31ad506504653f8c55062e13cef6147170b0826e9014b7",
+        "02-optimized-winner.md": "826cd0c5c079b8fd4af271b28bed829539a596abb89b1b95807f0bea75768c5a",
+        "02-optimized-winner.svg": "5c54e82353f0b3b06bcecd0fd14d294f3eb1f0b66cc4e82af9503dc17c20dbec",
+        "02-optional-grid.svg": "e27ea9e1b6e20bc9928a299e5ad4267883c46b48169fe0809beb3c84f6368f70",
+        "02-optional-spaces.csv": "7d58bcca49e28ec75a5059477f35b470b55c3a9a0f814490069470e9f9fcbcf0",
+        "02-optional-spaces.md": "64defe06af7fb7b0f462d3ce986ca821bf032b563ed89361a7ec384576208da1"
+      },
+      "binding_sha256": "1d78ef9571a20d8679b83fa75eea94fc336222f30267328a82ba4e4aba3ce655",
+      "generator_sha256": "257cf71e5553ec8fc804395bc759e60439ba58ce01fc08e15eae95f4c312f655",
+      "payload_sha256": "3ec63097fcd564eebe9aaeac044ab864ed4427b6160866f9ea992a6498661ad7",
+      "prior_publication_artifacts": {
+        "02-capacitance-sweep.csv": "26b87127b7062dca1e4a644d9805460115973bd6afe4300540b741f756d0c971",
+        "02-capacitance-sweep.md": "4ff4a2e59498ea48b127e29c77f73411bdcfbe62e54330ad45fc9da1cfab6e2b",
+        "02-capacitance-sweep.svg": "fd2a18961a421bc3d5e3d329de5ddd98b7ac9743354979365015884f91177d09",
+        "02-optimized-winner.csv": "f5712470551e22a62c31ad506504653f8c55062e13cef6147170b0826e9014b7",
+        "02-optimized-winner.md": "826cd0c5c079b8fd4af271b28bed829539a596abb89b1b95807f0bea75768c5a",
+        "02-optimized-winner.svg": "5c54e82353f0b3b06bcecd0fd14d294f3eb1f0b66cc4e82af9503dc17c20dbec",
+        "02-optional-grid.svg": "e27ea9e1b6e20bc9928a299e5ad4267883c46b48169fe0809beb3c84f6368f70",
+        "02-optional-spaces.csv": "7d58bcca49e28ec75a5059477f35b470b55c3a9a0f814490069470e9f9fcbcf0",
+        "02-optional-spaces.md": "64defe06af7fb7b0f462d3ce986ca821bf032b563ed89361a7ec384576208da1"
+      },
+      "prior_publication_binding_sha256": "1d78ef9571a20d8679b83fa75eea94fc336222f30267328a82ba4e4aba3ce655",
+      "prior_redrawn_artifacts": {},
+      "source_tree_sha256": "0b9e97d815b84c86086ae471325a76f11cc7749543e1fdcbbba139894db3951f"
+    },
+    "kind": "reviewed_source_only_transition",
+    "numerical_evidence_reused": true,
+    "prior_manifest_sha256": "501a14d049058ea5167946d08eaddeec2d3acfc6463e4bf01b8892f5ead76837",
+    "prior_publication_binding_sha256": "1d78ef9571a20d8679b83fa75eea94fc336222f30267328a82ba4e4aba3ce655",
+    "prior_publication_rebind_sha256": null,
+    "prior_published_artifacts_retained": true,
+    "publication_artifacts": {
+      "02-capacitance-sweep.csv": "26b87127b7062dca1e4a644d9805460115973bd6afe4300540b741f756d0c971",
+      "02-capacitance-sweep.md": "4ff4a2e59498ea48b127e29c77f73411bdcfbe62e54330ad45fc9da1cfab6e2b",
+      "02-capacitance-sweep.svg": "fd2a18961a421bc3d5e3d329de5ddd98b7ac9743354979365015884f91177d09",
+      "02-optimized-winner.csv": "f5712470551e22a62c31ad506504653f8c55062e13cef6147170b0826e9014b7",
+      "02-optimized-winner.md": "826cd0c5c079b8fd4af271b28bed829539a596abb89b1b95807f0bea75768c5a",
+      "02-optimized-winner.svg": "5c54e82353f0b3b06bcecd0fd14d294f3eb1f0b66cc4e82af9503dc17c20dbec",
+      "02-optional-grid.svg": "e27ea9e1b6e20bc9928a299e5ad4267883c46b48169fe0809beb3c84f6368f70",
+      "02-optional-spaces.csv": "7d58bcca49e28ec75a5059477f35b470b55c3a9a0f814490069470e9f9fcbcf0",
+      "02-optional-spaces.md": "64defe06af7fb7b0f462d3ce986ca821bf032b563ed89361a7ec384576208da1"
+    },
+    "publication_binding_sha256": "689058bb0c5a10f64753eb5f3e2476595a90b7d2f7e720be4c04e5b25ac2aedc",
+    "redrawn_artifacts": {},
+    "schema": "scnsim.engineer_publication_rebind.v3",
+    "transition_id": "scnsim.r2.course_presentation_namespace.992ca14.20261027"
+  },
   "results": {
     "capacitance_sweep": {
       "execution_id": "69047abd-bccf-45dd-973e-7692175002fa",

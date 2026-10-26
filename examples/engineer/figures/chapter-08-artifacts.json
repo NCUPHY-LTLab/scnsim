@@ -333,6 +333,96 @@
     "shared_workspace_unchanged_during_resolve": true,
     "source_tree_sha256": "0b9e97d815b84c86086ae471325a76f11cc7749543e1fdcbbba139894db3951f"
   },
+  "publication_binding": {
+    "binding_sha256": "ac9af970b14f65b5638e3e113bd8e79301c958b16df4e207db85446a488ebf37",
+    "generator_sha256": "979c8ecc546f419ca8d5cef0c0c81ab9f1da272f140370f645f1b1d44407325f",
+    "source_tree_sha256": "0b9e97d815b84c86086ae471325a76f11cc7749543e1fdcbbba139894db3951f"
+  },
+  "publication_rebind": {
+    "deltas": {
+      "cell_ids": {
+        "after": [
+          "ch8-build-persisted-plan",
+          "ch8-prepare-persisted-requests",
+          "ch8-execute-persisted-results",
+          "ch8-build-result-report",
+          "ch8-rebuild-plan-after-restart",
+          "ch8-rebuild-request-after-restart",
+          "ch8-resolve-only-after-restart"
+        ],
+        "before": [
+          "ch8-build-persisted-plan",
+          "ch8-prepare-persisted-requests",
+          "ch8-execute-persisted-results",
+          "ch8-build-result-report",
+          "ch8-rebuild-plan-after-restart",
+          "ch8-rebuild-request-after-restart",
+          "ch8-resolve-only-after-restart"
+        ]
+      },
+      "cells": {
+        "ch8-execute-persisted-results": {
+          "after_sha256": "63a4247e95bb5049aa9e92ba4d58342897365a752348b11c7c79163816501d7b",
+          "before_sha256": "3a37698a0225819aa901b8b175e0dd5379f82b94be1d3833abca8fc29a8676eb"
+        }
+      },
+      "generator": {
+        "after_sha256": "979c8ecc546f419ca8d5cef0c0c81ab9f1da272f140370f645f1b1d44407325f",
+        "before_sha256": "979c8ecc546f419ca8d5cef0c0c81ab9f1da272f140370f645f1b1d44407325f"
+      },
+      "source_files": {},
+      "teaching_sources": {
+        "examples/engineer/chapter-08/_01-persist.qmd": {
+          "after_sha256": "681285c820c1f9357d421101e7ed9b043a51724aa6f40305f2c55ee653a9f14c",
+          "before_sha256": "b436b26eb1be8bf127ac671b6c47cdac1f1e1479b4e87b9b724c136aa8db9efe"
+        },
+        "scripts/engineer_publication_binding.py": {
+          "after_sha256": "afac6117c63ddc68e57c766a3669e5863b9e1541ec44c8d66a3b8a38e601088b",
+          "before_sha256": "0f8b1eddb047377d49081c19be42915052bbf078a1b7dd71757a6525d9fcd78c"
+        }
+      }
+    },
+    "execution_identity_retained": true,
+    "historical_execution": {
+      "artifacts": {
+        "08-direct-s11.svg": "7f491e99c99acd6aacb0a405a423edd6b359bae0bba802139f0934b05bcf8d04",
+        "08-persisted-results.json": "868760a787145f7e29450994a2792a7d516c9bd0913b7eecb6247364c7bb5c9c",
+        "08-persisted-results.md": "5694b0939b4d405f2282c0dfff188c4a3fefe93074dd88bd92b64598bd8ad8f9",
+        "08-report.html": "9252376d583fcfbd6c2c3c4f80ca5943eb434f14e9e8e7b8693afd44c9740ae0",
+        "08-resolve-only.md": "68edb300161a6aafd0632a384747731378419fa0da9c1cb7ae48e52c4c1e8d55"
+      },
+      "binding_sha256": "e751b0a5549f0f36efefdb681fa7367084bfc4b03c2f8fbb719f074d0851bf38",
+      "generator_sha256": "979c8ecc546f419ca8d5cef0c0c81ab9f1da272f140370f645f1b1d44407325f",
+      "payload_sha256": "3c69479fc5b71b5f7a3bedb6d841149b4293e5b48ad2ee44088a500544e15708",
+      "prior_publication_artifacts": {
+        "08-direct-s11.svg": "7f491e99c99acd6aacb0a405a423edd6b359bae0bba802139f0934b05bcf8d04",
+        "08-persisted-results.json": "868760a787145f7e29450994a2792a7d516c9bd0913b7eecb6247364c7bb5c9c",
+        "08-persisted-results.md": "5694b0939b4d405f2282c0dfff188c4a3fefe93074dd88bd92b64598bd8ad8f9",
+        "08-report.html": "9252376d583fcfbd6c2c3c4f80ca5943eb434f14e9e8e7b8693afd44c9740ae0",
+        "08-resolve-only.md": "68edb300161a6aafd0632a384747731378419fa0da9c1cb7ae48e52c4c1e8d55"
+      },
+      "prior_publication_binding_sha256": "e751b0a5549f0f36efefdb681fa7367084bfc4b03c2f8fbb719f074d0851bf38",
+      "prior_redrawn_artifacts": {},
+      "source_tree_sha256": "0b9e97d815b84c86086ae471325a76f11cc7749543e1fdcbbba139894db3951f"
+    },
+    "kind": "reviewed_source_only_transition",
+    "numerical_evidence_reused": true,
+    "prior_manifest_sha256": "94cf82654bcb9dc516b6f28b1ad5a0e8f35d03db600318349f242e9406dce6b5",
+    "prior_publication_binding_sha256": "e751b0a5549f0f36efefdb681fa7367084bfc4b03c2f8fbb719f074d0851bf38",
+    "prior_publication_rebind_sha256": null,
+    "prior_published_artifacts_retained": true,
+    "publication_artifacts": {
+      "08-direct-s11.svg": "7f491e99c99acd6aacb0a405a423edd6b359bae0bba802139f0934b05bcf8d04",
+      "08-persisted-results.json": "868760a787145f7e29450994a2792a7d516c9bd0913b7eecb6247364c7bb5c9c",
+      "08-persisted-results.md": "5694b0939b4d405f2282c0dfff188c4a3fefe93074dd88bd92b64598bd8ad8f9",
+      "08-report.html": "9252376d583fcfbd6c2c3c4f80ca5943eb434f14e9e8e7b8693afd44c9740ae0",
+      "08-resolve-only.md": "68edb300161a6aafd0632a384747731378419fa0da9c1cb7ae48e52c4c1e8d55"
+    },
+    "publication_binding_sha256": "ac9af970b14f65b5638e3e113bd8e79301c958b16df4e207db85446a488ebf37",
+    "redrawn_artifacts": {},
+    "schema": "scnsim.engineer_publication_rebind.v3",
+    "transition_id": "scnsim.r2.course_presentation_namespace.992ca14.20261027"
+  },
   "results": {
     "direct_identity": {
       "attempt_sha256": "5a2a62dd4e9d07f6372f1720797f14301ca2373397804f0f775a3a9f84cd0f6d",

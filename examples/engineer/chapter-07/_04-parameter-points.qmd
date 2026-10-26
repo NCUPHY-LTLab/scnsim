@@ -97,13 +97,13 @@ available in the table and CSV.
 **Port 1:** `readout_head`; **channel:** `s_readout_head_from_readout_head`.
 The markers are the three declared samples at 5.5, 6.0, and 6.5 GHz.
 
-<iframe title="Three-point readout-head reflection magnitude" src="../figures/07-readout-head-reflection-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
+<iframe title="Three-point readout-head reflection magnitude" src="../figures/presentation/07-readout-head-reflection-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/07-readout-head-reflection-magnitude.svg" label="Open Magnitude of the readout-head reflection at baseline, 1.8 mm, and capacitance scale 170/175. (SVG)" >}}
+{{< askr-image-view src="../figures/presentation/07-readout-head-reflection-magnitude.svg" label="Open Magnitude of the readout-head reflection at baseline, 1.8 mm, and capacitance scale 170/175. (SVG)" >}}
 
-<iframe title="Three-point readout-head reflection phase" src="../figures/07-readout-head-reflection-phase.html" class="w-100" height="400" loading="lazy"></iframe>
+<iframe title="Three-point readout-head reflection phase" src="../figures/presentation/07-readout-head-reflection-phase.html" class="w-100" height="400" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/07-readout-head-reflection-phase.svg" label="Open Phase of the readout-head reflection at baseline, 1.8 mm, and capacitance scale 170/175. (SVG)" >}}
+{{< askr-image-view src="../figures/presentation/07-readout-head-reflection-phase.svg" label="Open Phase of the readout-head reflection at baseline, 1.8 mm, and capacitance scale 170/175. (SVG)" >}}
 
 {{< include ../figures/07-response-points.md >}}
 

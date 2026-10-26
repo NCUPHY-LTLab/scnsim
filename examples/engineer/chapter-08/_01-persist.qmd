@@ -131,9 +131,9 @@ run.close()
 
 **Port 1:** `signal_in`; this saved view contains the one magnitude trace.
 
-<iframe title="Saved Chapter 8 S11 magnitude" src="../figures/08-s11-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
+<iframe title="Saved Chapter 8 S11 magnitude" src="../figures/presentation/08-s11-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
 
-{{< askr-image-view src="../figures/08-s11-magnitude.svg" label="Open Saved S11 magnitude at four declared frequency samples. (SVG)" >}}
+{{< askr-image-view src="../figures/presentation/08-s11-magnitude.svg" label="Open Saved S11 magnitude at four declared frequency samples. (SVG)" >}}
 
 {{< include ../figures/08-persisted-results.md >}}
 

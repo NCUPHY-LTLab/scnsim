@@ -2,6 +2,7 @@
 import ast
 import hashlib
 from importlib.machinery import PathFinder
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import sys
 import tempfile
 from types import ModuleType, SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / 'scripts/engineer_publication_binding.py'
@@ -134,6 +136,121 @@ class EngineerPublicationBindingTests(unittest.TestCase):
                 self.assertEqual(facts['primary_error'], repr(primary))
         finally:
             child.wait()
+
+
+class EngineerPresentationTransitionTests(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("publication_fixture", HELPER)
+        self.helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.helper)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.path = self.directory / "chapter-01-artifacts.json"
+        self.raw_files = {"summary.md": b"| sample | value |\n| a | unchanged |\n",
+                          "response.csv": b"sample,value\na,unchanged\n",
+                          "diagram.svg": b'<svg xmlns="http://www.w3.org/2000/svg"/>'}
+        for name, raw in self.raw_files.items():
+            (self.directory / name).write_bytes(raw)
+        old_map = {name: self.sha(raw) for name, raw in self.raw_files.items()}
+        tree = {"files": {"src/scnsim/core.py": self.sha(b"unchanged package")}}
+        tree["sha256"] = self.helper._canonical_sha256(tree["files"])
+        self.prior = {"generator_sha256": self.sha(b"unchanged generator"),
+                      "sources": {"scripts/engineer_publication_binding.py": self.sha(b"old helper")},
+                      "source_tree": tree, "cell_ids": ["display"],
+                      "cells": {"display": self.sha(b"saved display")}}
+        self.current = json.loads(json.dumps(self.prior))
+        self.current["sources"]["scripts/engineer_publication_binding.py"] = self.sha(b"new helper")
+        self.before = {"binding": self.prior, "artifacts": old_map,
+                       "execution": {"generator_sha256": self.prior["generator_sha256"],
+                                     "source_tree_sha256": tree["sha256"], "cells": self.prior["cells"]},
+                       "environment": {"identity": "unchanged"},
+                       "observations": {"identity": "unchanged"},
+                       "results": {"identity": "unchanged"}}
+        self.path.write_text(json.dumps(self.before))
+        (self.directory / "summary.md").write_bytes(self.raw_files["summary.md"] + b"\n[Download](response.csv)\n")
+        self.published = {name: self.sha((self.directory / name).read_bytes()) for name in old_map}
+        self.transition = self.closed_transition(self.published)
+
+    @staticmethod
+    def sha(raw):
+        return hashlib.sha256(raw).hexdigest()
+
+    def closed_transition(self, published):
+        h = self.helper
+        return {"prior_manifest_sha256": self.sha(self.path.read_bytes()),
+                "prior_publication_binding_sha256": h._canonical_sha256(self.prior),
+                "publication_binding_sha256": h._canonical_sha256(self.current),
+                "deltas": h._transition_deltas(self.prior, self.current),
+                "artifacts": dict(published),
+                "historical_execution": h._historical_execution(
+                    self.before, self.prior, prior_publication_artifacts=published),
+                "prior_publication_rebind_sha256": None}
+
+    def prepare(self, **kwargs):
+        with patch.object(self.helper, "_reviewed_transitions", return_value={self.path.name: self.transition}):
+            return json.loads(self.helper._prepare_rebind(self.path, self.current, **kwargs))
+
+    def test_closed_markdown_transition_retains_execution_payload(self):
+        validated = []
+        after = self.prepare(validate_historical=lambda manifest, **kw: validated.append((json.loads(json.dumps(manifest)), kw)))
+        h = self.helper
+        historical = after["publication_rebind"]["historical_execution"]
+        self.assertEqual(after["artifacts"], self.published)
+        self.assertEqual(historical["artifacts"], self.before["artifacts"])
+        self.assertEqual(historical["prior_publication_artifacts"], self.published)
+        self.assertEqual(historical["prior_redrawn_artifacts"], {
+            "summary.md": {"execution_sha256": self.before["artifacts"]["summary.md"],
+                           "prior_publication_sha256": self.published["summary.md"]}})
+        self.assertEqual(after["publication_rebind"]["redrawn_artifacts"], {})
+        self.assertEqual(h._execution_payload(after, historical["artifacts"]), h._payload(self.before))
+        self.assertEqual(h._canonical_sha256(h._execution_payload(after, historical["artifacts"])),
+                         historical["payload_sha256"])
+        for key in ("binding", "execution", "environment", "observations", "results"):
+            self.assertEqual(after[key], self.before[key])
+        self.assertEqual(validated, [(self.before, {"artifact_sha256": self.before["artifacts"]})])
+
+    def test_default_historical_publication_map_is_unchanged(self):
+        historical = self.helper._historical_execution(self.before, self.prior)
+        self.assertEqual(historical["prior_publication_artifacts"], self.before["artifacts"])
+        self.assertEqual(historical["prior_redrawn_artifacts"], {})
+
+    def test_csv_and_svg_changes_are_rejected_even_when_closed(self):
+        for name in ("response.csv", "diagram.svg"):
+            with self.subTest(name=name):
+                (self.directory / name).write_bytes(self.raw_files[name] + b"changed")
+                published = dict(self.published)
+                published[name] = self.sha((self.directory / name).read_bytes())
+                self.transition = self.closed_transition(published)
+                with self.assertRaisesRegex(RuntimeError, "not Markdown-only"):
+                    self.prepare()
+                (self.directory / name).write_bytes(self.raw_files[name])
+
+    def test_changed_artifact_keysets_are_rejected(self):
+        for remove in (True, False):
+            published = dict(self.published)
+            if remove:
+                published.pop("summary.md")
+            else:
+                published["extra.md"] = self.sha(b"extra")
+            self.transition = dict(self.closed_transition(self.published), artifacts=published)
+            with self.subTest(remove=remove):
+                with self.assertRaisesRegex(RuntimeError, "not Markdown-only"):
+                    self.prepare()
+
+    def test_published_bytes_must_match_closed_hashes(self):
+        (self.directory / "summary.md").write_bytes(b"unexpected wrapper drift")
+        with self.assertRaisesRegex(RuntimeError, "artifact bytes changed"):
+            self.prepare()
+
+    def test_prior_manifest_and_historical_map_cannot_drift(self):
+        self.transition["historical_execution"]["artifacts"] = dict(self.published)
+        with self.assertRaises(RuntimeError):
+            self.prepare()
+        self.transition = self.closed_transition(self.published)
+        self.path.write_text(json.dumps(self.before) + "\n")
+        with self.assertRaisesRegex(RuntimeError, "exact trusted prior"):
+            self.prepare()
 
 
 if __name__ == '__main__':
