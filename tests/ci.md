@@ -21,8 +21,10 @@ A draft pull request skips those product and documentation jobs. The small `ci-s
 
 ## Documentation builds and Pages publishing
 
-The separate `documentation` job serves the prose-only lane. It syncs locked dependencies without installing or building the project, checks that local includes and Markdown/QMD link targets exist, and renders with Quarto 1.10.18 without executing code. That source check does not inspect links in rendered HTML.
+The separate `documentation` job serves the prose-only lane. It syncs locked dependencies without installing or building the project, then renders with Quarto 1.10.18 without executing code.
 
-The documentation job renders one current source version. Pages instead assembles a versioned site from the presentation source, live `develop` source, and pinned release sources, then renders each source with Quarto 1.10.18. A non-draft pull request builds a review site without deploying it; a draft pull request skips that build. Pushes and eligible manual dispatches can deploy the assembled Pages site.
+Both product and prose-only lanes use the same link checker. It validates local includes and relative source links, and requires website URLs beginning with `/` to resolve to rendered pages or downloads.
+
+The documentation job renders one current source version. Pages assembles a versioned site from the documentation commit fixed in `scripts/pages_source.json` and its configured version sources, then renders those sources with Quarto 1.10.18. A non-draft pull request builds a review site without deploying it; a draft pull request skips that build. Pushes and eligible manual dispatches can deploy the assembled Pages site.
 
 Workflow definitions: [CI](../.github/workflows/ci.yml), [Pages](../.github/workflows/pages.yml), and the [change classifier](../.github/scripts/change_scope.py).

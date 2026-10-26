@@ -22,8 +22,10 @@ Draft Pull Request 會略過產品與文件工作。較小的 `ci-status` 工作
 
 ## 文件建置與 Pages 發布
 
-獨立的 `documentation` 工作服務純文字流程。它會同步鎖定依賴，但不安裝或建置套件；確認本機 include 與 Markdown／QMD 連結目標存在；再以 Quarto 1.10.18 在不執行程式碼下渲染。這項來源檢查不會檢查渲染後 HTML 的連結。
+獨立的 `documentation` 工作服務純文字流程。它會同步鎖定依賴，但不安裝或建置套件，再以 Quarto 1.10.18 在不執行程式碼下渲染。
 
-文件工作只渲染一個目前來源版本。Pages 則組合展示來源、即時 `develop` 來源與固定版本來源，建立版本化網站，再以 Quarto 1.10.18 分別渲染各來源。非 Draft Pull Request 會建置審查網站但不部署；Draft Pull Request 會略過該建置。推送及符合條件的手動派送可部署組合後的 Pages 網站。
+產品流程與純文字流程共用連結檢查器：檢查本機 include 與相對來源連結，並確認以 `/` 開頭的網站連結能對應到渲染後的頁面或下載檔。
 
-工作流程定義：[CI](../.github/workflows/ci.yml)、[Pages](../.github/workflows/pages.yml) 與[變更分類器](../.github/scripts/change_scope.py)。
+文件工作只渲染一個目前來源版本。Pages 則依 `scripts/pages_source.json` 固定的文件提交與版本設定，組合版本化網站，再以 Quarto 1.10.18 分別渲染各來源。非 Draft Pull Request 會建置審查網站但不部署；Draft Pull Request 會略過該建置。推送及符合條件的手動派送可部署組合後的 Pages 網站。
+
+工作流程定義：[CI](../../.github/workflows/ci.yml)、[Pages](../../.github/workflows/pages.yml) 與[變更分類器](../../.github/scripts/change_scope.py)。
