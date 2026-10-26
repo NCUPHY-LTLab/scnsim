@@ -1,4 +1,4 @@
-"""JAX selector coverage and baseline loss, with deferred Julia evidence."""
+"""JAX selector coverage and exact same-point baseline loss."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -160,6 +160,13 @@ def _stage_candidates(result):
     return tuple(row for stage in result.stages for row in stage.history)
 
 
+def _stage_objective_ids(candidate):
+    """Read the full baseline and compact evaluated rows from public history."""
+    if candidate.get("kind") == "baseline":
+        return [row["id"] for row in candidate["objectives"]]
+    return [row["objective_id"] for row in candidate["components"]]
+
+
 class OptimizationTests(unittest.TestCase):
     def test_complete_selector_catalog_is_visible_in_jax_explain(self) -> None:
         plan, parameter = _advanced_direct_plan()
@@ -261,7 +268,7 @@ class OptimizationTests(unittest.TestCase):
                 self.assertTrue(advanced_successes)
                 for candidate in advanced_successes:
                     self.assertEqual(
-                        [row["objective_id"] for row in candidate["components"]],
+                        _stage_objective_ids(candidate),
                         [objective.id for objective in advanced_objectives],
                     )
                 self.assertEqual(advanced.best.cost, 0.0)
@@ -311,7 +318,7 @@ class OptimizationTests(unittest.TestCase):
                 self.assertTrue(successes)
                 for candidate in successes:
                     self.assertEqual(
-                        [row["objective_id"] for row in candidate["components"]],
+                        _stage_objective_ids(candidate),
                         ["zero_frequency"],
                     )
                 self.assertEqual(result.best.cost, 0.0)
