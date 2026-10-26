@@ -12,7 +12,7 @@ prior wheel cohort targeted Linux x86_64 (`manylinux_2_28`), macOS arm64
 (minimum deployment target macOS 12), and Windows x86_64 (AMD64). These tags
 identify binary targets; they do not imply coverage of every operating-system
 version or circuit workload. Use a wheel from
-[GitHub Releases](https://github.com/OrPenStrike/scnsim/releases) only when an
+[GitHub Releases](https://github.com/NCUPHY-LTLab/scnsim/releases) only when an
 exact matching version has been published.
 
 For a Windows CPython 3.12 AMD64 consumer repository, its maintainer configures

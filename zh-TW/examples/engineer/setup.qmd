@@ -6,7 +6,7 @@ lang: zh-TW
 
 ## 安裝相符的已發布輪子
 
-`1.0.0.dev40` 是尚未發布的開發候選版本，1.0 beta 仍暫緩發布。先前交付的 `1.0.0.dev39` CPython 3.12 精確版本開發輪子屬於歷史版本，不能用來安裝 dev40。該批輪子目標為 Linux x86_64（`manylinux_2_28`）、macOS arm64（最低部署目標 macOS 12）及 Windows x86_64（AMD64）。這些標記代表二進位目標平台，不代表涵蓋每個作業系統版本或所有電路工作負載。只有在精確相符版本已發布時，才從 [GitHub Releases](https://github.com/OrPenStrike/scnsim/releases) 下載輪子。
+`1.0.0.dev40` 是尚未發布的開發候選版本，1.0 beta 仍暫緩發布。先前交付的 `1.0.0.dev39` CPython 3.12 精確版本開發輪子屬於歷史版本，不能用來安裝 dev40。該批輪子目標為 Linux x86_64（`manylinux_2_28`）、macOS arm64（最低部署目標 macOS 12）及 Windows x86_64（AMD64）。這些標記代表二進位目標平台，不代表涵蓋每個作業系統版本或所有電路工作負載。只有在精確相符版本已發布時，才從 [GitHub Releases](https://github.com/NCUPHY-LTLab/scnsim/releases) 下載輪子。
 
 若 Windows 使用 CPython 3.12 AMD64，使用端儲存庫的維護者應將精確相符的 SCNSim 預建輪子設為套件來源，並提交相符的 `uv.lock`。完成來源與鎖定檔設定後，請在使用端儲存庫根目錄執行：
 
