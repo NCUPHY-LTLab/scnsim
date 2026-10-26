@@ -17,15 +17,15 @@ import tomllib
 from urllib.parse import unquote, urlsplit
 
 
-SITE = "https://orpenstrike.github.io/scnsim/"
+SITE = "https://ncuphy-ltlab.github.io/scnsim/"
 PREFIX = "/scnsim/"
 REPO = "https://github.com/NCUPHY-LTLab/scnsim"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 RELEASE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:(?P<alpha>a\d+)|(?P<beta>b\d+))?\Z")
 DEVELOPMENT = re.compile(r"(?P<line>\d+\.\d+\.\d+) dev\Z")
 DEVELOPMENT_SOURCE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:a\d+|b\d+|\.dev\d+)?\Z")
-# The 40 unmodified files in the selected Askr v0.12.0 vendor tree.
-ASKR_SHA256 = "f76819381640ac6a00c74f6f7a918902355948dd1eb6b9d791389c019a243017"
+# The 40 unmodified files in the selected Askr v0.12.1 vendor tree.
+ASKR_SHA256 = "c2ead1a3539c004abdc6441ba6a65be65e535a7956c7e121ea1f9c33548a3c9d"
 
 
 class References(HTMLParser):
@@ -45,6 +45,17 @@ def _regular_tree(root: Path) -> None:
     for path in root.rglob("*"):
         if path.is_symlink() or not (path.is_file() or path.is_dir()):
             raise ValueError(f"Pages tree contains an unsafe entry: {path}")
+
+
+def _docs_source(path: Path) -> str:
+    """Return the persistent documentation commit, never the product branch head."""
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict) or set(value) != {"commit"}:
+        raise ValueError("Documentation source pointer must contain only commit")
+    commit = value["commit"]
+    if not isinstance(commit, str) or not SHA.fullmatch(commit):
+        raise ValueError("Documentation source commit must be a full lowercase SHA")
+    return commit
 
 
 def _catalog(path: Path) -> dict[str, object]:
@@ -191,13 +202,13 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
     if profile.exists():
         raise ValueError("Pages render profile already exists in exported source")
     if _vendor_digest(vendor) != ASKR_SHA256:
-        raise ValueError("Pages presentation vendor differs from Askr 0.12.0")
+        raise ValueError("Pages presentation vendor differs from Askr 0.12.1")
     destination = source / "_extensions/arfiligol/askr"
     if destination.exists():
         _regular_tree(destination)
     shutil.copytree(vendor, destination, dirs_exist_ok=True)
     if _vendor_digest(destination) != ASKR_SHA256:
-        raise ValueError("Pages presentation overlay is not exact Askr 0.12.0")
+        raise ValueError("Pages presentation overlay is not exact Askr 0.12.1")
     version_url = SITE + _slug(entry) + "/"
     bilingual = (source / 'zh-TW/_quarto.yml').is_file()
     site_url = version_url + ('en/' if bilingual else '')
@@ -207,9 +218,19 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
         f"  repo-url: {json.dumps(REPO)}\n"
         f"  repo-branch: {json.dumps(source_sha)}\n"
         "  page-footer:\n"
-        f"    center: {json.dumps(label + ' · package ' + version + ' · content [' + source_sha + '](' + REPO + '/tree/' + source_sha + ') · presentation [' + presentation_sha + '](' + REPO + '/tree/' + presentation_sha + ')')}\n",
+        f"    center: {json.dumps(label + ' · package ' + version + ' · content [' + source_sha + '](' + REPO + '/tree/' + source_sha + ') · publisher [' + presentation_sha + '](' + REPO + '/tree/' + presentation_sha + ')')}\n",
         encoding="utf-8",
     )
+    if entry["kind"] == "development":
+        with profile.open("a", encoding="utf-8") as handle:
+            handle.write(
+                "  announcement:\n"
+                "    icon: info-circle\n"
+                "    dismissable: false\n"
+                "    position: above-navbar\n"
+                "    type: warning\n"
+                f"    content: {json.dumps('R2 is under development and has not been officially released.')}\n"
+            )
     if bilingual:
         # Current bilingual source only; pinned historical projects stay as-is.
         _bind_language_hrefs(source / '_quarto.yml', entry['root'], 'en')
@@ -218,7 +239,9 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
         child_profile.write_text(
             profile.read_text(encoding='utf-8').replace(
                 f"  site-url: {json.dumps(site_url)}\n",
-                f"  site-url: {json.dumps(version_url)}\n"), encoding='utf-8')
+                f"  site-url: {json.dumps(version_url)}\n").replace(
+                    json.dumps('R2 is under development and has not been officially released.'),
+                    json.dumps('R2 開發中，尚未正式發佈。', ensure_ascii=False)), encoding='utf-8')
         # English-only links are explicit /en/ routes in authored Chinese prose.
         # Bind just those Markdown/YAML/HTML hrefs in the exported source, not
         # code includes, scientific assets or historical project sources.
@@ -233,14 +256,19 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
             if path.name == '_quarto-pages.yml':
                 continue
             text = path.read_text(encoding='utf-8')
-            path.write_text(link.sub(lambda match: match[1] + entry['root'] + 'en/', text), encoding='utf-8')
+            path.write_text(link.sub(lambda match: match[1] + version_url + 'en/', text), encoding='utf-8')
     print(f"prepared {label} package={version} content={source_sha} presentation={presentation_sha}")
 
 
 def _local_reference(site: Path, page: Path, value: str, root: str) -> Path | None:
     parsed = urlsplit(value)
-    if parsed.scheme or parsed.netloc or value.startswith("#"):
+    if value.startswith("#"):
         return None
+    if parsed.scheme or parsed.netloc:
+        # Quarto preserves full URLs between separately rendered language
+        # projects. Still validate same-site destinations against the artifact.
+        if not value.startswith(SITE):
+            return None
     path = unquote(parsed.path)
     if not path:
         return None
@@ -274,6 +302,10 @@ def _inspect(source: Path, entry: dict[str, str], source_sha: str, presentation_
     for required in (entry["label"], _version(source), source_sha, presentation_sha, REPO):
         if required not in html:
             raise ValueError(f"{entry['label']} home lacks source/presentation provenance: {required}")
+    if entry["kind"] == "development":
+        notice = "R2 開發中，尚未正式發佈。" if bilingual else "R2 is under development and has not been officially released."
+        if notice not in html:
+            raise ValueError("Current documentation home lacks its unreleased R2 announcement")
     if f"/{source_sha}/" not in html:
         raise ValueError(f"{entry['label']} View source does not target the content commit")
     image = site / "docs/assets/readme-hero-orca-penguin.png"
@@ -367,13 +399,13 @@ def _missing_page(catalog: dict[str, object]) -> str:
     )
 
 
-def _assemble(catalog: dict[str, object], template: Path, sources: Path, develop_sha: str, presentation_sha: str, output: Path) -> None:
-    if output.exists() or not SHA.fullmatch(develop_sha) or not SHA.fullmatch(presentation_sha):
+def _assemble(catalog: dict[str, object], template: Path, sources: Path, docs_source_sha: str, presentation_sha: str, output: Path) -> None:
+    if output.exists() or not SHA.fullmatch(docs_source_sha) or not SHA.fullmatch(presentation_sha):
         raise ValueError("Pages output or commit identity is invalid")
     entries = _entries(catalog)
     sites: dict[str, Path] = {}
     for entry in entries:
-        source_sha = develop_sha if entry["kind"] == "development" else entry["commit"]
+        source_sha = docs_source_sha if entry["kind"] == "development" else entry["commit"]
         sites[_slug(entry)] = _inspect(sources / _slug(entry), entry, source_sha, presentation_sha)
     root_html = template.read_text(encoding="utf-8")
     root_html = root_html.replace("{{DEV_SLUG}}", escape(_slug(entries[0]))).replace("{{DEV_LABEL}}", escape(entries[0]["label"]))
@@ -406,6 +438,8 @@ def _assemble(catalog: dict[str, object], template: Path, sources: Path, develop
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    source = commands.add_parser("source")
+    source.add_argument("--pointer", type=Path, required=True)
     plan = commands.add_parser("plan")
     plan.add_argument("--catalog", type=Path, required=True)
     prepare = commands.add_parser("prepare")
@@ -414,23 +448,27 @@ def main() -> None:
     prepare.add_argument("--vendor", type=Path, required=True)
     prepare.add_argument("--label", required=True)
     prepare.add_argument("--source-sha", required=True)
-    prepare.add_argument("--presentation-sha", required=True)
+    prepare.add_argument("--publication-sha", "--presentation-sha", dest="publication_sha", required=True)
     assemble = commands.add_parser("assemble")
     assemble.add_argument("--catalog", type=Path, required=True)
     assemble.add_argument("--template", type=Path, required=True)
     assemble.add_argument("--sources", type=Path, required=True)
-    assemble.add_argument("--develop-sha", required=True)
-    assemble.add_argument("--presentation-sha", required=True)
+    assemble.add_argument("--docs-source-sha", "--develop-sha", dest="docs_source_sha", required=True,
+                          help="Explicit documentation commit; --develop-sha is a legacy argument name only")
+    assemble.add_argument("--publication-sha", "--presentation-sha", dest="publication_sha", required=True)
     assemble.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if args.command == "source":
+        print(_docs_source(args.pointer))
+        return
     catalog = _catalog(args.catalog)
     if args.command == "plan":
         for item in _entries(catalog):
             print("|".join((item["kind"], item["label"], _slug(item), item.get("tag", "-"), item.get("commit", "-"))))
     elif args.command == "prepare":
-        _prepare(args.source, args.vendor, catalog, args.label, args.source_sha, args.presentation_sha)
+        _prepare(args.source, args.vendor, catalog, args.label, args.source_sha, args.publication_sha)
     else:
-        _assemble(catalog, args.template, args.sources, args.develop_sha, args.presentation_sha, args.output)
+        _assemble(catalog, args.template, args.sources, args.docs_source_sha, args.publication_sha, args.output)
 
 
 if __name__ == "__main__":
