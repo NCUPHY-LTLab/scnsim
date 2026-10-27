@@ -1,0 +1,19 @@
+---
+title: "第 1 章 — 建立並分析耦合接地 LC"
+subtitle: "工程課程 · 繁體中文"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 第 1 章 — 建立並分析耦合接地 LC
+
+本章在一個乾淨核心中完成。五個網頁課程是依序排列來源片段的閱讀版本，不是各自獨立的 Notebook。QMD 是可編輯權威來源，`chapter.ipynb` 則是產生的零輸出傳遞檔。
+
+第 1 課：建立電路；第 2 課：檢視電路圖；第 3 課：讀取 S11；第 4 課：評估負載根；第 5 課：在同一 Plan 上選取另一個電容。
+{{< include _01-build.qmd >}}
+{{< include _02-diagram.qmd >}}
+{{< include _03-s11.qmd >}}
+{{< include _04-root.qmd >}}
+{{< include _05-change-capacitance.qmd >}}

@@ -1,0 +1,18 @@
+---
+title: "第 2 章 · 第 4 課 — 選讀 C/L 參數空間"
+subtitle: "掃描與最佳化工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1–3 課" appearance="simple"}
+此選讀網頁沿用同一 Plan、Run、View 與請求，不可單獨執行。請依序執行[完整本章 Notebook（英文）](/en/examples/engineer/chapter-02/chapter.ipynb)。
+:::
+
+{{< include _04-optional-spaces.qmd >}}
+
+[上一課：第 3 課 — 最佳化與驗證](03-optimize.qmd) ·
+[課程路線圖](../../../docs/index.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-02/chapter.ipynb)

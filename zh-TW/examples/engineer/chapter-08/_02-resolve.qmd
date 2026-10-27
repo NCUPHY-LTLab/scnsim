@@ -1,0 +1,21 @@
+## 第 2 課 — 重啟、重建識別並只讀回 {#lesson-ch8-resolve}
+
+### 啟動第二個獨立核心
+
+請停止第一個核心，在相同且保留的工作目錄啟動新的 Python 核心，再只執行本課的三個程式區塊。它們會刻意重複完整宣告與請求；第二個核心不可執行第 1 課的計算程式區塊。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-08/_02-resolve.qmd/block-001.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-08/_02-resolve.qmd/block-002.qmd >}}
+
+### 只讀回，不執行替代計算
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-08/_02-resolve.qmd/block-003.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/08-resolve-only.md >}}
+
+:::
+
+第二個核心不包含 `solve()`、`evaluate()`、重試或備援計算。它會重建精確請求身分，並從共用 SQLite Workspace 載入已驗證證據。請在兩個獨立核心中使用相同安裝輪子執行兩課。課程產生器會記錄直譯器與 RECORD 綁定，並在僅讀回的核心中拒絕原生數值執行。

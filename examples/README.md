@@ -154,9 +154,10 @@ View lineage, requests, Results, and public artifacts. The required core owns
 `04-explicit-capstone.svg`, the raw four-Port `04-raw-direct-s21.*` Result, and
 the separately labeled `04-ptc-direct-s21.*` table and figure.
 Optional evidence includes the exact 6.2 GHz `04-response-element.*` lookup,
-the separate `04-optional-direct-s21.*` Result, and the
-`04-pump-off-hb.*` Result. Direct and HB keep their separately declared grids;
-the generated summary does not overlay or interpolate them.
+the separate `04-optional-direct-s21.*` Result. The retained
+`04-pump-off-hb.*` files are historical artifacts from the retired HB path,
+not output of the current JAX generator. Historical Direct and HB data keep
+their separately declared grids; the summary does not overlay or interpolate them.
 
 ## Generate Chapters 5–8 evidence explicitly
 

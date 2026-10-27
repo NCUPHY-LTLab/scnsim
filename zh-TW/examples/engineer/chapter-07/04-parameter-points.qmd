@@ -1,0 +1,19 @@
+---
+title: "第 7 章 · 第 4 課 — 三組參數點"
+subtitle: "多導體傳輸線工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1–3 課" appearance="simple"}
+請先完成[第 1–3 課](01-rlgc.qmd)，再使用[完整本章 Notebook（英文）](/en/examples/engineer/chapter-07/chapter.ipynb)。
+:::
+
+{{< include _04-parameter-points.qmd >}}
+
+[上一課：第 3 課 — 電路圖](03-diagrams.qmd) ·
+[下一課：獨立第 5 課 — 位置與電氣解析度](05-position-electrical-resolution.qmd) ·
+[課程總覽](../../../docs/index.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-07/chapter.ipynb)

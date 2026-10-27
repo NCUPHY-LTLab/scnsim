@@ -1,0 +1,25 @@
+## 第 3 課 — 宣告電路圖 {#lesson-ch7-diagrams}
+
+### 檢視已宣告的線段
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_03-diagrams.qmd/block-001.qmd >}}
+
+下圖呈現 `readout` 與 `filter` 兩條信號導體及其四個端點。每單位長度的 RLGC 矩陣描述兩導體的自參數與耦合，並作為有限 π 展開的模型輸入。
+
+![N=2 作者用電路圖：readout 與 filter 兩條導體及四個端點。](../figures/07-n2-authoring.svg){#img-ch7-n2-authoring .lightbox}
+
+{{< askr-image-view target="img-ch7-n2-authoring" label="開啟 N=2 作者用電路圖" >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_03-diagrams.qmd/block-002.qmd >}}
+
+### 歷史有限 π 投影
+
+自動編譯電路圖請求已停用；數值有限 π 組裝則維持不變。下方保留的匯出檔記錄原課程結果，不是目前可執行的電路圖請求，也不是重新執行所得。
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/07-n2-compiled.md >}}
+
+:::
+
+歷史編譯投影描述八節有限 π 展開、導體順序、完整矩陣及精確零值證據。原始結果不會改變已宣告 Plan 或數值模型；保留投影檔也不代表保留自動電路圖產生器。

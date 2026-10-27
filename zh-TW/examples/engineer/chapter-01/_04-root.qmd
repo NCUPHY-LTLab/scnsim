@@ -1,0 +1,21 @@
+## 第 4 課 — 計算負載根 {#lesson-root}
+
+**先備條件：**請在整章 Notebook 中執行第 1–3 課。
+
+英文[模擬慣例](../../../docs/concepts/simulation-conventions.qmd#roots-linewidth-and-plots)說明被動極點衰減與負載線寬，如何區別於傳輸零點及 S 參數特徵。
+
+公開的子系統 Coordinate 會選取同一條諧振器訊號匯流排進行分析。透過 retain 建立本題使用的單座標邊界，不會改動 Plan 或電路圖；Spec 再選取該 View 內的對角元素。單一座標是本課的選擇，不是 API 限制：改變保留邊界會改變運算子方程式，即使座標與提示值相同，也可能選到不同的根。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_04-root.qmd/block-001.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_04-root.qmd/block-002.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_04-root.qmd/block-003.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/01-baseline-root.md >}}
+
+:::
+
+6 GHz Hint 用來選擇確定性的根分支；它不是答案，也不是搜尋區間。回傳的頻率與線寬描述所選運算子對角元素的負載狀態，不是 S 參數凹陷，也不是未載入公式 `1 / (2π√(LC))`。

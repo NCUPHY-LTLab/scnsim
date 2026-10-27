@@ -1,0 +1,18 @@
+---
+title: "第 7 章 — 有序多導體 RLGC"
+subtitle: "工程課程 · 繁體中文"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 第 7 章 — 有序多導體 RLGC
+
+本章在乾淨核心中獨立執行。四個網頁課程依序呈現來源片段。QMD 是可編輯權威來源；`chapter.ipynb` 是產生的零輸出傳遞檔。
+
+本章宣告有序 N=2 RLGC 線段、完整耦合矩陣與四個訊號 Port，並評估三個完整參數點。
+{{< include _01-rlgc.qmd >}}
+{{< include _02-ports.qmd >}}
+{{< include _03-diagrams.qmd >}}
+{{< include _04-parameter-points.qmd >}}

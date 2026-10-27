@@ -1,0 +1,422 @@
+---
+title: "元件宣告契約"
+subtitle: "實體元件模型與仍在收斂的結構化宣告邊界"
+lang: zh-TW
+toc-depth: 3
+sidebar: guides
+---
+
+先用元件庫建立實體元件，再將它們組裝為一份電路計畫（Circuit plan）。只有需要在操作時改值的物理輸入，才宣告為參數（Parameter）。
+
+::: {.callout-warning}
+## 混合生命週期：已接受的實體模型與仍在收斂的宣告目標
+
+本頁元件庫來源、基本 R/L/C/JJ 模型、RLGC／傳輸線意義、互感（Mutual inductance）耦合，以及線性 Direct 降階語意，保留已接受完整 V1 權威。參數定義、實體綁定與批次身分只在連結的參數系統目標內重新開放。
+
+公開組裝語法、遞迴內嵌所有權、Plan 身分整合與具認證電路圖則作為 `CONVERGING` 目標重新開放，實作基準已整合。執行證據與限制集中在[契約對照（英文）](/en/docs/contracts/index.html#implementation-evidence-status)。共同建模由 [CircuitPlan 組裝契約（英文）](/en/docs/contracts/circuit-plan-assembly.html)規定；組合與視覺認證由[電路圖契約（英文）](/en/docs/contracts/automatic-semantic-circuit-diagram-layout.html)規定。
+:::
+
+## 契約範圍
+
+目標保留從可重用實體定義到已封存 Plan 的唯一路徑：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-001.qmd >}}
+
+`CircuitPlan` 仍是唯一實體權威。電路圖、編譯後端列（Compiled backend rows）、縮減 View 或求解器結果都是從 Plan 衍生的證據，不是另一份電路定義。
+
+原生元件可直接綁定固定 Quantity；只有作者刻意支援操作時改值，才接收 `ParameterRef`。工程師第 1 章將電容綁定，因為同一 Plan 會在 110 fF、120 fF 評估，而 5.8 nH 電感、6 fF 耦合器保持字面值。子項從同一訊號匯流排（Bus）公開接腳與座標，父項耦合直接接到該公開接腳；父項根匯流排與零元件 Link 是選用組裝工具，不是分析要求。[參數系統契約（英文）](/en/docs/contracts/parameter-system.html)規定這些目標身分與操作時數值。
+
+本頁規定實體工廠與降階語意。連結的結構化契約規定擬定的組裝簽章、所有權、配置、身分與宣告／電路圖失敗。[參數系統契約（英文）](/en/docs/contracts/parameter-system.html)規定獨立定義、實體欄位由 Plan 採用、點、空間與參數化 Result。[V1 執行期契約（英文）](/en/docs/v1-runtime-contract.html)規定 Plan 封存、Ref 沿革（Lineage）、Direct 執行、Result、回條與解析。
+
+操作入門先讀[工程師第 1 章](../examples/engineer/chapter-01/01-build.qmd)，再用[第 5 章](../examples/engineer/chapter-05/01-library.qmd)學習目前元件庫、複合工廠、刻意公開邊界與父項重用路徑。邊界設計理由見[實體權威與結構化組合](concepts/physical-authority-and-reusable-composition.qmd)。本契約保留精確簽章、不變條件、失敗行為與證據要求，不是引導式工程師課程。
+
+## 單一元件型錄模型 {#one-library-model}
+
+內建與自訂型錄都是直接匯入的不可變 `Library` 物件：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-002.qmd >}}
+
+每個元件實例攜帶建立它的精確型錄名稱、版本、來源與元件結構身分。SCNSim 不提供字串式元件探索、筆記本全域登錄表或可變 `CircuitLibrary.register_component(...)` 流程。
+
+`Library` 是專案自訂型錄可建構的基底。套件繼承它，通常匯出一個已建構型錄實例：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-003.qmd >}}
+
+呼叫端不提供型錄 ID 或版本引數。SCNSim 從具體模組與限定類別推導名稱，在建立元件時封存精確套件發行或來源資訊。精確來源身分缺漏或有歧義時，在返回 `ComponentInstance` 前明確失敗。
+
+因此空自訂型錄可在沒有來源證明時建構與檢視。建立元件時解析一種可攜來源形式：正規化 wheel `RECORD`、可編輯 Git 套件來源加未提交覆層、一般匯入 `.py` 模組的正規化來源，或正規化筆記本類別／工廠來源。絕對路徑、執行次數、暫存檔名與記憶體位址不進入身分。精確規則見[型錄與執行期身分（英文）](/en/docs/implementation/catalog-and-runtime-identity.html)。
+
+型錄子類別只能繼承 `Library` 衍生基底，不能宣告實例儲存空間。如此維持型錄物件與工廠介面不可變；可能引入可變狀態的多重繼承在類別宣告時失敗。API 不強制全程序單例身分。
+
+公開基底不繼承 SCNSim 內建工廠。套件層 `scnsim.components` 是相同 `Library` 契約的獨立私有具體實作。因此自訂工廠明確呼叫 `scnsim.components.capacitor(...)` 或其他內建工廠，自訂型錄只公開套件自己負責的工廠。
+
+內建與自訂元件使用相同宣告介面：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-004.qmd >}}
+
+`plan.add(components.factory(...))` 是型錄建立實體元件的唯一路徑。沒有 `plan.capacitor(...)` 等便利方法，以免形成第二個型錄或參數權威。邏輯埠不是 Library 基本元件，因此是具有獨立 `plan.add_port(...)` 邊界的特化 Plan 元件。
+
+### 接腳與公開參數 {#pins-and-public-parameters}
+
+電氣端子只能用宣告的接腳名稱定位：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-005.qmd >}}
+
+一般雙端葉元件與具有內在不同訊號端子的元件使用此有序對。支路電壓為 `V(terminal_1) - V(terminal_2)`，正支路電流從 `terminal_1` 流向 `terminal_2`。同一方向也規定 JJ 相位與電感支路耦合符號。有方向元件保留語意名稱，如傳輸線 `head`／`tail`；領域複合元件（Composite component）可公開 `feedline_in` 等名稱，不必使用一般端子編號。接地共振器的兩個同匯流排公開接腳是別名，不是實體支路兩端；內部接地並聯支路保留訊號至接地參考方向。
+
+基本元件參數查詢要求真實欄位綁定，不能只有同值字面值：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-006.qmd >}}
+
+直接綁定的實體欄位依欄名返回精確原始 ref，包括傳輸線 `length` 與完整 `rlgc`。Clone／add 保留此查詢。只有字面值的欄位（含先前固定電容 `capacitance`）引發 `KeyError`，查詢不建立 ref。基本元件映射欄位返回精確原始 `AffineMap.input` ref，保留輸入單位與身分，不返回轉換後物理值。映射與實體使用者分開擷取，複合輸入仍需明確公開。
+
+複合元件可包含基本子元件，但子項 ID、子參數是檢視證據，不自動成為使用端 API。工廠必須刻意公開每個支援且已實體綁定的 `ParameterRef`。查詢返回原始獨立 ref，不從子路徑或字面值建立。複合公開參數 ID 唯一，保留工廠宣告順序，避免內部展開重構暗中改變筆記本契約。
+
+自訂元件庫使用 `scnsim.units`，並宣告相同接腳、公開參數、來源與降階證據。V1 不加入第二套單位登錄表、全域外掛機制、手動型錄中繼資料或可變工廠登錄。
+
+## 結構化拓撲與邏輯埠
+
+目標以明確宣告結構取代平面節點組裝。詳細唯一權威為[結構化宣告語法（英文）](/en/docs/contracts/circuit-plan-assembly.html#structured-authoring-grammar)。
+
+各角色如下：
+
+- `add()` 登錄實體元件，不接線。
+- `bus()` 宣告一個網路；一般連接直接使用 `BusRef`，只有需要獨立定位接點時才用 `tap()`。
+- `series()`、`parallel()`、`branch()` 將一般雙端本體與結構中使用的完整本體放入明確宣告角色。
+- `link(endpoints=(...))` 在兩個以上合適匯流排、接點或公開接腳間宣告直接零元件連接。
+- `ground_pins(pins=(...))` 明確將一個以上合適接腳接地。
+- `scope.ground` 仍是結構化串聯、並聯、支路宣告的標準參考端點。
+
+登錄、端子完整性與結構使用是不同事物。每個一般雙端原生本體恰好屬於一個含元件結構；完整複合實例或原生多端本體則可保持獨立同層項目。原生必要接腳仍須綁定，複合公開接腳可以部分或全部外部開路。端子結構允許時，本體可在結構中使用一次。`.between()` 只為該次結構使用選有序接腳對，獨立同層項目可省略，不縮減實體模型。
+
+具名根匯流排透過 `.node` 公開 `ElectricNodeRef`。匿名根匯流排在 `add_port()` 將它提升為埠具名公開座標前，不能使用 `.node`；提升是宣告，不是繪圖副作用。私有子匯流排需要明確 `expose_coordinate()`。接點的 `.node` 委派至相同匯流排身分。`CoordinateRef` 不能接線。
+
+四種相關控制代碼保持不同：`BusRef` 是網路，`TapRef` 是具名接觸點，`PinRef` 是原生端子或公開父端邊界，`CoordinateRef` 選電氣座標供分析。名為 `tap` 的公開接腳仍是 `PinRef`。Tap ID 與建立順序不暗示繪圖方向；結構化電路圖契約規定呼叫端配置與實際接觸幾何。
+
+只有根 `CircuitPlan` 加入邏輯埠。`add_port()` 接受根 `BusRef` 或 `TapRef`，保留既有節點對地電壓／電流方向及參考負載，返回供 PTC 與網路宣告使用的 `PortRef`：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-007.qmd >}}
+
+解析接點、公開子項邊界與 N 端點 link 別名後，一個電氣節點最多有一個邏輯埠。埠 ID、節點 ID 即使拼字相同，仍屬不同命名空間。埠不能接地、元件接腳、外來控制代碼或已有埠的節點。同一埠上的多個驅動貢獻仍是獨立 `CurrentDrive` 宣告。埠負載提供對地參考行為，沒有另外可接線的埠接地接腳。
+
+三種接地角色保持分開：以 `scope.ground` 結束的實體支路是所屬範圍的內在接地；具有一般回流匯流排的模組公開回流接腳，讓父項套用 `ground_pins()`；邏輯埠負責自己的負載／參考行為。三者解析到同一標準接地，宣告來源與圖形本地性仍記錄由哪一層宣告連接。
+
+## 內建葉元件
+
+所有公開物理參數都是 SCNSim 登錄表的 Quantity。R/L/C/JJ 葉元件使用固定接腳 `"terminal_1"`、`"terminal_2"`，遵循上方共同有序支路慣例。
+
+| 工廠 | 公開物理參數 | 額外公開參考 | 實現 |
+|---|---|---|---|
+| `resistor` | `resistance` | 無 | 一條 R 支路 |
+| `capacitor` | `capacitance` | 無 | 一條 C 支路 |
+| `inductor` | `inductance` | `inductive_branch("self")` | 一條線性 L 支路 |
+| `josephson_junction` | `josephson_inductance`、`junction_capacitance=0 * u.F` | `inductive_branch("self")` | 線性 `L_J0` 加選用獨立並聯 C 列 |
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-008.qmd >}}
+
+`josephson_inductance` 一律表示每接面在穩定零相位、零偏壓工作點的小訊號 `L_J0`，SCNSim 不將它解讀成任意偏壓點電感。
+
+非零 `junction_capacitance` 降階為理想約瑟夫森元件旁的獨立並聯電容；精確 `0 * u.F` 記錄模型省略該電容。SCNSim 不從 `Lj` 估計 `Cj`，加入 `Cj` 不增加電阻或將元件變成 RCSJ 模型。標準物理見[約瑟夫森電流、相位、能量與電感（英文）](https://github.com/arfiligol/SCQ_Design/blob/main/docs/knowledge/josephson-physics/josephson-current-phase-energy-and-inductance.qmd#independent-parallel-junction-capacitance)。
+
+接地並聯 LC 的目標基本元件形式，明確呈現一個非參考匯流排與兩條並聯支路：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-009.qmd >}}
+
+兩支路都結束於同一標準接地。視覺匯流排／符號語法統一定義於[電路圖配置契約（英文）](/en/docs/contracts/automatic-semantic-circuit-diagram-layout.html#native-branches-and-ground)。
+
+## 一般複合元件
+
+### 一般 N 導體 RLGC 傳輸線 {#general-rlgc}
+
+`transmission_line` 接受一份不可變 `RLGC`。四個每單位長度矩陣（Matrix）共用有序導體基底；`N=1` 就是 `1 x 1` 情形：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-010.qmd >}}
+
+N 軌線恰好透過相同限定存取公開 `2N` 接腳，`N=1` 也必須傳 `conductor=`。參考導體不是矩陣列、欄或接腳。這明確保留導體順序與並聯參考，不從元件名稱回推。
+
+矩陣基底也固定方向。每個宣告導體 `i`：
+
+$$
+V_i=V(\text{conductor }i)-V(\text{reference conductor}),
+\qquad I_i>0\text{ from head to tail}.
+$$
+
+資料載體一律將正串聯電流對應 head 至 tail，手動作者應在該有向基底宣告 R/L。支援的 AEDT Q2D 產生端設定採 XY 截面與求解器縱向 `+z` 電流慣例；2D Extractor 公式假設縱向 z 電流與分布線位置 `z`（[Ansys 渦電流求解器（英文）](https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v242/en/Subsystems/Q3DExtractor/Content/Q3D/EddyCurrentSolver.htm)、[分布模型（英文）](https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v242/en/Subsystems/Q3DExtractor/Content/Q3D/DistributedModels.htm)）。因此非對角 L/R 符號及衍生互感列，只在該有序有向基底才有意義；SCNSim 不猜測或暗中翻轉未知來源方向。
+
+手動宣告可省略 `extraction_frequency`，回條記為 `manual / source frequency unspecified / frozen coefficients`，不宣稱寬頻有效性。求解器原生 AEDT Q2D 原始 CSV 產生相同具型別載體：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-011.qmd >}}
+
+`conductor_map` 必須為每個擷取訊號導體恰命名一次，且為雙射。它只改公開標籤，不能重排列欄、丟導體、只選對角或移除互項。SCNSim 恰解析一份主要 C、G、L、R 區塊，來源順序必須相同；支援的原生 Spice 電容或耦合電容區塊不取代主要矩陣。保留原生標籤／順序、單位、擷取頻率、檔案內容 SHA-256、標準值與固定產生端慣例 `aedt_q2d_xy_cross_section_positive_z`。
+
+原始 CSV 沒有獨立逐檔方向欄位。因此方向來自呼叫端選擇此專用載入器：呼叫 `load_q2d_rlgc()` 即明確聲明檔案由支援的 AEDT Q2D XY 截面設定產生，將 Extractor `+z` 對應線路 head 至 tail。解析器驗證嚴格 `Problem Type: CG, RL` 結構，但不能獨立證明來源或方向；回條標記 `caller_asserted`，不標成求解器已驗證。無法作此聲明時，不應使用此載入器。
+
+`reference_conductor` 是賦予 Q2D 參考群組的公開名稱；該群組不在矩陣列中，不表示原始 CSV 帶有這個名稱。載入器不執行 AEDT、不匯入 PyAEDT，也不單憑 CSV 推論 SCGSim／AEDT 已收斂。
+
+`N = len(conductors) >= 1` 時，每個矩陣都是有限、使用 SCNSim 登錄表單位的 `N x N` Quantity 陣列。C、G 是互易 Maxwell 並聯矩陣：C 正定、G 半正定、非對角非正、列總和非負。L 對稱正定，R 對稱半正定。V1 載體凍結於記錄擷取頻率；SCNSim 不沿頻率插值或外插 RLGC，也不將單次擷取稱為寬頻。
+
+`n_sections` 是固定正 Python 整數，不是物理 Quantity 或最佳化（Optimization）變數。`dx = length / n_sections` 時，每個 π 區段使用完整串聯矩陣 `R * dx`、`L * dx`，以及兩端 `C * dx / 2`、`G * dx / 2` 並聯支路。相鄰區段半支路累加在同一實體節點。長度最佳化改 `dx`，不改區段數、拓撲、導體順序或矩陣秩。
+
+Direct 支援完整已驗證 R/L/G/C，不暗中丟棄、對角化或近似宣告矩陣。降階可省略精確零支路，但其宣告矩陣與區段邊界來源仍留在回條中。
+
+連續體至梯形網路的物理與細化責任，以[電報方程模型：從 RLGC 連續體到有限 LC 梯形網路（英文）](https://github.com/arfiligol/SCQ_Design/blob/main/docs/knowledge/transmission-lines/telegrapher-rlgc-distributed-line.qmd#finite-symmetric-pi-section)為準。
+
+### 宣告式自訂複合元件 {#declarative-composites}
+
+自訂 Library 工廠用 `CompositePlan` 明確建立實體結構與使用端邊界，再公開一個 `ComponentInstance`。目標使用與內嵌子系統相同的 `add`、`bus`、`parallel` 與公開語法：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-012.qmd >}}
+
+呼叫端先用 `ParameterDefinitions` 獨立定義 ref，再呼叫工廠。電容、電感欄位建立實體綁定，只有提供的 `ParameterRef` 隨後在複合邊界公開。提供 Quantity 則保持固定字面值，不建立公開參數查詢。
+
+`ParameterSpec` 只負責獨立純量結構身分與因次驗證，不含最佳化器、搜尋邊界或另一個可變旗標。`OptimizationSpec` 另外選作用純量 ref，提供請求特定的有限邊界。
+
+將一個公開 `ParameterRef` 直接傳入數個子欄位，是精確身分的一對多綁定：一個綁定一起改變全部宣告使用者，不建立恰好同值的子參數。定義檢視顯示獨立基準與結構；各 Plan 的一對多綁定與實體使用者屬於該 Plan 稽核或說明。
+
+`AffineMap(input=x, slope=a, intercept=b, support=(lo, hi))` 恰表示 `y = a*x + b`。SCNSim 驗證輸入、斜率、截距、輸出與有限有序支援區間單位，基準必須位於區間內。共用 JAX 實體程式在每次 ParameterSet 綁定後解析映射；這不是任意 Python 回呼、運算式 AST 或插值表。映射後非物理子值使候選具型別失敗，不退回基準。
+
+`expose_pin()` 與 `expose_coordinate()` 刻意不同。公開接腳是父項接線端點，`CoordinateRef` 則是供 `retain()`、Direct 物理量選取、評估與最佳化使用的觀察／分析控制代碼，不能接線或承載邏輯埠。複合作者可透過數個不同名一般公開接腳與明確座標公開同一內部匯流排。等效接腳保留不同邊界身分，不加電氣節點。複合公開接腳可部分或全部外部開路，不改原生完整性要求。隱藏子項、參數與匯流排不會推論成使用端 API：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-013.qmd >}}
+
+原本對外的內部匯流排，只有複合元件明確公開所支援接腳或分析座標才有效。未綁定原生端子或意外保持開路的隱藏端點會使封存失敗。
+
+### 快照邊界與遞迴展開 {#composite-snapshot-boundary}
+
+工廠只在 Python 宣告元件時執行。最後 `build()` 將完整私有子圖凍結到返回的不可變 `ComponentInstance`；後續封存父 Plan 記錄該快照，不保留 Python 工廠、回呼或運算式樹供再次執行。工廠例外或無效圖不產生部分元件，已封存 Plan 不重跑工廠。
+
+目標凍結邊界包含所有公開與隱藏子項、有序原生接腳、bus／tap、結構化 series／parallel／branch／link、擁有端本地標準接地端點及 `ground_pins()`、採用的參數定義／規格／基準證據與實體欄位綁定映射、明確公開接腳／座標／參數／電感支路及巢狀範圍。公開參數 ID 對應原始獨立 `ParameterRef` 與快照使用者，複合元件不持有第二個參數定義權威。
+
+快照也區分範圍內登錄本體、完整端子綁定，以及本體是否被結構使用一次，或保持完整獨立同層項目。外層 Plan 只能連接結果實例的公開邊界，不能對複合元件內已組裝隱藏葉項再指派第二個結構角色。
+
+外層 Plan 將呼叫端後續公開接腳 link／接地、根埠與全域電氣閉合記為自己的覆層。這些宣告可以共接公開回流，不重寫已建子項或重新套用子項內在公開唯一性檢查。私有實體展開與宣告結構貢獻目前 Plan 身分；配置、Theme 不貢獻。V2 Plan 結構、不可變快照與唯一純資料編譯展開共用此邊界，詳見[複合快照與遞迴展開（英文）](/en/docs/implementation/composite-snapshots-and-recursive-expansion.html)。
+
+### 指叉電容
+
+`interdigitated_capacitor` 保留完整雙端集總電容模型：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-014.qmd >}}
+
+接腳是 `"terminal_1"`、`"terminal_2"`。展開包含 `C_1G`、`C_2G`、`C_12`，不將三者合併成單一串聯或互電容；兩條接地支路綁定 Plan 標準接地。
+
+### 有限迴路對稱 SQUID
+
+`symmetric_squid` 是明確雙接面有限迴路元件：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-015.qmd >}}
+
+接腳為 `"terminal_1"`、`"terminal_2"`，兩個接面列共用提供的 `josephson_inductance`、`junction_capacitance`。提供 ref 時，每個共用輸入保留原公開 `ParameterRef`；字面值保持固定。V1 不提供逐臂覆寫。兩值都是每接面值，因此展開有兩個相同約瑟夫森列，Cj 非零時另有兩個相同並聯 `Cj` 列。精確有向展開為：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-016.qmd >}}
+
+`loop_node` 是私有檢視證據，不是公開接腳。`L_loop` 為有限迴路自感，可用 `squid.inductive_branch("loop")` 依圖示方向定位。這是可執行有限迴路拓撲，不是可忽略迴路的有效餘弦替代模型。
+
+物理區分與支路慣例以 [DC SQUID 磁通可調性（英文）](https://github.com/arfiligol/SCQ_Design/blob/main/docs/knowledge/josephson-physics/dc-squid-flux-tunability.qmd#finite-loop-mutually-pumped-dc-squid)為準。
+
+## 六種共振器工廠
+
+SCNSim 提供六個明確工廠，不用單一拓撲列舉或模糊 `parallel_lc_resonator`：
+
+| 接地方式 | 支路 | 工廠 | 接腳 |
+|---|---|---|---|
+| 接地 | 線性 L | `grounded_parallel_linear_lc_resonator` | `terminal_1`、`terminal_2`（同匯流排） |
+| 浮接 | 線性 L | `floating_parallel_linear_lc_resonator` | `terminal_1`、`terminal_2` |
+| 接地 | 單一非線性 JJ | `grounded_parallel_single_junction_resonator` | `terminal_1`、`terminal_2`（同匯流排） |
+| 浮接 | 單一非線性 JJ | `floating_parallel_single_junction_resonator` | `terminal_1`、`terminal_2` |
+| 接地 | 有限迴路對稱 SQUID | `grounded_parallel_symmetric_squid_resonator` | `terminal_1`、`terminal_2`（同匯流排） |
+| 浮接 | 有限迴路對稱 SQUID | `floating_parallel_symmetric_squid_resonator` | `terminal_1`、`terminal_2` |
+
+接地版本恰公開兩個固定一般接腳 `terminal_1`、`terminal_2`，位於同一內在非參考匯流排。既有 LC、JJ 或 SQUID 接地支路及內部標準接地回流不變。一個或兩個公開接腳都可外部開路並保持可見。每次出現都是完整獨立 Block；等效接腳對拒絕 `.between()` 與隱式雙端結構使用。浮接版本保留不同端子匯流排。自訂 Library 的 `terminal` 等名稱仍合法，不由此內建契約改名。
+
+對 ref 綁定輸入，線性工廠公開 `inductance`；單接面工廠公開 `josephson_inductance`、`junction_capacitance`；SQUID 工廠公開 `josephson_inductance`、`junction_capacitance`、`loop_inductance` 與 `inductive_branch("loop")`。
+
+字面輸入也可取得迴路支路，只有參數查詢邊界要求提供 ref。
+
+接地工廠使用從共用匯流排至地的一般 `capacitance` 支路。浮接工廠則需要三個各支路電容：
+
+- `terminal_1_to_reference_capacitance`。
+- `terminal_2_to_reference_capacitance`。
+- `terminal_mutual_capacitance`。
+
+非線性共振器的一般 `capacitance` 支路仍與每個接面的並聯 `junction_capacitance` 分開。標準名稱 `josephson_inductance`、`junction_capacitance` 區分約瑟夫森本構參數與獨立接面 Cj。複合展開不公開 `branch1`、`branch2`、任意子項注入或通用拓撲選擇器。
+
+### 接地線性範例
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-017.qmd >}}
+
+### 浮接線性範例
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-018.qmd >}}
+
+即使元件沒有接地接腳，兩個端子對參考電容仍是真實支路，綁定自動 Plan 接地。
+
+### 單接面範例
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-019.qmd >}}
+
+兩工廠共用 JJ 模型契約，只有電容子系統與外部接腳不同。
+
+## 線性元件實現
+
+共用編譯器為每個 JAX 操作降階同一份宣告 Plan。
+
+| 元件內容 | 線性實現 |
+|---|---|
+| R、L、C | 宣告的有限物理列 |
+| 一般 RLGC 梯形網路 | 宣告導體順序中的完整已驗證 R/L/G/C 矩陣 |
+| JJ | 零相位、零偏壓 `L_J0` 與獨立宣告並聯 `Cj` |
+| 有限迴路 SQUID | 兩個線性化接面、有限迴路及宣告互感耦合 |
+| 邏輯埠 | 有序關聯與宣告參考／負載邊界；無合成埠標記列 |
+
+無來源負載的 DUT 響應與含負載算子／根邊界不同。PTC 只移除已證實探針負載矩陣項，保留埠身分與參考阻抗（Impedance）。實際 S/Y/Z 與含負載算子定義見[選定網路方程（英文）](/en/docs/implementation/direct-poles-zeros-and-operators.html)。不推論呼叫端提供偏壓相位或有限偏壓 JJ／SQUID 線性化。
+
+物理耦合身分仍為 `M = k * sqrt(L1 * L2)`，具有有向支路與宣告帶符號 `k`。泵浦或非線性分析不在 1.0 範圍；原範例保留在下方歷史。
+
+### 快照支援的線性與耦合展開
+
+內建、自訂元件共用遞迴快照展開，沒有特別 Python 降階路徑。Direct 將每個 JJ 展成零相位、零偏壓 `L_J0` 列及獨立宣告並聯 `Cj`。有限迴路 SQUID 展成兩個接面路徑、有向迴路支路與全部宣告互感；不允許有效餘弦替代或合成偏壓相依電感。
+
+精確零宣告項只有在編譯檢視保留元件路徑、數值與 `omitted-as-zero` 證據時，才可省略後端列。終端回條綁定已封存 Plan 與精確執行期身分，不複製編譯列診斷。衍生零互感亦同，不能無記錄消失。帶符號支路方向、`M = k * sqrt(L1 * L2)` 與完整互易正定電感驗證仍是既有公開耦合契約，不是新容差。實作遞迴列順序與證據映射見[複合快照與遞迴展開（英文）](/en/docs/implementation/composite-snapshots-and-recursive-expansion.html)。
+
+## 參數變體與衍生互感
+
+公開參數有四種不同責任：
+
+| 負責者 | 宣告內容 |
+|---|---|
+| 定義作者 | `ParameterSpec`、基準與獨立參數身分 |
+| 元件庫作者 | 公開邊界、子項一對多綁定、`AffineMap`、校準支援區間 |
+| 電路模型作者 | 預設 `OptimizationSpec`、作用變數、有限邊界、目標、權重、最佳化器 |
+| 筆記本使用者 | 設計目標與選用的不可變模型預設覆寫 |
+
+此分工避免可重用複合元件建立隱藏搜尋範圍。不同電路模型可在不同範圍最佳化同一參數，不必複製單位、基準或校準映射。
+
+每個 ref 自獨立定義建立起即穩定，只有已登錄實體欄位使用後才成為 Plan 輸入，只有工廠公開原 ref 後才成為使用者可見：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-020.qmd >}}
+
+每次綁定 ParameterSet 後，SCNSim 解析兩個自感，再從帶符號耦合係數衍生互感：
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-021.qmd >}}
+
+`k` 必須有限、無因次且 `abs(k) < 1`，是 V1 唯一公開互感耦合輸入；使用者不能另外提供可能與兩個已綁定自感不符的獨立 `M`。`run.explain()` 記錄支路方向、`L1`、`L2`、`k`、衍生 `M` 與精確後端映射；終端回條綁定已封存請求與執行期身分，不複製該預檢表。
+
+超過兩個耦合電感支路時，每對 `abs(k) < 1` 只屬必要條件。預檢在 ParameterSet 綁定後組裝完整互易電感矩陣，要求宣告獨立有限支路的矩陣正定。SCNSim 拒絕個別看似合理、整組卻不相容的係數。
+
+## 檢視與證據
+
+### 檢視宣告或編譯展開結構
+
+Plan 持有宣告與編譯展開檢視投影，但兩者都不是另一份電路定義。目標結構、呼叫端完整幾何、獨立可見電氣／所有權重建、另行驗證來源列、快照來源與免讀程式碼檢視資料，由[結構化電路宣告與認證電路圖（英文）](/en/docs/contracts/automatic-semantic-circuit-diagram-layout.html)規定。
+
+即使實作基準已整合，宣告／身分／圖形範圍仍為 `CONVERGING`。[集中證據狀態（英文）](/en/docs/contracts/index.html#implementation-evidence-status)區分範圍檢查、未執行課程與歷史回歸。被取代的型錄提示類別不是相容路徑。實體 Library、RLGC、Josephson、SQUID 與耦合意義仍是輸入權威。
+
+Plan 圖預設表示基準實體宣告，也可投影一份明確 `ParameterSet`，不選取或顯示分析 `NetworkViewRef`。請求特定 PTC、轉換、retain、Schur 縮減、Direct 結果與數值能力證據，仍由 `run.explain()` 與已驗證 Result 負責。
+
+`run.explain(ref, spec).show()` 執行與正式執行相同的確定性元件及 ParameterSet 預檢，不啟動求解器或寫工作區。元件宣告方面，它顯示：
+
+- 各 Library 精確身分與公開元件結構。
+- 複合階層與基本元件／後端展開。
+- 結構化 series／parallel／branch／link、bus／tap 成員、公開邊界、產生的私有節點與標準接地端點。
+- 各邏輯埠節點連接、角色、參考阻抗、一節點一埠證據與 Direct 降階。
+- 來源單位、標準 SI 值及公開 `ParameterRef` 身分。
+- 各展開列的 Direct 實現。
+- RLGC 導體／參考身分、矩陣順序與物理有效性證據、head 至 tail 電流／Extractor `+z` 方向、manual／Q2D 分類、標準矩陣、擷取頻率、內容衍生來源，以及 TL 區段數與綁定區段長度。
+- 複合公開結構、隱藏子展開、公開參數基準、身分一對多綁定、`AffineMap` 方程／支援區間，以及分開公開的接腳與座標。
+- IDC 三個電容支路。
+- JJ 與選用並聯 `Cj` 列。
+- SQUID 兩接面列、共用參數 ref、迴路方向及支路。
+- 耦合支路方向、綁定 `L1`、`L2`、帶符號 `k`、衍生 `M` 與後端映射。
+
+已封存 Plan／請求／回條鏈綁定宣告與精確執行期身分。`run.explain()` 為檢視具體化展開列，不建立第二套耐久回條結構。
+
+## 失敗契約
+
+下列情況會在後端執行前於 Plan 封存或確定性預檢失敗：
+
+- [目標明確拒絕契約（英文）](/en/docs/contracts/circuit-plan-assembly.html#assembly-failures)列出的宣告語法、端點、所有權、元件使用、公開邊界、埠或結構配置違規。
+- 元件、參數、埠 ID 重複；同一元件結構內接腳／公開參數名稱重複；未知或外來 Library 實例。
+- 裸物理數字、外來 Pint 登錄表、非有限 Quantity 或因次不符。
+- 非正 R、L、C 或 `L_J0`；負 `Cj`；非正或非整數 `n_sections`。
+- Q2D CSV 缺漏、空白、格式錯誤或不支援；主要 C/G/L/R 區塊缺漏／重複；每長度單位或擷取頻率無效；導體標籤／順序或因次不一致；映射不完整或非雙射；解析值非有限。
+- `N < 1`；導體或參考標籤重複／未知；參考納入矩陣列；R/L/G/C 非方陣或形狀不一致；矩陣不互易；Maxwell C/G 符號或列總和無效；C/L 非正定；G/R 非半正定。
+- 複合子項、參數、接腳、座標或內部結構重複／未知；用 `CoordinateRef` 接線；公開外來或隱藏狀態；原生端子未綁定。
+- 將不完整或無效 Plan 傳入 `render_schematic()`。
+- `AffineMap` 單位不相容、係數非有限、支援區間無序或因次無效、基準在支援區間外，或映射子值非物理。
+- SQUID 接面參數未共用，或有限迴路電感缺漏、非有限、非正。
+- 耦合不同 Plan 的支路、非電感或未知支路，或支路方向缺漏。
+- 耦合係數不是有限 SCNSim 登錄表無因次 Quantity，或 `abs(k) >= 1`，或完整綁定電感矩陣不是互易正定。
+
+實體 Plan 輸入有效後，圖形特定單位／跨度、Theme、放置、路由與認證失敗，專屬連結的配置契約。它們以 `SCNSimValidationError(stage="schematic_layout")` 或 `SCNSimValidationError(stage="schematic_audit")` 失敗，不產生執行期證據。
+
+精確 `0 * u.F` 是選用 `junction_capacitance` 唯一有效零值。RLGC 模型的串聯電阻或電導為零，在宣告支路允許時可有效；負值或非有限值無效。
+
+## 已知 V1 限制
+
+- 基本元件、複合元件、RLGC 與傳輸線物理模型保留已接受完整 V1 意義；替代的結構化宣告語法仍在 `CONVERGING`，有整合實作基準。
+- 傳輸線是均勻、固定區段的一般 N 導體 RLGC 梯形網路，N=1 使用相同矩陣路徑。
+- AEDT Q2D 匯入凍結記錄頻率的一份主要 R/L/G/C 擷取，不驗證求解器回條、不沿頻率插值／外插，也不建立寬頻傳輸線。
+- 複合映射限精確身分一對多綁定與 `AffineMap`；V1 沒有任意回呼、運算式樹或校準表插值。
+- 對稱 SQUID 工廠不公開接面不對稱或任意逐臂參數注入。
+- Direct JJ／SQUID 分析限宣告零相位、零偏壓 `L_J0` 小訊號實現。
+- `LinearizedFloatingQubit`、`ReflectiveJPA` 不是 V1 內建；使用者以宣告的一般元件組建這些電路。
+- 呼叫端宣告繪圖仍是 Plan 投影，不是拓撲或後端權威。自動編譯圖已退役，數學編譯器與歷史匯出不變。實作證據不使具認證結構化投影自動獲使用者接受。
+
+## 英文歷史記錄：磁通泵浦範例與原生 HB 降階
+
+<details>
+<summary>Retired pre-1.0 contract</summary>
+
+### Finite-loop SQUID flux-pump example
+
+The pump coil is an ordinary Plan component. Mutual coupling refers to exact
+oriented inductive branches, while drive current belongs to an HB case:
+
+{{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-022.qmd >}}
+
+`pump_axis`, `signal_grid`, and each `CurrentDrive` are ordinary Runtime
+request objects defined by the
+[HB drive/case contract（英文）](/en/docs/v1-runtime-contract.html#named-hb-drives-cases-and-mixing).
+The cases bind DC and AC Fourier-current coefficients without mutating the
+component or turning a drive current into a component parameter.
+
+The physical coupling identity is
+`M = k * sqrt(L1 * L2)`, with signed `k` supplying the V1 authoring authority.
+The canonical orientation, energy, and passivity semantics remain in
+[Inductive Coupling Coefficient, Mutual Inductance, and Self Inductance](https://github.com/arfiligol/SCQ_Design/blob/main/docs/knowledge/quantum-circuits/inductive-coupling-coefficient-mutual-self-inductance.qmd).
+
+## Direct realization
+
+The same Plan and component identities feed both backends:
+
+| Component content | Direct | HB |
+|---|---|---|
+| R, L, C | Linear physical rows | Corresponding linear rows |
+| General RLGC ladder | Complete R/L/G/C matrices | Complete C/G and L; R must be diagonal |
+| JJ | Explicit `L_J0` small-signal branch plus declared parallel `Cj` | Nonlinear Josephson row plus declared parallel `Cj` |
+| Finite-loop SQUID | Both junctions linearized at their zero-phase, zero-bias `L_J0`, with loop and mutual coupling retained | Both nonlinear junctions, finite loop, and mutual pump coupling retained |
+| Logical Port | Node selector/incidence column `B`, raw source stamp `B Y0 B^T`, and power-wave relation; no fake `P` row | Exact JosephsonCircuits `P_i` marker plus colocated `R_port_i` source resistor |
+
+The Port source/load boundary and wave reference are separately auditable. The
+selected source resistor participates in raw damping but is de-embedded from
+public network Y/Z/S; PTC removes only a proved probe-load stamp while
+preserving Port identity, node coordinate, and reference impedance. A Direct receipt therefore records
+`P row = not applicable` plus the actual `B`, `Y0`, and load mapping; an HB
+receipt records the exact `P_i` and `R_port_i` rows and solver indices.
+The Runtime's
+[selected-network equations（英文）](/en/docs/v1-runtime-contract.html#one-logical-port-two-backend-lowerings)
+define how that load state, retained injection map, and reference matrix produce
+the public S/Y/Z families; backend-native S is only reconciliation evidence.
+
+V1 Direct analysis does not accept an arbitrary supplied bias phase or claim a
+finite-bias JJ/SQUID linearization. A future operating-point linearization must
+define and evidence its bias solution before changing that contract.
+
+JosephsonCircuits is an HB backend, not the topology authority. Its official
+[flux-pumped JPA example](https://josephsoncircuits.org/stable/#Flux-pumped-Josephson-parametric-amplifier-(JPA))
+shows the relevant two-junction, loop-inductor, pump-inductor, and mutual-coupling
+path, while also describing flux-bias and three-wave-mixing support as
+relatively untested. SCNSim preserves that limitation rather than expanding
+the backend's guarantee.
+
+</details>

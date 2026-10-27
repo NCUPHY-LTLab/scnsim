@@ -1,0 +1,94 @@
+---
+title: "從分析問題到結果"
+lang: zh-TW
+sidebar: concept
+---
+
+完成電路計畫（Circuit plan）後，選擇網路檢視（Network view）、規格與參數點（Parameter point），再呼叫對應分析操作。返回結果保留該請求的數值與證據，可與其他結果並存。
+
+::: {.callout-warning}
+## 已接受的數值意義；仍在收斂的執行所有權
+
+本頁已接受的單點數值意義與具型別 Result 內容維持不變。預備分析記錄、Run 提交與維護、有序 `ParameterSpace` 請求、`ParameterSweepResult`、最佳化（Optimization）檢查點／續接證據，以及 ReportPanel 組合仍處於 `CONVERGING`。確切簽章、回條欄位、工作區驗證及失敗行為由連結的契約規定。
+:::
+
+## 先完成模型，再要求數值
+
+完整宣告 `CircuitPlan` 後，分析需指出五件事：
+
+1. 由 `CircuitRun` 負責的已封存電路與證據工作區。
+2. `run.original` 或刻意衍生的 `NetworkViewRef`。
+3. 描述問題的具型別規格（Spec）。
+4. 選用的精確參數點或有序參數空間（Parameter space）。
+5. 回答該類問題的操作。
+
+如此可將「電路是什麼」與「要算什麼」分開。工程師課程建議先檢視電路圖，但這不是執行先決條件：分析 API 要求完整 Plan，不要求事先呼叫 render、show 或 audit。請求電路圖不會選擇 View 或執行分析。
+
+[工程師第 1 章](../../examples/engineer/chapter-01/01-build.qmd)在一份 Plan 上示範這種分工：`.s.show()` 呈現返回的單埠幅值與相位，另一份 `DiagonalRootSpec` Result 則負責含負載的頻率與線寬。根不是從繪製的響應製造出來的。
+
+## Ref、Spec、操作與 Result {#run-request-result-ownership}
+
+| 部分 | 要回答的問題 |
+|---|---|
+| Ref | 此問題應使用哪個原始、轉換或保留後的網路？ |
+| Spec | 請求哪個響應、物理量或最佳化？ |
+| 操作 | 這是 Solve、Evaluate 還是 Optimization 動作？ |
+| 具型別 Result | 該精確請求產生了什麼已驗證答案與證據？ |
+
+`solve()` 返回響應類 Result，`evaluate()` 返回具型別物理量或算子 Result，`optimize()` 返回最佳化結果。三者負責不同請求與輸出，因此是獨立動作，不會從其中一個推論另一個。
+
+未傳參數引數（Parameter argument）或傳入一份 `ParameterSet` 時，操作返回一般具型別單點 Result。`ParameterSpace` 一律返回 `ParameterSweepResult`，即使只含一點也相同。每點保留完整有效 `ParameterSet`、精確點身分，以及具型別 Result 或失敗。某點數值失敗不會捏造零資料或隱藏成功的鄰點；通訊協定與完整性失敗則中止整個請求。
+
+`explain()` 是執行前的檢視步驟。它進行確定性的綁定與編譯（Compilation）預檢，描述選定的 Plan、Ref、Spec、參數、執行期與相依項，不啟動求解器，也不寫入請求工作區。
+
+## Result 會返回，不藏在 Run 裡
+
+Result 持有一份已具體化答案，以及解讀它所需的精確身分。Run 不保留可變的「目前 Result」、「目前 View」或「最新請求」。因此筆記本可以同時持有 Direct 響應、含負載的根與最佳化結果，彼此不會改變意義。
+
+較廣義的 `Result` 也涵蓋衍生說明、電路圖與報告。這些值保留明確輸入，但不會捏造分析操作回條。
+
+## 獨立預備與已儲存資料的所有權
+
+`run.prepare` 取得由呼叫端持有、可轉換的數值函式與精確不可變配置。它不能發布 Result，也不持有 Run 或 Workspace；生命週期可以超過 `Run.close()`。高階操作另外負責活動登錄、同步、受檢查的失敗處理與原子發布。Direct／Sweep Result 固定完成記錄與區塊參考，不保留該可呼叫物件，也不重播任務來載入值。擁有端本地的編譯快取淘汰會釋放未用靜態資源，不會移除已存數值證據。
+
+## 數值本體、出現記錄與已完成世代
+
+目前 JAX 數值本體（body）持有科學值、內在參數、身分、相依項與數值證據。任務出現記錄（occurrence）持有精確有序位置、來源／快取／嘗試情境，以及本體參考。儲存層使用目前二進位儲存編碼各寫入本體一次，不以任務／鍵記錄包裝。唯讀 Result 建構會固定完成封存與參考根。選定的延遲讀取只在短快照中驗證、解碼索引到的證據，不重算物理量，也不保留 Run。
+
+每個進入的最佳化階段都在固定模型下評估原始完整操作點，建立實際分支錨點。轉換種子接著在該模型下重新評估，不會取代比較基準。沒有獨立的基準提交、第 0 世代檢查點或初始回呼。完整的 CMA post-tell 世代形成已提交群組；首群組包含全域基準本體一次。局部已接受迭代有自己的宣告發布頻率，支援重新啟動，但不精確續接曲率狀態。CMA 檢查點保留最新 post-tell 狀態，以及綁定來源的錨點／快取定位資訊；關閉檢查點時省略僅供復原的狀態。必要的群組確認（ACK）先於回呼，選用的基準計時另行處理。匯入的續接定位資訊保留精確來源任務／嘗試／本體沿革（Lineage）；點去重快取不是出現記錄帳本。重新綁定續接的全域基準時，不會重評或更名其原始階段／模型身分，即使續接階段使用不同模型亦然。Run 關閉後，Result 仍保留固定唯讀選擇，不會保留 Run、數值框架、分解因子或即時資料庫連線。
+
+操作儲存層使用內部修訂 8 與證據版本 3。不支援舊操作 Workspace；請使用新 Workspace 重新計算，不遷移或刪除歷史資料。精確失敗與檢查點規則由[執行期契約（英文）](/en/docs/v1-runtime-contract.html)規定；此區分不改變數學物理量。
+
+## 重新啟動後解析精確證據
+
+問題與每次執行嘗試有不同身分。重複失敗或中斷的請求會附加不可變嘗試，不覆寫先前證據；已驗證成功可以重用。
+
+`resolve()` 從相同 Ref、Spec，以及精確 `ParameterSet` 或 `ParameterSpace` 重建預期請求身分，再驗證已封存工作區證據。它不計算、不重試、不搜尋最新結果，也不查程序快取。因此課程可以重新啟動核心、重建相同模型與請求、略過執行儲存格，仍解析出精確的先前 Result。[工程師第 8 章](../../examples/engineer/chapter-08/01-persist.qmd)實際示範這條邊界：第一個核心保存 Result 與報告，第二個獨立核心重建後，只對同一保留工作區呼叫 `resolve()`。
+
+預設工作區可被替換，方便筆記本反覆操作。需要數個 Plan 拓撲的呼叫端可選擇版本化工作區。兩種模式下，工作區都只儲存證據，不成為實體電路的權威來源。
+
+## 這種分工避免的問題
+
+此所有權模型可避免：
+
+- 呈現呼叫暗中執行計算。
+- 改變 View 或 ParameterSet 後仍解析到過時證據。
+- 以圖表作為物理量來源。
+- 失敗重試抹去先前嘗試。
+- 由筆記本儲存格順序或記憶體狀態隱式選擇結果。
+
+回條證明 SCNSim 實際執行與儲存的內容，不證明使用者選擇的電路、View、目標或科學解讀正確。
+
+掃描檢視是唯讀操作。精確選取會保留來源索引與重複點身分；收集接受既有具型別物理量選擇器，不啟動新計算，也不對散布資料插值。
+
+## 契約章節
+
+- [執行期所有權模型（英文）](/en/docs/v1-runtime-contract.html#runtime-ownership-model)
+- [將一份 Plan 封存至一個 Run（英文）](/en/docs/v1-runtime-contract.html#seal-one-plan-into-one-run)
+- [單一執行擁有者（英文）](/en/docs/v1-runtime-contract.html#solve-versus-evaluate)
+- [執行前說明（英文）](/en/docs/v1-runtime-contract.html#explain-before-execution)
+- [不執行的解析（英文）](/en/docs/v1-runtime-contract.html#resolve-without-execution)
+- [請求身分與不可變嘗試（英文）](/en/docs/v1-runtime-contract.html#request-identity-and-immutable-attempts)
+- [具型別物理量結果（英文）](/en/docs/v1-runtime-contract.html#typed-quantity-results)
+- [失敗與證據契約（英文）](/en/docs/v1-runtime-contract.html#failure-and-evidence-contract)
+- [參數系統契約（英文）](/en/docs/contracts/parameter-system.html)

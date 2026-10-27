@@ -1,0 +1,18 @@
+---
+title: "第 7 章 · 第 3 課 — 宣告建立用電路圖"
+subtitle: "多導體傳輸線工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1–2 課" appearance="simple"}
+請先完成[第 1–2 課](01-rlgc.qmd)，再使用[完整本章 Notebook（英文）](/en/examples/engineer/chapter-07/chapter.ipynb)。
+:::
+
+{{< include _03-diagrams.qmd >}}
+
+[上一課：第 2 課 — 四個訊號 Port](02-ports.qmd) ·
+[下一課：第 4 課 — 參數點](04-parameter-points.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-07/chapter.ipynb)

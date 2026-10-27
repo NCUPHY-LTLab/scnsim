@@ -1,0 +1,285 @@
+---
+title: "執行操作並讀取基準量測（Benchmark）"
+subtitle: "先選儲存方式，再檢視實際執行的工作"
+lang: zh-TW
+sidebar: guides
+---
+
+先執行物理操作，再檢視 `run.benchmark()`。基準量測（Benchmark）回報該操作記錄的成本與工作，不啟動另一輪求解，也不選擇效能工作負載。
+
+## 選擇 Result 所有權
+
+{{< include ../../_generated/canonical-code/docs/guides/benchmark.qmd/block-001.qmd >}}
+
+需要已存證據與精確 `resolve()` 時，使用 `CircuitRun(plan=plan, workspace="workspaces/example")`。Memory、Workspace 共用 Direct、物理量、靈敏度（Sensitivity）、掃描與最佳化（Optimization）的 JAX 產生端。Memory 不儲存操作歷史，其 Benchmark 是最後一次呼叫的不可變彙總摘要。Memory 計時只接受 `aggregate`，Workspace 另支援詳細計時。
+
+## 執行前設定
+
+基本安裝包含 CPU JAX，`CircuitRun` 沒有 backend 關鍵字。需要明確程序預算時，在數值初始化前設定：
+
+{{< include ../../_generated/canonical-code/docs/guides/benchmark.qmd/block-002.qmd >}}
+
+這是宣告預算，不證明實際使用十個核心。既有過晚或衝突設定錯誤維持原意。
+
+`explain()` 檢視選定請求但不求解；`prepare()` 返回獨立數值可呼叫物件；`warmup()` 編譯（Compilation）宣告變體，不執行基準、稀疏方程或最佳化評估。它們是不同操作，不是隱藏預熱求解。
+
+## 解讀量測
+
+請分開編譯、同步計算、讀回與發布計時。Workspace 成功快取可能不呼叫原生程式就返回已存 Result，這是讀回，不是暖計算。最佳化應回報實際評估／迭代數，可用時再回報每次實際評估耗時。目前評估次數為零就沒有計算平均值；歷史階段計數不是本次新工作。
+
+開啟 Workspace Benchmark 與 `resolve()` 都是唯讀，不遷移、修復或求解。目前證據需要復原時，明確呼叫 `run.recover_workspace()`。1.0 不支援較早開發版本的證據；請使用新 Workspace 重算。
+
+計時、進度與資源所有權見[執行期與基準量測（英文）](/en/docs/implementation/benchmark-and-backends.html)。必要結果發布與精確已存陣列見 [Workspace 證據 v3（英文）](/en/docs/contracts/workspace-evidence-v3.html)。
+
+## 英文歷史記錄：1.0 之前的執行期與儲存
+
+<details>
+<summary>Earlier version-bound implementation record</summary>
+
+**Status:** 1.0.0a2 Alpha `CONVERGING` candidate. This guide describes the current
+implementation contract, not completed performance or numerical acceptance.
+Historical dev10 comparison records keep their original runtime identities.
+
+## Direct without SCNSim storage
+
+For a point Direct call that keeps all results and timings in memory, omit the
+Workspace and choose memory storage explicitly:
+
+{{< include ../../_generated/canonical-code/docs/guides/benchmark.qmd/block-003.qmd >}}
+
+`direct_spec` is the same authored `DirectSolveSpec` used by saved execution.
+This mode accepts its captured baseline or one `ParameterSet`; it does not
+support ParameterSpace/Sweep, evaluate, Sensitivity, optimization, Julia/HB,
+resolve, recovery, inventory or backend explanation. `storage="workspace"`
+remains the default and requires `workspace`. Memory storage rejects a Workspace
+argument and `versioned=True`. No saved receipt is invented, and the Run keeps
+no result ledger. Memory timing is aggregate only; detailed timing is rejected
+before numerical work. Memory Benchmark has no saved-store `open` route or filters;
+before its first operation `run.benchmark()` raises `ResultUnavailableError`.
+
+## Configure once, execute normal operations
+
+Python 3.12 is required. The base installation supplies the pinned CPU JAX,
+jaxlib and CMA dependencies. JAX executes in the calling Python process and
+never discovers, preflights or invokes Julia.
+
+Set the CPU pool before the first JAX operation:
+
+{{< include ../../_generated/canonical-code/docs/guides/benchmark.qmd/block-004.qmd >}}
+
+The Run uses JAX with `precision="float64"` by default. An omitted per-call
+precision inherits the Run declaration; an explicit value overrides it:
+
+{{< include ../../_generated/canonical-code/docs/guides/benchmark.qmd/block-005.qmd >}}
+
+Float32 selects real Float32/Complex64 kernel arrays; Float64 selects
+Float64/Complex128. Host SI values and CMA state remain binary64. These are
+different recorded requests, not converted views of one computed result.
+Existing numerical procedures use the selected dtype's epsilon/stagnation
+behavior, without a new accuracy or convergence threshold.
+
+`configure_runtime(cpu_threads=None)` leaves the process default resource
+policy. Positive integer declarations use `PJRT_NPROC` before initialization,
+without altering affinity or global JAX precision/platform settings. Repeating
+a known configuration is idempotent; changing initialized resources requires a
+Kernel restart. An externally initialized pool's unknown size is not invented.
+
+For JAX Optimization, an integer also declares the task CPU budget for a
+persistent objective-worker pool within each generation. `None` keeps serial
+execution with the existing environment, and 1 is serial. A fair gate gives
+JAX work exclusive access and shares capacity among native sparse tasks.
+For integer declarations, managed BLAS1 in the coordinator and workers remains
+in force until workers join,
+then prior limits are restored. CMA, numerical-cache registration, storage and
+callbacks remain coordinator-owned; no next-generation work runs ahead.
+Generation population wall time and its per-population average describe this
+parallel work; the average is not an individual candidate latency.
+
+Direct S/Y/Z, diagonal and operator-element roots, hybridized poles, S/Y/Z
+transfer zeros, residue-normalized coupling and loaded operators support JAX
+original, retained and transformed Views. Existing scalar selectors also serve
+Optimization; loaded operators remain matrix outputs.
+
+`run.explain(ref, spec, *, parameters=None, precision=None)` inherits
+the Run defaults, with per-call overrides. Its JAX route lowers the captured
+Plan and realizes the selected View and every Optimization objective View using
+the sparse Python compiler. It returns actual axes, sparse coefficient records,
+line grids and leaf evidence without initializing JAX, solving, creating an
+attempt or discovering Julia. Host SI lowering remains binary64; the declared
+execution precision is bound in the request, not a claim that a kernel ran.
+This compiler explanation is `CONVERGING`.
+
+## Present a saved scalar Quantity
+
+For a returned scalar root, pole, zero, response or coupling, `show()` returns
+HTML and `plot()` returns a detached Plotly Figure:
+
+{{< include ../../_generated/canonical-code/docs/guides/benchmark.qmd/block-006.qmd >}}
+
+Complex components share an engineering unit and scale. The display preserves
+small nonzero components and does not recompute numerical values. This scalar
+presentation is `CONVERGING`; the
+[presentation contract（英文）](/en/docs/implementation/results-reports-and-diagrams.html#scalar-quantity-presentation)
+defines its ownership and formatting. Operation Benchmark, matrix, sweep and
+Optimization presentations retain their existing interfaces.
+
+## Optimization and recovery
+
+Before repeated JAX requests, `run.warmup(view, spec, parameters=None)` can
+prepare the baseline topology/View and executable signatures without solving or
+saving a successful result. Exact signatures can be reused; unknown future
+shapes still prepare lazily. The immutable summary describes preparation only.
+
+Optimization display defaults to `progress=True`; set `progress=False` for a
+quiet call. The transient display reports completed versus committed
+generations independently of `on_progress`. JAX can show each completed tell
+before a commit; explicit Julia uses its existing native notification boundaries.
+The `population_evaluating` display phase starts before ask; it does not announce
+a completed generation or invoke the durable callback.
+Display errors warn and disable the
+display; durable callback errors retain their normal failure behavior.
+
+Normal `run.optimize(...)` uses generation checkpoints and boundary diagnostics.
+JAX Optimization commits every 10 completed generations by default:
+
+{{< include ../../_generated/canonical-code/docs/guides/benchmark.qmd/block-007.qmd >}}
+
+JAX baseline and sealed anchors are prepared in memory before candidate work;
+workers acknowledge installing them without a storage transaction. Completed
+generation evidence is ordered; each group publishes atomically. Generation
+checkpointing additionally publishes its latest full CMA/RNG restore state. `commit_every_generations=N` accepts a positive integer excluding
+booleans; `None` is invalid. Omission selects 10 for JAX and retains 1 for
+explicit Julia. Explicit Julia intervals other than 1 fail before launch.
+The baseline is not independently committed. The first completed group stores
+its necessary baseline body once, and every N complete post-tell generations
+commit together. There is no generation-0 checkpoint or initial callback;
+checkpoints bind the latest completed post-tell state at generation 1 or later.
+Required group ACK precedes its one callback; optional timing is separate.
+Native Julia retains its existing baseline protocol. A normal or handleable-error
+JAX tail flushes a shorter complete group. Larger N leaves more evidence uncommitted in Workspace-bound operation-local
+scratch (mode `0700`) and can require recomputing
+uncommitted generations after process death. `checkpoint="off"` omits
+restore-only snapshots/anchor state while preserving the required baseline body,
+complete ordered numerical observations and final result. A failed or uncertain
+required group is not resent; original failure ownership remains unchanged.
+Checkpoint policy and commit interval do not change the
+numerical request hash; a completed result can resolve under either policy.
+A cache-hit operation records requested policy and actual checkpoint availability
+without manufacturing missing snapshots.
+The cache and staged writer hold light body references; each committed group is
+streamed atomically one body at a time. Verified resume hydration also consumes
+one block at a time. Scratch is not a checkpoint, and the full ordered typed
+public result ledger remains available after return.
+
+`resume_from` accepts an exact stored checkpoint reference from the same
+operation/task identity, generation policy and commit interval. An off-policy interrupted request
+has no resumable state. Resume verifies identities and committed references;
+it does not migrate old source state. Standalone root anchors are not CMA
+checkpoints. A generation callback is notified once per commit, using its latest
+committed generation, after durability acknowledgement and outside locks.
+Intermediate generations do not receive deferred callbacks; callback exceptions
+and KeyboardInterrupt keep their ownership.
+An unflushed hard-kill diagnostic tail remains unknown.
+
+Retrieve a committed reference through the public read-only record, selecting the
+operation you intend to resume:
+
+{{< include ../../_generated/canonical-code/docs/guides/benchmark.qmd/block-008.qmd >}}
+
+`operation_id` comes from the `operations` rows returned by `run.benchmark()`.
+`details.checkpoint` is the latest committed snapshot for that operation's
+actual attempt, or its exact resume source when no newer snapshot exists;
+`details.checkpoint_attempt_id` identifies its owning attempt. A cache-hit row
+references the selected success's actual checkpoint. This read projection also
+reconstructs committed state after a hard kill without requiring a finished
+operation row. An interrupted `checkpoint="off"` operation has no resumable
+reference. Pass the complete public reference unchanged; do not reconstruct its
+checkpoint or ownership fields.
+For current SQLite records, content references use `schema_version=3`,
+`storage="sqlite"`, `database="operations.sqlite3"`, `role`, `byte_length` and
+`sha256`. The hash binds canonical object bytes, not the mutable database file.
+Pass the public reference unchanged; historical file references remain readonly.
+No private storage import or manual checkpoint reconstruction is needed.
+Use the same commit interval when resuming.
+
+Current JAX operation evidence lives in the bound Plan leaf’s
+`operations/operations.sqlite3`, using DELETE journaling and EXTRA synchronization.
+Readonly `resolve`, Benchmark and `BenchmarkResult.open` do not create, migrate
+or repair a database. If they raise `WorkspaceRecoveryRequiredError`, explicitly
+call `run.recover_workspace()` on the bound Run, then retry the readonly operation.
+Recovery is limited to that leaf; an absent database in a valid leaf is a no-op.
+Preserve the whole leaf, including any journal, when relocating it. Content
+references remain relative to its database and are not rewritten. This is not a
+physical power-loss guarantee. Explicit Julia retains its native storage and
+verification contract.
+
+## Read operation evidence
+
+{{< include ../../_generated/canonical-code/docs/guides/benchmark.qmd/block-009.qmd >}}
+
+`run.benchmark(*, operations=None, method=None, precision=None,
+status=None)` reads the current Plan leaf. It does not accept a Spec, launch
+another calculation, initialize JAX, choose a comparison arm or mutate records.
+`BenchmarkResult.workspace` is the exact operation-store directory containing
+`operations.sqlite3` (`<Plan leaf>/operations`), not the enclosing Workspace root.
+`BenchmarkResult.open(record.workspace)` reopens that same store read-only; it
+does not discover a leaf, scan the enclosing root or perform recovery. Reopening
+reads that store's recorded operations; filters on the original `run.benchmark()`
+call are not persisted as a new store.
+`run.resolve(...)` is likewise read-only and selects the exact verified numerical
+request using the Run defaults or explicit precision overrides.
+
+A returned ParameterSweepResult may contain both successful and failed points.
+The operation status describes whether the public call completed; per-point
+statuses describe numerical outcomes. A completed sweep is not a claim that all
+points succeeded. Single-point numerical failures still raise typed errors.
+
+ExecutionPolicy chunking, in-flight capacity, scratch estimates and compile-owner
+cache hits, misses, pins, eviction and known/unknown retained bytes describe
+resource choices independently of the numerical request. Timing rows carry
+compact contexts, not scientific bodies or task-span copies. A missing or
+unmeasured interval remains unknown, rather than zero. Aggregated frequency
+spans cannot reconstruct a per-event timeline. Cache residency and sampled
+memory are not scientific success or forward-accuracy evidence.
+
+The timeline shows operation roots below their actual child details, with zoom,
+collapse, cursor inspection, counts and filters. It distinguishes compilation
+from verified result reuse and references ordered numerical evidence without
+copying candidate histories. One numerical batch owns one measured interval;
+there are no invented per-candidate timings. JAX intervals synchronize actual
+work before closing. Parent intervals are inclusive and overlapping, so nested
+durations must not be summed. Cumulative operation duration differs from wall
+span. Unaligned historical clocks and unknown timings remain explicit.
+
+The root begins at the method's first clock read. Its interval includes final
+Plan-lock acquisition, Plan revalidation and pending-span archival through the
+root endpoint; these costs have no separate named phase row. Only the final root append and
+return tail remain outside that endpoint. Read-only resolve and Benchmark do not
+persist operation roots or recursive self-spans. Partial records retain actual
+failure/interruption state and numerical references; `operation["details"]["failure"]`
+exposes the exact saved failure when present. They do not acquire a fabricated
+winner or terminal result.
+
+For explicit Julia operations, trace references point to the native verified
+request, canonical attempt, receipt and result. Native `attempt_id` is the actual
+canonical attempt SHA, including when an existing result is reused; it does not
+claim a new launch. Native task/environment IDs remain null, with available
+native environment facts in `details.native_environment`. A failed operation
+retains the request and any verified numerical evidence actually available;
+missing results and unaligned native clocks remain explicit.
+
+## Historical comparison records
+
+The old public comparison executor and its arm declarations are superseded.
+Historical files retain their original wheel/backend/precision/clock identities;
+current readers reject older operation Workspaces. Create a new v7 Workspace and
+recompute for current readback. Historical files are neither migrated nor deleted.
+Read-only opening applies to the explicit current v7 operation-store locator:
+
+{{< include ../../_generated/canonical-code/docs/guides/benchmark.qmd/block-010.qmd >}}
+
+Native Julia result files retain their separate native ownership and readback
+contract. No GPU, automatic mesh choice, new CMA algorithm or
+numerical/performance acceptance condition is introduced.
+
+</details>

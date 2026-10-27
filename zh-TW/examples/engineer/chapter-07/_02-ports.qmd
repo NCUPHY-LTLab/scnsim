@@ -1,0 +1,13 @@
+## 第 2 課 — 綁定四個有序訊號 Port {#lesson-ch7-ports}
+
+### 完整元件只宣告一次
+
+此線段主體的四個公開訊號 Pin 依導體及 head／tail 排列。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_02-ports.qmd/block-001.qmd >}}
+
+`.between()` 為完整線段提供一組有序端點，不會抽出 readout 導體或複製線段。其餘訊號 Pin 由明確宣告的 Link 綁定。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_02-ports.qmd/block-002.qmd >}}
+
+此模型恰有四個 50 Ω 訊號 Port。`reference_conductor="ground"` 不會建立另一個 Port 或公開 Pin。

@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 掃描參數點"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+有序三點流程請參閱[第 2 章 — 評估掃描](../engineer/chapter-02/02-sweep.qmd)；笛卡兒空間與列舉參數空間請參閱[第 2 章 — 選讀空間](../engineer/chapter-02/04-optional-spaces.qmd)。精確收集語意以英文[參數系統契約](/en/docs/contracts/parameter-system.html)為準。
+
+本短頁保留舊網址。已取代的可執行內容與 Notebook 仍可在 Git 歷史中找到。

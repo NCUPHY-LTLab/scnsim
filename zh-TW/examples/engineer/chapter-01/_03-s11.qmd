@@ -1,0 +1,27 @@
+## 第 3 課 — 讀取單埠 S11 響應 {#lesson-s11}
+
+**先備條件：**請在整章 Notebook 中執行第 1–2 課。
+
+`CircuitRun` 會封存此 Plan 供分析，並將由呼叫端持有的 Result 傳回記憶體。頻率網格明確宣告 401 個取樣點，範圍為 5.75 GHz 至 6.25 GHz。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_03-s11.qmd/block-001.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_03-s11.qmd/block-002.qmd >}}
+
+相量正負號、輸出列／輸入欄順序、包裹相位與 dB 單位，請參閱英文[模擬慣例](../../../docs/concepts/simulation-conventions.qmd)。此理想無損單埠模型的 `|S11|` 在頻率網格上接近 0 dB，相位則呈現響應特徵。Port 1 是 `signal_in`；S11 表示同一量測 Port 的反射。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_03-s11.qmd/block-003.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+<iframe class="w-100" height="400" src="../figures/chapter1-s11-magnitude.html" title="互動式 S11 振幅圖" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/chapter1-s11-magnitude.svg" label="開啟 S11 振幅圖" >}}
+
+<iframe class="w-100" height="400" src="../figures/chapter1-s11-phase.html" title="互動式 S11 相位圖" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/chapter1-s11-phase.svg" label="開啟 S11 相位圖" >}}
+
+[下載複數響應資料](../figures/01-s11-data.csv)。
+
+:::

@@ -1,0 +1,47 @@
+## 第 3 課 — 選取探針補償雙埠 View {#lesson-ch4-ptc}
+
+### 比較原始負載 View 與 PTC 推導結果
+
+原始負載運算子包含全部四個宣告的 Port 負載。對外提供的原始四埠 S/Y/Z 網路，SCNSim 會在選定散射邊界去嵌入來源導納；這些矩陣不是負載運算子。PTC 只移除指定的兩個探針負載戳記，`retain()` 則選取兩個饋線座標作為散射邊界。單靠保留座標不會卸除省略的探針或量測 Port。此差異與 S、Y、Z 共用的 View 權威，請參閱[模擬慣例](../../../docs/concepts/simulation-conventions.qmd#loads-and-selected-views)。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_03-ptc-core.qmd/block-001.qmd >}}
+
+這三個頻率是明確宣告的取樣點，不是連續掃描或諧振搜尋器。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_03-ptc-core.qmd/block-002.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+#### 原始負載四埠 View
+
+Port 1 是 `feedline_in`，Port 2 是 `feedline_out`；此 S21 軌跡表示由輸入 Port 1 至輸出 Port 2 的傳輸，取樣點為 5.5、6.0 與 6.5 GHz。
+
+<iframe class="w-100" height="400" src="../figures/presentation/04-raw-direct-s21-magnitude.html" title="原始負載 S21 振幅" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/04-raw-direct-s21-magnitude.svg" label="開啟原始負載 S21 振幅圖" >}}
+
+<iframe class="w-100" height="400" src="../figures/presentation/04-raw-direct-s21-phase.html" title="原始負載 S21 相位" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/04-raw-direct-s21-phase.svg" label="開啟原始負載 S21 相位圖" >}}
+
+{{< include ../figures/04-raw-direct-s21.md >}}
+
+#### PTC 選取的雙埠 View
+
+下圖使用相同的 Port 對應與頻率取樣點，呈現 PTC 選取的雙埠 View。
+
+<iframe class="w-100" height="400" src="../figures/presentation/04-ptc-direct-s21-magnitude.html" title="PTC 選取的 S21 振幅" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/04-ptc-direct-s21-magnitude.svg" label="開啟 PTC 選取的 S21 振幅圖" >}}
+
+<iframe class="w-100" height="400" src="../figures/presentation/04-ptc-direct-s21-phase.html" title="PTC 選取的 S21 相位" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/04-ptc-direct-s21-phase.svg" label="開啟 PTC 選取的 S21 相位圖" >}}
+
+{{< include ../figures/04-ptc-direct-s21.md >}}
+
+:::
+
+::: {.callout-important title="本章主線到此為止"}
+第 4 章主線包含原始四埠實體 Plan、通過證明的明確電路圖、原始四埠 View 的饋線 Direct Result，以及另行標示的 PTC 雙埠 Direct Result。其餘課程是在同一 Plan 上進行的選讀分析延伸。
+:::

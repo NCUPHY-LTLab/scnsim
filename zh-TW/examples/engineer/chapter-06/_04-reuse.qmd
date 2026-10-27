@@ -1,0 +1,23 @@
+## 第 4 課 — 重用完整明確配置 {#lesson-ch6-reuse}
+
+目前的程式區塊使用完整、明確的配置，並綁定至新準備的狀態。已保存的圖與 Notebook 輸出維持原有執行身分；本次來源更新不會重新產生它們。
+
+### 往返重建相同的完整配置
+
+`CircuitDiagramResult.layout` 是唯讀的完整配置投影。`SchematicLayout.from_json()` 會依相同準備狀態重建那些精確宣告，不會將參照重新對應至其他 Plan 或參數點。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-06/_04-reuse.qmd/block-001.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![在相同 Plan 上重新繪製完成的 Cross 配置。](../figures/06-four-arm-fixed.svg){#fig-ch6-four-arm-fixed .lightbox fig-alt="四支路電路由分離的固定組成繪製，並保留明確請求的 Cross。"}
+
+{{< askr-image-view target="fig-ch6-four-arm-fixed" label="檢視電路（Inspect circuit）" >}}
+
+[開啟 SVG 圖](../figures/06-four-arm-fixed.svg)
+
+:::
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-06/_04-reuse.qmd/block-002.qmd >}}
+
+若參數點或呈現選項不同，就必須重新準備並建立新配置。既有參照不會被靜默重新綁定。

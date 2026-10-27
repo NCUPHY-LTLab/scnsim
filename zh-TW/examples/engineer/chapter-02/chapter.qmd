@@ -1,0 +1,18 @@
+---
+title: "第 2 章 — 掃描與最佳化耦合接地 LC"
+subtitle: "工程課程 · 繁體中文"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 第 2 章 — 掃描與最佳化耦合接地 LC
+
+本章使用乾淨核心獨立執行。四個網頁課程呈現相同順序的來源片段，不是獨立 Notebook。QMD 是可編輯權威來源；`chapter.ipynb` 是產生的零輸出傳遞檔。
+
+主線依序建立可參數化電路、掃描電容並檢視最佳化候選解；最後一課是選讀 C/L 空間分析。
+{{< include _01-build.qmd >}}
+{{< include _02-sweep.qmd >}}
+{{< include _03-optimize.qmd >}}
+{{< include _04-optional-spaces.qmd >}}

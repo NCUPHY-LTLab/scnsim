@@ -1,0 +1,28 @@
+---
+title: "線性 Direct 實現"
+lang: zh-TW
+sidebar: concept
+---
+
+使用 Direct 評估由一份 Plan 宣告、並由 `NetworkViewRef` 選定的線性網路。參數值（Parameter value）會先綁定至同一份 Plan，再實現選定的 View；求解器不另持有第二份電路描述。
+
+## Plan、View 與響應 {#direct-and-hb-selected-network}
+
+編譯（Compilation）後的網路保留元件身分、邏輯埠連接、埠方向及參考阻抗（Impedance）。埠終端補償（PTC）、座標轉換（Coordinate transformation）與保留操作都經由選定的 View 套用。每份 Result 保留自己的請求網格、有序座標、單位與數值證據。
+
+Direct 透過實體 C/K/G 與端點邊界實現電阻、電感、電容及完整 RLGC 傳輸線模型。約瑟夫森接面（Josephson junction）使用宣告的零相位、零偏壓小訊號電感，以及明確的並聯電容。SQUID 元件則保留宣告的雙接面、有限迴路拓撲，並使用這些線性支路。
+
+對宣告的邊界使用 S、Y、Z 矩陣（Matrix）族。以座標選取的物理量仍遵循自己的適用條件與失敗契約；選取座標不會自動定義可實現的埠邊界。
+
+## 電路圖與返回結果
+
+呼叫端宣告的電路圖呈現原始 Plan，不會選取分析 View，也不顯示經 PTC、轉換或保留後的電路。分析所用的座標與 View 沿革（Lineage）應從 Result 讀取。
+
+1.0 已移除 HB V1；取代原因及原契約保留於 [HB V1 歷史（英文）](/en/docs/implementation/hb-realization-and-outcomes.html)。
+
+## 相關契約
+
+- [實體元件](../component-authoring.qmd)
+- [共用矩陣介面（英文）](/en/docs/v1-runtime-contract.html#common-matrix-surface)
+- [操作支援範圍（英文）](/en/docs/v1-runtime-contract.html#operation-support)
+- [參數點與參數空間（英文）](/en/docs/contracts/parameter-system.html)

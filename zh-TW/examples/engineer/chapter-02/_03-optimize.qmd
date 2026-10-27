@@ -1,0 +1,46 @@
+## 第 3 課 — 最佳化並驗證一個候選解 {#lesson-ch2-optimize}
+
+目前的程式區塊使用完整、明確的配置，並綁定至新準備的狀態。已保存的圖與 Notebook 輸出維持原有執行身分；本次來源更新不會重新產生它們。
+
+**先備條件：**請在整章 Notebook 中執行第 1–2 課。
+
+::: {.callout-note title="此請求可能需要數分鐘" appearance="simple"}
+已宣告的 CMA-ES 請求會依固定種子與預算評估實際候選點。請等待運算完成；網站不會啟動這項計算。
+:::
+
+最佳化只在 80 至 140 fF 間改變 C。L 維持 5.8 nH，負載頻率目標是 6.2 GHz，既有確定性 CMA-ES 控制參數維持 `seed=17` 與 `max_evaluations=200`。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_03-optimize.qmd/block-001.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_03-optimize.qmd/block-002.qmd >}}
+
+Spec 會在執行前固定作用中的輸入、界限、目標函數、種子與預算。這不代表任何候選點已達成設計目標。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_03-optimize.qmd/block-003.qmd >}}
+
+預設歷程圖仍可使用。比較檢視會沿用同一個已驗證的 Result，顯示目標設定、模型預設界限、完整初始點及其指標，以及回傳之最佳序位的參數點與指標；它不會重新計算，也不會重新選出候選解。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_03-optimize.qmd/block-004.qmd >}}
+
+請在獨立的 root 評估中使用回傳的候選解。此請求不會修改 Plan 基準值，也不會由最佳化器成本推斷參數值。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_03-optimize.qmd/block-005.qmd >}}
+
+在同一 Plan 上，以該回傳的 `ParameterSet` 繪製電路圖。此圖是所選參數點的建立證據，不是目標函數的數值證明。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_03-optimize.qmd/block-006.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_03-optimize.qmd/block-007.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/02-optimized-winner.md >}}
+
+![以最佳化器回傳的候選點重新繪製同一 Plan。](../figures/02-optimized-winner.svg){#fig-engineer-ch2-winner .lightbox fig-alt="已終端 Port 與固定 6 fF 耦合電容直接連接至接地並聯諧振器的公開端點；圖中標示回傳的電容值與固定 5.8 nH 電感。"}
+
+{{< askr-image-view target="fig-engineer-ch2-winner" label="檢視電路（Inspect circuit）" >}}
+
+[開啟候選解 SVG](../figures/02-optimized-winner.svg) ·
+[下載候選解紀錄](../figures/02-optimized-winner.csv).
+
+:::

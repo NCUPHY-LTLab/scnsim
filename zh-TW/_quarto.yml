@@ -1,0 +1,336 @@
+project:
+  type: website
+  output-dir: ../_site
+  resources:
+  - LICENSE
+  - NOTICE
+  - pyproject.toml
+  - tests/figures/**
+  - examples/engineer/**/*.ipynb
+  - examples/engineer/figures/**
+  - examples/engineer/chapter-07/position-figures/**
+  - docs/assets/**
+  - src/scnsim/_schemas/*.json
+  render:
+  - index.qmd
+  - examples/README.md
+  - tests/README.md
+  - tests/ci.md
+  - tests/circuit-data.md
+  - tests/network-roots.md
+  - tests/parameters-optimization.md
+  - tests/evidence-readback.md
+  - tests/diagnostics.md
+  - tests/portability-diagrams.md
+  - tests/numerical-checks.md
+  - docs/index.qmd
+  - docs/contribute.qmd
+  - docs/tutorials/inputs-units.qmd
+  - examples/engineer/setup.qmd
+  - examples/engineer/chapter-01/01-build.qmd
+  - examples/engineer/chapter-01/02-diagram.qmd
+  - examples/engineer/chapter-01/03-s11.qmd
+  - examples/engineer/chapter-01/04-root.qmd
+  - examples/engineer/chapter-01/05-change-capacitance.qmd
+  - examples/engineer/chapter-01/chapter.qmd
+  - examples/engineer/chapter-02/01-build.qmd
+  - examples/engineer/chapter-02/02-sweep.qmd
+  - examples/engineer/chapter-02/03-optimize.qmd
+  - examples/engineer/chapter-02/04-optional-spaces.qmd
+  - examples/engineer/chapter-02/chapter.qmd
+  - examples/engineer/chapter-03/01-build.qmd
+  - examples/engineer/chapter-03/02-diagram.qmd
+  - examples/engineer/chapter-03/03-s21.qmd
+  - examples/engineer/chapter-03/chapter.qmd
+  - examples/engineer/chapter-04/01-physical-plan.qmd
+  - examples/engineer/chapter-04/02-explicit-capstone.qmd
+  - examples/engineer/chapter-04/03-ptc-core.qmd
+  - examples/engineer/chapter-04/04-optional-transform.qmd
+  - examples/engineer/chapter-04/05-optional-quantity.qmd
+  - examples/engineer/chapter-04/chapter.qmd
+  - examples/engineer/chapter-05/01-library.qmd
+  - examples/engineer/chapter-05/02-instance.qmd
+  - examples/engineer/chapter-05/03-reuse.qmd
+  - examples/engineer/chapter-05/chapter.qmd
+  - examples/engineer/chapter-06/01-default.qmd
+  - examples/engineer/chapter-06/02-port-poses.qmd
+  - examples/engineer/chapter-06/03-junctions.qmd
+  - examples/engineer/chapter-06/04-reuse.qmd
+  - examples/engineer/chapter-06/chapter.qmd
+  - examples/engineer/chapter-07/01-rlgc.qmd
+  - examples/engineer/chapter-07/02-ports.qmd
+  - examples/engineer/chapter-07/03-diagrams.qmd
+  - examples/engineer/chapter-07/04-parameter-points.qmd
+  - examples/engineer/chapter-07/05-position-electrical-resolution.qmd
+  - examples/engineer/chapter-07/chapter.qmd
+  - examples/engineer/chapter-08/01-persist.qmd
+  - examples/engineer/chapter-08/02-resolve.qmd
+  - examples/engineer/chapter-08/chapter.qmd
+  - examples/tutorials/01_author_primitive.qmd
+  - examples/tutorials/02_solve_direct.qmd
+  - examples/tutorials/03_evaluate_quantity.qmd
+  - examples/tutorials/04_define_parameters.qmd
+  - examples/tutorials/05_sweep_parameters.qmd
+  - examples/tutorials/06_optimize_primitive.qmd
+  - examples/tutorials/07_report_resolve.qmd
+  - examples/tutorials/08_create_library.qmd
+  - examples/tutorials/09_add_composite_factory.qmd
+  - examples/tutorials/10_use_custom_component.qmd
+  - examples/tutorials/11_review_customize_schematic.qmd
+  - examples/tutorials/12_model_n_trace_line.qmd
+  - examples/tutorials/13_compensate_probes.qmd
+  - examples/tutorials/14_transform_retain.qmd
+  - docs/concepts/index.qmd
+  - docs/concepts/simulation-conventions.qmd
+  - docs/concepts/physical-authority-and-reusable-composition.qmd
+  - docs/concepts/compilation-coordinates-and-network-views.qmd
+  - docs/concepts/requests-execution-and-result-ownership.qmd
+  - docs/concepts/direct-and-hb-realizations.qmd
+  - docs/concepts/units-parameters-and-optimization.qmd
+  - docs/concepts/electrical-resolution.qmd
+  - docs/component-authoring.qmd
+  - docs/guides/benchmark.qmd
+  - docs/guides/sensitivity.qmd
+  - docs/guides/static-capacitance.qmd
+  - docs/guides/roots-and-branch-selection.qmd
+website:
+  title: SCNSim
+  description: 超導電路網路模擬
+  page-navigation: true
+  announcement:
+    content: "R2 開發中，尚未正式發佈。"
+    icon: info-circle
+    type: warning
+    dismissable: false
+    position: above-navbar
+  search:
+    location: navbar
+    type: overlay
+  reader-mode: false
+  repo-url: https://github.com/NCUPHY-LTLab/scnsim
+  repo-subdir: zh-TW
+  repo-actions:
+  - source
+  - issue
+  navbar:
+    left:
+    - text: 總覽
+      href: index.qmd
+    - text: 教學
+      href: docs/index.qmd
+    - text: 觀念
+      href: docs/concepts/index.qmd
+    - text: 使用指南
+      href: docs/guides/benchmark.qmd
+    - text: 貢獻
+      href: docs/contribute.qmd
+    tools:
+    - icon: github
+      href: https://github.com/NCUPHY-LTLab/scnsim
+      text: GitHub 原始碼
+      aria-label: GitHub 原始碼
+    tools-collapse: true
+  sidebar:
+  - id: contribution
+    title: 貢獻
+    style: floating
+    collapse-level: 1
+    contents:
+    - text: 貢獻總覽
+      href: docs/contribute.qmd
+    - section: 測試
+      contents:
+      - text: 測試總覽
+        href: tests/README.md
+      - text: CI 與 Pages
+        href: tests/ci.md
+      - text: 電路輸入與元件
+        href: tests/circuit-data.md
+      - text: 網路方程式與根
+        href: tests/network-roots.md
+      - text: 參數與最佳化
+        href: tests/parameters-optimization.md
+      - text: 證據與讀回
+        href: tests/evidence-readback.md
+      - text: 失敗處理與診斷
+        href: tests/diagnostics.md
+      - text: 路徑、圖表與教學輸出
+        href: tests/portability-diagrams.md
+      - text: 數值檢查與本機執行
+        href: tests/numerical-checks.md
+    - section: 公開契約
+      contents:
+      - text: 契約總覽
+        href: /en/docs/contracts/index.html
+      - text: 元件撰寫契約
+        href: /en/docs/component-authoring.html
+      - text: CircuitPlan 組裝
+        href: /en/docs/contracts/circuit-plan-assembly.html
+      - text: 電路圖
+        href: /en/docs/contracts/automatic-semantic-circuit-diagram-layout.html
+      - text: 參數系統
+        href: /en/docs/contracts/parameter-system.html
+      - text: 根與分支選擇
+        href: /en/docs/guides/roots-and-branch-selection.html
+      - text: 靈敏度指南
+        href: /en/docs/guides/sensitivity.html
+      - text: 靜態電容契約
+        href: /en/docs/contracts/static-capacitance.html
+      - text: 靜態電容指南
+        href: /en/docs/guides/static-capacitance.html
+      - text: CPU 效能指南
+        href: /en/docs/guides/benchmark.html
+      - text: Workspace 證據 v3
+        href: /en/docs/contracts/workspace-evidence-v3.html
+      - text: V1 執行期契約
+        href: /en/docs/v1-runtime-contract.html
+      - text: 歷史證據紀錄
+        href: /en/docs/contracts/implementation-evidence-history.html
+    - section: 實作
+      contents:
+      - text: 實作總覽
+        href: /en/docs/implementation/index.html
+      - text: 系統架構
+        href: /en/docs/implementation/system-architecture.html
+      - text: Plan 封存與識別
+        href: /en/docs/implementation/plan-sealing-and-identity.html
+      - text: 標準識別與結構描述
+        href: /en/docs/implementation/canonical-identities-and-schemas.html
+      - text: Catalog 與執行期識別
+        href: /en/docs/implementation/catalog-and-runtime-identity.html
+      - text: 複合快照
+        href: /en/docs/implementation/composite-snapshots-and-recursive-expansion.html
+      - text: 編譯、Ports 與 Views
+        href: /en/docs/implementation/compilation-ports-and-views.html
+      - text: RLGC 與 pi 展開
+        href: /en/docs/implementation/rlgc-q2d-and-pi-expansion.html
+      - text: View 血緣
+        href: /en/docs/implementation/view-lineage-and-selected-networks.html
+      - text: 對角根程序
+        href: /en/docs/implementation/diagonal-root-numerical-procedure.html
+      - text: 極點、零點、耦合與算子
+        href: /en/docs/implementation/direct-poles-zeros-and-operators.html
+      - text: Direct 物理量與最佳化
+        href: /en/docs/implementation/direct-quantities-and-optimization.html
+      - text: 執行期與效能
+        href: /en/docs/implementation/benchmark-and-backends.html
+      - text: Workspace 與產物
+        href: /en/docs/implementation/workspace-attempts-and-artifacts.html
+      - text: 結果、報告與圖表
+        href: /en/docs/implementation/results-reports-and-diagrams.html
+      - text: 外部輸入與交付
+        href: /en/docs/implementation/external-inputs-and-delivery.html
+      - text: 工程教學對照表
+        href: /en/docs/implementation/engineer-course-migration-map.html
+  - id: overview
+    title: 總覽
+    style: floating
+    collapse-level: 1
+    contents:
+    - text: 總覽（Overview）
+      href: index.qmd
+  - id: tutorial
+    title: 工程教學
+    style: floating
+    collapse-level: 1
+    contents:
+    - href: docs/index.qmd
+    - href: examples/engineer/setup.qmd
+    - section: 主線第 1 章：耦合接地電感電容（LC）
+      contents:
+      - href: examples/engineer/chapter-01/01-build.qmd
+      - href: examples/engineer/chapter-01/02-diagram.qmd
+      - href: examples/engineer/chapter-01/03-s11.qmd
+      - href: examples/engineer/chapter-01/04-root.qmd
+      - href: examples/engineer/chapter-01/05-change-capacitance.qmd
+      - href: examples/engineer/chapter-01/chapter.qmd
+    - section: 主線第 2 章：掃描（Sweep）與最佳化（Optimization）
+      contents:
+      - href: examples/engineer/chapter-02/01-build.qmd
+      - href: examples/engineer/chapter-02/02-sweep.qmd
+      - href: examples/engineer/chapter-02/03-optimize.qmd
+      - href: examples/engineer/chapter-02/04-optional-spaces.qmd
+      - href: examples/engineer/chapter-02/chapter.qmd
+    - section: 主線第 3 章：共面波導（CPW）饋線與讀出（readout）S21
+      contents:
+      - href: examples/engineer/chapter-03/01-build.qmd
+      - href: examples/engineer/chapter-03/02-diagram.qmd
+      - href: examples/engineer/chapter-03/03-s21.qmd
+      - href: examples/engineer/chapter-03/chapter.qmd
+    - section: 主線第 4 章：四埠（four-port）整合
+      contents:
+      - href: examples/engineer/chapter-04/01-physical-plan.qmd
+      - href: examples/engineer/chapter-04/02-explicit-capstone.qmd
+      - href: examples/engineer/chapter-04/03-ptc-core.qmd
+      - href: examples/engineer/chapter-04/04-optional-transform.qmd
+      - href: examples/engineer/chapter-04/05-optional-quantity.qmd
+      - href: examples/engineer/chapter-04/chapter.qmd
+    - section: 選讀第 5 章：元件庫（Library）
+      contents:
+      - href: examples/engineer/chapter-05/01-library.qmd
+      - href: examples/engineer/chapter-05/02-instance.qmd
+      - href: examples/engineer/chapter-05/03-reuse.qmd
+      - href: examples/engineer/chapter-05/chapter.qmd
+    - section: 選讀第 6 章：電路圖（Diagram）自訂
+      contents:
+      - href: examples/engineer/chapter-06/01-default.qmd
+      - href: examples/engineer/chapter-06/02-port-poses.qmd
+      - href: examples/engineer/chapter-06/03-junctions.qmd
+      - href: examples/engineer/chapter-06/04-reuse.qmd
+      - href: examples/engineer/chapter-06/chapter.qmd
+    - section: 選讀第 7 章：多導體電阻、電感、電導、電容（RLGC）
+      contents:
+      - href: examples/engineer/chapter-07/01-rlgc.qmd
+      - href: examples/engineer/chapter-07/02-ports.qmd
+      - href: examples/engineer/chapter-07/03-diagrams.qmd
+      - href: examples/engineer/chapter-07/04-parameter-points.qmd
+      - href: examples/engineer/chapter-07/05-position-electrical-resolution.qmd
+      - href: examples/engineer/chapter-07/chapter.qmd
+    - section: 選讀第 8 章：報告（Report）與讀回（resolve）
+      contents:
+      - href: examples/engineer/chapter-08/01-persist.qmd
+      - href: examples/engineer/chapter-08/02-resolve.qmd
+      - href: examples/engineer/chapter-08/chapter.qmd
+    - text: 輸入與單位
+      href: docs/tutorials/inputs-units.qmd
+  - id: concept
+    title: 觀念
+    style: floating
+    collapse-level: 1
+    contents:
+    - href: docs/concepts/index.qmd
+    - href: docs/concepts/simulation-conventions.qmd
+    - href: docs/concepts/physical-authority-and-reusable-composition.qmd
+    - href: docs/concepts/compilation-coordinates-and-network-views.qmd
+    - href: docs/concepts/requests-execution-and-result-ownership.qmd
+    - href: docs/concepts/direct-and-hb-realizations.qmd
+    - href: docs/concepts/units-parameters-and-optimization.qmd
+    - href: docs/concepts/electrical-resolution.qmd
+  - id: guides
+    title: 使用指南
+    style: floating
+    contents:
+    - href: docs/guides/benchmark.qmd
+    - href: docs/guides/sensitivity.qmd
+    - href: docs/guides/static-capacitance.qmd
+    - href: docs/guides/roots-and-branch-selection.qmd
+    - href: docs/component-authoring.qmd
+format:
+  askr-html:
+    toc: true
+    code-copy: true
+    html-math-method: mathjax
+    respect-user-color-scheme: true
+lang: zh-TW
+execute:
+  enabled: false
+askr:
+  languages:
+    current: zh-TW
+    items:
+    - code: zh-TW
+      label: 繁體中文
+      href: /
+    - code: en
+      label: English
+      href: /en/

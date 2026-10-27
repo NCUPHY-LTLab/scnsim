@@ -167,8 +167,8 @@ conductor labels, reference conductor, matrix shapes, dimensions, and source
 provenance remain explicit. Matrix rows and columns are not sweep axes, and
 `n_sections` remains authored component structure.
 
-This candidate supports compatible complete RLGC values for declared Direct,
-HB, and applicable operator calculations. It does not support continuous
+This candidate supports compatible complete RLGC values for declared Direct
+and applicable operator calculations. It does not support continuous
 whole-matrix optimization, implicit interpolation, or tracking one baseline
 root across changing RLGC matrices. That is the current support boundary, not
 a claim that another mathematical method is impossible. Scalar sweeps and

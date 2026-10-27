@@ -1,0 +1,18 @@
+---
+title: "第 1 章 · 第 5 課 — 改變電容"
+subtitle: "耦合接地 LC 工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1–4 課" appearance="simple"}
+本頁沿用同一 Plan、Run 與請求，只改變所選參數點。請在[完整本章 Notebook（英文）](/en/examples/engineer/chapter-01/chapter.ipynb)中依序執行。
+:::
+
+{{< include _05-change-capacitance.qmd >}}
+
+[上一課：第 4 課 — 負載根（Loaded root）](04-root.qmd) ·
+[課程路線圖](../../../docs/index.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-01/chapter.ipynb)

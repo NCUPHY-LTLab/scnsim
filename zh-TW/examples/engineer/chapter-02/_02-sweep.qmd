@@ -1,0 +1,30 @@
+## 第 2 課 — 掃描電容 {#lesson-ch2-sweep}
+
+**先備條件：**請在整章 Notebook 中執行第 1 課。
+
+建立一個已封存 Run，並保留子層公開的 Coordinate。6 GHz root Hint 用來選擇確定性的根分支，不是掃描界限或答案。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_02-sweep.qmd/block-001.qmd >}}
+
+此單軸網格依序保留 100、110 與 120 fF。L 是明確固定為 5.8 nH 的輸入，不是隱藏的第二個軸。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_02-sweep.qmd/block-002.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_02-sweep.qmd/block-003.qmd >}}
+
+每個點都保留完整的有效 `ParameterSet`、來源索引、來源類型，以及具型別的 root Result 或失敗。收集作業讀取 `root_spec` 已請求的量值，不會啟動新計算。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_02-sweep.qmd/block-004.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/02-capacitance-sweep.md >}}
+
+![三個宣告電容點的負載頻率。](../figures/02-capacitance-sweep.svg){#fig-engineer-ch2-capacitance-sweep .lightbox fig-alt="電感固定為 5.8 nH 時，負載根頻率對應宣告的 100、110 與 120 fF 電容值所形成的三點曲線。"}
+
+[開啟掃描 SVG](../figures/02-capacitance-sweep.svg) ·
+[下載具型別參數點資料](../figures/02-capacitance-sweep.csv).
+
+:::
+
+本章主線到此為止：一個實體 Plan、一個固定 L 的電容空間，以及每個宣告點各自的具型別 Result。下一課是選讀調校流程，理解本次掃描不需要完成該流程。

@@ -1,0 +1,49 @@
+## 第 1 課 — 建立耦合諧振器 {#lesson-build}
+
+本章以 50 Ω 終端量測 Port，經由 6 fF 電容耦合至接地並聯 LC 諧振器。諧振器由子層 `Subsystem` 持有；電容基準值為 110 fF，電感為 5.8 nH。
+
+::: {.light-content}
+![第 1 章實體 Plan。](../figures/chapter1-plan.light.svg){#img-ch1-plan-light .lightbox}
+
+{{< askr-image-view target="img-ch1-plan-light" label="放大第 1 章電路圖" >}}
+:::
+
+::: {.dark-content}
+![第 1 章實體 Plan。](../figures/chapter1-plan.dark.svg){#img-ch1-plan-dark .lightbox}
+
+{{< askr-image-view target="img-ch1-plan-dark" label="放大第 1 章電路圖" >}}
+:::
+
+量測 Port 與耦合電容由父層持有，LC 元件由子層持有。接下來會建立此 Plan、檢視 S11、選擇諧振器座標計算負載根，最後選取 120 fF，並將 Result 保留在記憶體中。
+
+### 從乾淨的工程課程核心開始
+
+請複製儲存庫、安裝鎖定的開發環境，並在儲存庫根目錄啟動 Jupyter：
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_01-build.qmd/block-001.qmd >}}
+
+此命令中的 `jupyterlab` 僅供開發時使用，不會加入專案或鎖定檔。若編輯器已提供 Jupyter 介面，執行 `uv sync --locked` 後也可直接在該介面開啟 Notebook。
+
+請開啟 `examples/engineer/chapter-01/chapter.ipynb`，選擇專案 `.venv` 的 Python 核心，重新啟動後按 **Run All**。整章在同一個乾淨核心中完成；網頁課程是共用章節狀態的閱讀頁面。新環境第一次提出數值請求時會初始化 JAX 並編譯原生程式，因此可能比後續請求耗時。本入門課程將 Result 保留在記憶體；第 8 章會介紹持久化 Workspace。
+
+### 定義本章要改變的參數
+
+本電路是集中式、接地並聯 LC 諧振器，透過電容耦合至一個終端量測 Port。由於第 5 課會在同一 Plan 上選取另一個實體數值，電容是唯一的獨立輸入；電感、耦合器與 Port 阻抗則保持固定常數。
+
+本課以 Subsystem 封裝電容、電感、共用訊號匯流排與局部接地，形成容易檢視及重用的 LC 單元。耦合器與量測 Port 連接此單元和外部電路，因此由父層持有。Subsystem 表示明確的所有權選擇，並非每個元件都必須再包一層。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_01-build.qmd/block-002.qmd >}}
+
+宣告 `capacitance` 不會自動將它加入電路。下一個程式區塊會把電容工廠欄位綁定至此參數。`110 fF` 是基準值，不是可變動的全域值。
+
+### 在子系統邊界內建立接地 LC 電路
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_01-build.qmd/block-003.qmd >}}
+
+公開的 Pin 是父層配線邊界；公開的 Coordinate 則是分析同一條子層訊號匯流排的控制代碼。兩者都不會新增電氣節點、元件或導線，父層也不會直接存取子層的私有匯流排。
+
+### 將子系統直接耦合至一個終端埠
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_01-build.qmd/block-004.qmd >}}
+
+6 fF 元件直接連至子系統公開的 Pin。諧振器側沒有僅供分析使用的 root 匯流排或零元件 Link。終端 Port 持有其宣告的 50 Ω 參考負載，並連至標準接地。

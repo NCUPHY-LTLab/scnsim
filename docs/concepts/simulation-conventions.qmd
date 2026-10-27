@@ -20,7 +20,6 @@ select a View automatically, or establish numerical accuracy from a plot.
 | Public network / roots | S/Y/Z share one explicit View; loaded operator/root boundaries are distinct |
 | Pole linewidth | Passive $\operatorname{Im}\Omega<0$; $\kappa=-2\operatorname{Im}\Omega$; a transfer zero is not a linewidth |
 | Phase / dB | Wrapped argument; $20\log_{10}|S|$; positive delay has positive propagation phase |
-| HB boundary | One conjugation, same signed-mode permutation, $\sqrt{|\omega|}$ normalization |
 
 ## Phasors, Fourier transforms, and units {#phasors-and-units}
 
@@ -59,8 +58,7 @@ from a variable name.
 
 JAX Direct and Operator response grids preserve the declared frequency order,
 including repeated entries and reverse sweeps. An axis position is a requested
-occurrence, not a promise that frequencies are sorted or unique. HB and the
-frozen Julia reference retain their separately documented grid capabilities.
+occurrence, not a promise that frequencies are sorted or unique. The retired HB contract retains its historical grid capabilities.
 
 Voltage is relative to the Plan's canonical reference ground. Terminal current
 is positive **into the DUT**. With these choices, the elementary impedances and
@@ -247,7 +245,9 @@ one turn (usually in degrees). Its branch-cut jump is not a discontinuity of
 the circuit. Neither an S-magnitude dip nor a phase jump alone defines a
 certified complex root, pole, or transfer zero.
 
-## HB adapter boundary {#hb-adapter-boundary}
+## Historical HB adapter boundary (retired) {#hb-adapter-boundary}
+
+Current SCNSim is JAX-only; HB has been removed. The following equations and adapter description are retained as an English historical record.
 
 JosephsonCircuits' HB boundary uses the conjugate phasor convention. SCNSim
 translates complete native S and return-Z once, using the **same signed

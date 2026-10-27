@@ -1,0 +1,41 @@
+## 第 5 課 — 選讀：評估一個 Direct 響應量值 {#lesson-ch4-quantity}
+
+### 先選擇 View，再選擇方程式
+
+前一課的選讀 `transformed_view` 依序保留 `feedline_in`、`feedline_out` 與 `floating.differential`。以下不同問題都使用這個最終基底座標；原始浮接正、負節點對不再是選定基底。
+
+| 問題 | 宣告 | 說明 |
+|---|---|---|
+| 負載對角根 | `DiagonalRootSpec(coordinate="floating.differential", ...)` | 最終 View 對角元素的複數根，包含實部頻率與對角線線寬。 |
+| 有序矩陣元素根 | `OperatorElementRootSpec(row="feedline_in", column="feedline_out", ...)` | 所選運算子元素的複數根，包含實部頻率與局部斜率；沒有通用線寬。 |
+| 單一頻率的響應 | `ResponseElementSpec(family="S", input_coordinate="feedline_in", output_coordinate="feedline_out", ...)` | 宣告頻率上的複數 S 值，不是根。 |
+
+下一個一般 Python 範例**只宣告**選讀 root Spec；它不是可執行的章節程式區塊，也不代表任一根必定存在：
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_05-optional-quantity.qmd/block-001.qmd >}}
+
+若另行請求，以下僅為呼叫形式，不是本課結果。`explain` 會準備 JAX 宣告但不建立計算嘗試；`evaluate` 會執行計算，若所選根無法取得證明則可能失敗。綁定 `.frequency.on(transformed_view)` 會宣告 Optimization 選擇器，而 `diagonal_result.frequency` 是計算後的 Result 量值。兩者的根實部頻率都不是實軸零點、S21 凹口或模態標籤。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_05-optional-quantity.qmd/block-002.qmd >}}
+
+### 分別宣告耦合評估位置與投影方式
+
+`ResidueNormalizedCouplingSpec` 會在 Result 中保留完整複數耦合量。Spec 的 `.real`、`.imag` 與 `.magnitude` 屬性只宣告 Optimization 目標使用哪個有號或非負純量，不會執行數值請求。此處 `frequency="complex_root_midpoint"` 表示兩個候選根的完整複數中點，並在每個候選點重新計算；它不是實頻率平均值或預設值。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_05-optional-quantity.qmd/block-003.qmd >}}
+
+對已評估的 `coupling_result`，`coupling_result.coupling` 是複數 Quantity；`.real` 與 `.imag` 是從該已驗證複數值導出的 Quantity，`.magnitude` 是已驗證的非負耦合投影，而 `coupling_result.evaluation_omega` 記錄實際複數角頻率。相較之下，Pint 的 `quantity.magnitude` 是純數值資料，`abs(quantity)` 則是一般 Quantity 算術。
+
+### 在明確宣告的單一頻率讀取 S21
+
+`ResponseElementSpec` 會在轉換後保留的 View 上請求一個複數 S 矩陣元素。明確宣告的 6.2 GHz 點會直接計算，不會從保留的 Direct 軌跡插值，也不是根、凹陷或量子位頻率。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_05-optional-quantity.qmd/block-004.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/04-response-element.md >}}
+
+[下載精確量值](../figures/04-response-element.csv).
+
+:::

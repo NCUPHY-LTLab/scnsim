@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 檢視並自訂電路圖"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+第 6 章說明[明確手動配置](../engineer/chapter-06/01-default.qmd)、[Port 姿態](../engineer/chapter-06/02-port-poses.qmd)、[T 形與十字接點](../engineer/chapter-06/03-junctions.qmd)，以及[重用配置](../engineer/chapter-06/04-reuse.qmd)。四種建立拒絕情況列於英文[Plan 組裝失敗表](/en/docs/contracts/circuit-plan-assembly.html#assembly-failures)。
+
+本簡短頁面保留舊網址。已取代的可執行內容、Notebook 與檢查點圖可在 Git 歷史中找到。

@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 建立可重用元件庫"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+元件庫與工廠宣告請參閱[第 5 章 — 元件庫邊界](../engineer/chapter-05/01-library.qmd)，公開介面請參閱[第 5 章 — 公開實例](../engineer/chapter-05/02-instance.qmd)。元件的精確行為以英文[元件建立契約](../../docs/component-authoring.qmd)為準。
+
+本短頁保留舊網址。已取代的可執行內容與 Notebook 仍可在 Git 歷史中找到。

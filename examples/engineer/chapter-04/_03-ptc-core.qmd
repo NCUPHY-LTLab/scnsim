@@ -13,7 +13,7 @@ for this distinction and the common View authority for S, Y, and Z.
 
 ```{python}
 #| id: ch4-derive-ptc-view
-run = CircuitRun(backend="julia", plan=plan, workspace="workspaces/engineer-chapter-04")
+run = CircuitRun(plan=plan, storage="memory")
 raw_loaded_view = run.original
 raw_transmission_trace = SParameterTrace(
     id="transmission",
@@ -44,8 +44,6 @@ ptc_direct_spec = DirectSolveSpec(
     frequencies=[5.5, 6.0, 6.5] * u.GHz,
     traces=(ptc_transmission_trace,),
 )
-run.explain(raw_loaded_view, raw_direct_spec).show()
-run.explain(ptc_view, ptc_direct_spec).show()
 ```
 
 These three frequencies are exact declared samples, not a continuous scan or
@@ -58,14 +56,67 @@ raw_transmission = raw_direct.traces["transmission"]
 ptc_direct = run.solve(ptc_view, ptc_direct_spec)
 ptc_transmission = ptc_direct.traces["transmission"]
 display(raw_direct.s.view)
-raw_transmission.plot(component="magnitude", magnitude="db", theme=Theme.AUTO)
+from IPython.display import display
+
+def present_s21(trace):
+    magnitude_plot = trace.plot(component="magnitude", magnitude="db")
+    phase_plot = trace.plot(component="phase")
+    for figure, component, unit in (
+        (magnitude_plot, "magnitude", "dB"),
+        (phase_plot, "phase", "deg"),
+    ):
+        figure.update_traces(
+            mode="lines+markers", line={"color": "#246398", "width": 2},
+            marker={"color": "#246398", "size": 7},
+            hovertemplate="%{x:.6g} GHz<br>%{y:.6g} " + unit + "<extra></extra>",
+        )
+        figure.update_layout(
+            template="plotly_white", autosize=True, height=340, showlegend=False,
+            title={"text": f"S21 {component}", "x": .02, "xanchor": "left", "font": {"size": 18}},
+            font={"family": "Arial, sans-serif", "size": 14, "color": "#243344"},
+            margin={"l": 78, "r": 24, "t": 55, "b": 62},
+            paper_bgcolor="white", plot_bgcolor="white",
+        )
+        figure.update_xaxes(title_text="Frequency (GHz)", ticks="outside", showline=True,
+                            linecolor="#6f7b85", gridcolor="#e5e9ed", zeroline=False,
+                            automargin=True, title_standoff=12)
+        figure.update_yaxes(title_text=f"{component.capitalize()} ({unit})", ticks="outside",
+                            showline=True, linecolor="#6f7b85", gridcolor="#e5e9ed",
+                            zeroline=False, automargin=True, title_standoff=12)
+    display(magnitude_plot)
+    display(phase_plot)
+present_s21(raw_transmission)
 display(ptc_direct.s.view)
-ptc_transmission.plot(component="magnitude", magnitude="db", theme=Theme.AUTO)
+present_s21(ptc_transmission)
 ```
 
 ::: {.content-visible when-format="html"}
 
+#### Raw loaded four-Port View
+
+Port 1 is `feedline_in` and Port 2 is `feedline_out`; this S21 trace maps input Port 1 to output Port 2 at 5.5, 6.0 and 6.5 GHz.
+
+<iframe class="w-100" height="400" src="../figures/presentation/04-raw-direct-s21-magnitude.html" title="Raw loaded S21 magnitude" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/04-raw-direct-s21-magnitude.svg" label="Open raw loaded S21 magnitude" >}}
+
+<iframe class="w-100" height="400" src="../figures/presentation/04-raw-direct-s21-phase.html" title="Raw loaded S21 phase" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/04-raw-direct-s21-phase.svg" label="Open raw loaded S21 phase" >}}
+
 {{< include ../figures/04-raw-direct-s21.md >}}
+
+#### PTC-selected two-Port View
+
+The same Port mapping and frequency samples show the PTC-selected two-Port View.
+
+<iframe class="w-100" height="400" src="../figures/presentation/04-ptc-direct-s21-magnitude.html" title="PTC-selected S21 magnitude" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/04-ptc-direct-s21-magnitude.svg" label="Open PTC-selected S21 magnitude" >}}
+
+<iframe class="w-100" height="400" src="../figures/presentation/04-ptc-direct-s21-phase.html" title="PTC-selected S21 phase" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/04-ptc-direct-s21-phase.svg" label="Open PTC-selected S21 phase" >}}
 
 {{< include ../figures/04-ptc-direct-s21.md >}}
 
