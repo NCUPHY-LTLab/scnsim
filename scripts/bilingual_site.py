@@ -86,6 +86,8 @@ def prepare(root: Path) -> None:
         canonical = root / relative
         if not canonical.is_file():
             raise FileNotFoundError(f'Canonical English source missing: {relative}')
+        if relative == Path('README.md'):
+            continue  # The root README is independent GitHub Markdown, not a QMD translation.
         blocks = fenced_blocks(canonical.read_text(encoding='utf-8'))
         if fenced_blocks(translation.read_text(encoding='utf-8')):
             raise ValueError(f'Use canonical code includes, not editable duplicate fences: {relative}')
@@ -112,6 +114,13 @@ def materialize(root: Path, translations: Path) -> None:
         raise ValueError('Translation input must remain separate from composed output')
     for source, relative in translated_sources(translations):
         text = source.read_text(encoding='utf-8')
+        if relative == Path('README.md'):
+            if not (root / relative).is_file():
+                raise FileNotFoundError(f'Canonical English source missing: {relative}')
+            destination = child / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(text, encoding='utf-8')
+            continue  # Preserve standalone GitHub Markdown verbatim.
         if relative.parts[0] != 'tests':
             canonical = root / relative
             expected = fenced_blocks(canonical.read_text(encoding='utf-8'))

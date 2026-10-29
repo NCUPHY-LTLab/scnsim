@@ -22,9 +22,49 @@ SCNSim 是用於超導電路網路分析的 Python 套件。先建立明確的�
 
 ## 安裝
 
-安裝方式與支援環境請參閱[環境設定指南](examples/engineer/setup.qmd)；從來源建置的方法請參閱[貢獻指南](docs/contribute.qmd#build-from-source)。
+請從 [GitHub Releases](https://github.com/NCUPHY-LTLab/scnsim/releases/tag/v1.0.0a3) 安裝 CPython 3.12 預建套件（wheel）。
 
-[查看文件總覽與範例](https://ncuphy-ltlab.github.io/scnsim/)。
+在空資料夾中初始化專案，再依平台執行對應命令：
+
+```sh
+uv init --python 3.12
+```
+
+<details>
+<summary>Windows x86_64（AMD64）</summary>
+
+```powershell
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-win_amd64.whl"
+```
+
+</details>
+
+<details>
+<summary>macOS arm64</summary>
+
+```sh
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-macosx_12_0_arm64.whl"
+```
+
+</details>
+
+<details>
+<summary>Linux x86_64</summary>
+
+```sh
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
+```
+
+</details>
+
+| Python | 作業系統與架構 | 預建套件 |
+|---|---|---|
+| CPython 3.12 | Windows x86_64（AMD64） | [GitHub Release 預建套件](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-win_amd64.whl) |
+| CPython 3.12 | macOS arm64（Apple Silicon） | [GitHub Release 預建套件](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-macosx_12_0_arm64.whl) |
+| CPython 3.12 | Linux x86_64 | [GitHub Release 預建套件](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl) |
+
+這些預建套件不需要 C++ 編譯器。其他 Python 版本或平台請參閱[貢獻指南](docs/contribute.qmd#build-from-source)的來源建置說明。[環境設定指南](examples/engineer/setup.qmd)說明選用的 Jupyter 與課程需求。
+
 
 ## 從第 1 個電路開始
 

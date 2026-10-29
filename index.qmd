@@ -55,8 +55,48 @@ The current Josephson-junction primitive is linearized. A complete nonlinear Jos
 
 ## Install
 
-See the [setup guide](examples/engineer/setup.qmd) for installation instructions and supported environments. For source builds, see the [Contribution guide](docs/contribute.qmd#build-from-source).
+Install a prebuilt CPython 3.12 wheel from [GitHub Releases](https://github.com/NCUPHY-LTLab/scnsim/releases/tag/v1.0.0a3).
 
+From an empty folder, initialize a project, then run the command for your platform:
+
+```sh
+uv init --python 3.12
+```
+
+<details>
+<summary>Windows x86_64 (AMD64)</summary>
+
+```powershell
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-win_amd64.whl"
+```
+
+</details>
+
+<details>
+<summary>macOS arm64</summary>
+
+```sh
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-macosx_12_0_arm64.whl"
+```
+
+</details>
+
+<details>
+<summary>Linux x86_64</summary>
+
+```sh
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
+```
+
+</details>
+
+| Python | Platform and architecture | Prebuilt wheel |
+|---|---|---|
+| CPython 3.12 | Windows x86_64 (AMD64) | [GitHub Release wheel](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-win_amd64.whl) |
+| CPython 3.12 | macOS arm64 (Apple Silicon) | [GitHub Release wheel](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-macosx_12_0_arm64.whl) |
+| CPython 3.12 | Linux x86_64 | [GitHub Release wheel](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl) |
+
+These prebuilt wheels do not require a C++ compiler. For other Python versions or platforms, see the [Contribution guide](docs/contribute.qmd#build-from-source) for source-build instructions. The [setup guide](examples/engineer/setup.qmd) covers optional Jupyter and course requirements.
 ## A first circuit
 
 Chapter 1 builds a grounded LC resonator inside a `Subsystem`, then connects a coupling capacitor and terminated measurement Port at the parent level. The same Plan supports a one-port response and a loaded root.
