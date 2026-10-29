@@ -1,0 +1,36 @@
+## 第 1 課 — 儲存精確 Result 並建立報告 {#lesson-ch8-persist}
+
+### 在第一個核心建立完整請求
+
+本課在一個全新核心中執行，重建耦合接地 LC，接著將 Direct Result 與負載對角根 Result 儲存在同一 Workspace。
+
+Workspace 證據會綁定建立它的精確 Plan 與套件來源。套件更新後重複外觀相似的宣告，不代表 Plan 身分相同。新來源請使用新的 Workspace；若要保留舊資料，先連同固定版本的環境完整備份原 Workspace。被忽略的 Workspace 既不是備份，也不是遷移儲存區。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-08/_01-persist.qmd/block-001.qmd >}}
+
+子系統 Pin 是父層配線邊界；其 Coordinate 選取同一訊號匯流排進行分析，不會建立第二條電氣連線。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-08/_01-persist.qmd/block-002.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-08/_01-persist.qmd/block-003.qmd >}}
+
+Direct 請求使用恰好四個明確宣告的取樣點。S11 圖只呈現幅值（Magnitude）；保存的報告沒有相位（Phase）軌跡。負載根使用 6 GHz Newton 提示值；提示值不是答案或搜尋區間。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-08/_01-persist.qmd/block-004.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+**Port 1：**`signal_in`；此保存檢視包含單一 magnitude 軌跡。
+
+<iframe title="第 8 章保存的 S11 幅值（Magnitude）" src="../figures/presentation/08-s11-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/08-s11-magnitude.svg" label="四個明確頻率取樣點的 S11 幅值。（SVG）" >}}
+
+{{< include ../figures/08-persisted-results.md >}}
+
+[開啟已保留的報告（Retained report）](../figures/08-report.html) ·
+[檢視精確 Result 身分](../figures/08-persisted-results.json)
+
+:::
+
+`ReportSpec` 會接收兩個明確且不可變的 Result。第一個面板使用已儲存的具名 S 通道，並以 dB 呈現振幅；第二個面板摘要負載根。面板的 `inputs` 指定精確 Result 物件，因此報告組裝不會靜默替換成身分相似的物件。建立呈現不會選擇另一個請求，也不會建立數值計算。報告建立後可關閉 Run；已儲存 Result 仍保留固定讀取器供後續呈現。Plan 的葉節點會將不可變證據存入 `operations/operations.sqlite3`；重新開啟時請使用相同環境。

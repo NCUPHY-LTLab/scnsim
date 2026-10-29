@@ -1,0 +1,173 @@
+---
+title: "Static Capacitance Contract"
+subtitle: "Evaluate a finite compiled capacitance matrix or one coordinate entry"
+toc-depth: 2
+---
+
+::: {.callout-warning}
+## CONVERGING V1 candidate
+
+This page defines the dev36 candidate for static capacitance evaluation and
+its JAX sensitivities. `View.retain(...)` selects coordinates; the Spec selects
+the physical static-capacitance equation. The implementation and this public
+contract remain `CONVERGING` until the Human accepts this scope.
+:::
+
+## Scope
+
+This candidate covers single-effective-point matrix and element `evaluate()`
+requests, plus the required existing Jacobian, JVP, and VJP Sensitivity
+requests for those outputs. It makes no additional claim for
+`ParameterSpace` sweeps, optimization, warmup, or detached `prepare()`
+functions. Quantization, nonlinear elements, second-order derivatives, and
+EC/frequency calculations remain outside this scope.
+
+## Public declarations
+
+```text
+StaticCapacitanceSpec()
+StaticCapacitanceSpec.matrix
+StaticCapacitanceSpec.element(*, row, column)
+StaticCapacitanceElementSpec.value
+```
+
+`StaticCapacitanceSpec` selects the static-capacitance equation on one Plan,
+one effective point, and one supported View. It has no `zero_charge` input.
+The View declares the ordered retained coordinates, if any; the Spec cannot
+choose a different partition:
+
+```python
+matrix_spec = StaticCapacitanceSpec()
+entry_spec = matrix_spec.element(row=row_coordinate, column=column_coordinate)
+```
+
+`matrix_spec.matrix` selects the matrix as a sensitivity leaf. An element spec's
+`.value` selects its scalar entry. Both selectors support the ordinary
+`.on(view)` binding used by `SensitivitySpec`. For direct evaluation, pass the
+matrix or element spec to `run.evaluate(view, spec)`:
+
+```python
+matrix_result = run.evaluate(view, matrix_spec, parameters=point)
+entry_result = run.evaluate(view, entry_spec, parameters=point)
+```
+
+The matrix result exposes `matrix` as a Pint Quantity in farads, ordered
+`row_coordinates` and `column_coordinates`, and evidence bound to the Plan,
+effective point, View, dtype, and realized finite discretization. The element
+result exposes its scalar `value` in farads, row and column identities, and the
+same provenance. Both result types expose the retained/eliminated partition
+derived from the selected View as `zero_charge`, with the corresponding
+$q_e=0$ fact in evidence. Without a retained boundary, `zero_charge` is empty.
+The request does not supply the partition.
+
+Without `retain()`, the matrix uses the full ordered finite basis of the
+selected View. With `retain()`, row order is the View's declared retained
+order. The eliminated set is the complete complement in the full compiled
+finite node basis, including internal finite-pi nodes. Returned row and column
+IDs, including internal finite-pi axes from a full matrix, remain available
+for static element reads. They do not create public `CoordinateRef` values or
+grant internal coordinates access through `retain()` or RF selectors.
+
+Each request evaluates one effective `ParameterSet` on the same sealed Plan.
+Omitted physical parameters use the Plan's captured baselines. The result is a
+detached in-memory value or is written and read through the ordinary Workspace
+path. A returned Result keeps its fixed read ownership and remains readable
+after `run.close()`.
+
+## Coordinate and charge convention
+
+The physical finite capacitance matrix is $C_x$ in the current View's ordered
+coordinate basis. An existing supported real, dimensionless coordinate
+transform maps coordinates as $x=T(\theta)y$, where the current parameter point
+determines any existing transform weights. The transformed matrix is the
+congruence
+
+$$
+C_y(\theta)=T(\theta)^T C_x(\theta)T(\theta).
+$$
+
+This is a static charge relation, $q=Cv$; it is not a frequency response or a
+sampled low-frequency approximation to S, Y, or Z. The compiled finite model is
+the one actually used by the request, including the capacitors of a finite-pi
+transmission-line realization.
+
+Let $r$ be the ordered retained coordinates selected by the View, and let $e$
+be their complete complement in the compiled finite basis. Without a retain,
+$r$ is the full ordered basis and $e$ is empty. For a retained View, partition
+the transformed finite capacitance matrix as
+
+$$
+C_y=\begin{bmatrix}C_{rr}&C_{re}\\C_{er}&C_{ee}\end{bmatrix}.
+$$
+
+The retained static matrix follows the zero-charge condition $q_e=0$:
+
+$$
+C_{\mathrm{eff}}=C_{rr}-C_{re}\,\operatorname{solve}(C_{ee},C_{er}).
+$$
+
+The eliminated coordinates are not newly grounded or assigned a hidden clamp;
+the condition is zero charge. With no `retain()`, the full matrix is returned
+without an elimination solve. The result records the actual View-derived
+partition and ordered retained axes.
+
+## Sensitivity and discrete realization
+
+The existing `SensitivitySpec` supports `Jacobian`, `JVP`, and `VJP` for both
+the matrix and an element. Bind the selected leaf to the intended View; a
+retained View supplies the retained C partition:
+
+```python
+quantities = {"C": matrix_spec.matrix.on(view)}
+sensitivity_spec = SensitivitySpec(
+    quantities=quantities,
+    wrt=(capacitance_parameter,),
+    derivative=Jacobian(),
+    discretization=fixed_mesh,
+)
+sensitivity = run.sensitivity(sensitivity_spec, parameters=point)
+```
+
+The derivative follows the actual parameter-dependent physical matrix, the
+existing transform weights $T(\theta)$, and the specified square solve. The
+operation does not freeze transform weights at a baseline or stop gradients at
+the elimination boundary. Jacobian output axes identify the matrix row and
+column coordinates; scalar elements retain their row and column identities.
+The existing sensitivity layout carries parameter and output units: a raw
+matrix Jacobian cell has units of farads per SI unit of the requested input.
+An F/F derivative is dimensionless because of those units; it is not
+automatically normalized or scaled. JVP and VJP use the same selected physical
+output and ordinary direction/cotangent unit rules described in the
+[Sensitivity guide](../guides/sensitivity.qmd).
+
+Integer mesh choices remain discrete. A sensitivity request binds one fixed
+realized mesh; derivatives do not differentiate a section-count decision or
+remesh along a perturbation. The saved result records the mesh used for its
+finite capacitance model.
+
+## Failure and backend boundary
+
+The complete matrix can be returned even when it is singular. If the requested
+zero-charge elimination requires a singular or otherwise unsolved $C_{ee}$,
+the native linear solve failure is reported. The operation does not use a
+pseudoinverse, diagonal clamp, guessed reference node, or regularization to
+manufacture a reduced value.
+
+The supported View is the original View, an existing coordinate-transform-only
+View, a valid PTC lineage, or one of those Views followed by an existing
+supported `retain()`. PTC preserves its existing lineage and compensation
+meaning, but its resistive/reference load mask does not affect static C or
+transform weights. Static C also bypasses RF/Port eligibility and normalization
+rules; this does not change their use by response operations. Static capacitance uses the shared JAX physical program.
+
+The same physical couplings and existing residue-normalized-coupling
+definition, including its RF branch inputs and meaning, continue to govern
+their current operations.
+
+This dev36 retained-View static request is a new request identity. No alias or
+migration is provided for the earlier explicit-`zero_charge` static request
+format, and no stored physical data is deleted. Existing dev35 LC observations
+do not demonstrate numerical use of this retained-View static equation; that
+use remains unobserved.
+
+For usage, see the [static capacitance guide](../guides/static-capacitance.qmd).

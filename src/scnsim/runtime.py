@@ -1,25 +1,39 @@
 """Plan-bound execution, exact request identity, and typed Result reconstruction.
 
 One captured authoring snapshot and its resolved parameter points feed the
-declarative Direct, HB, and optimization request boundary. Workspace receipts
-and artifact manifests remain the only authority for reconstructing results.
+declarative Direct and optimization request boundary. Workspace receipts
+and artifact manifests remain the authority for saved reconstruction. A memory
+Run instead owns no Workspace and returns detached Direct or Optimization results with a compact
+in-memory operation Benchmark; it cannot resolve persisted evidence.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from os import PathLike
-from pathlib import Path
 from types import MappingProxyType
 from typing import overload
 from time import perf_counter_ns
+from weakref import ref as weakref
+from uuid import uuid4
 
-import numpy as np
+from .execution.prepared_function import PreparedFunction
+from .execution.policy import ExecutionPolicy
+from .execution.compile_owner import CompileOwner
+from .results.memory_direct import InMemoryDirectSolveResult
+from .results.memory_optimization import InMemoryOptimizationResult
+from .results.memory_analysis import InMemoryAnalysisResult, InMemoryParameterSweepResult
+from .results.memory_sensitivity import InMemorySensitivityResult
+from .workspace.operation_lease import operation_lease
 
-from . import units
-from .execution.compilation import _run_preflight
-from .execution.identity import _runtime_identity_base, _jax_runtime_identity
+from .execution.run_lifecycle import RunLifecycle, run_activity
+from .execution.run_binding import capture_run_binding, compatible_parameter, _parameter_key
+from .execution.request_binding import _view_declaration, _quantity_selectors, source_units, prepare_request
+from .execution.view_binding import ViewDeclaration, derive_view, coordinate_id, _original_lineage_document
+
+
+from .execution.identity import _runtime_identity_base
 from .execution.prepared import (
     BoundOptimization,
     BoundOptimizationLeaf,
@@ -32,16 +46,12 @@ from .execution.prepared import (
 from .canonical import (
     _identifier as _canonical_identifier,
     canonical_json_bytes,
-    complex_quantity_envelope,
-    quantity_envelope,
     sha256_hex,
 )
-from .authoring.identity import canonical_plan_snapshot
-from .workspace.artifacts import _VerifiedEvidenceLease, _verified_evidence_lease
 from .authoring.resolution import resolve_parameter_point
-from .authoring.physical_values import RLGC, RLGCParameterSpec
+from .authoring.physical_values import RLGCParameterSpec
 from .construction import unavailable
-from .workspace import VerifiedSuccess, _plan_coordinates, bind_workspace
+from .workspace import bind_workspace
 from .authoring import (
     CircuitPlan,
     CoordinateRef,
@@ -58,6 +68,7 @@ from .errors import (
     PortRealizabilityError,
     SCNSimValidationError,
     RuntimePreparationError,
+    ResultUnavailableError,
 )
 from .results import (
     DiagonalRootResult,
@@ -65,11 +76,12 @@ from .results import (
     DirectQuantityResult,
     DirectSolveResult,
     ExplanationResult,
-    HBBatchResult,
-    InventoryResult,
     OperatorResult,
+    StaticCapacitanceResult,
+    StaticCapacitanceElementResult,
     OptimizationResult,
     ParameterSweepResult,
+    SensitivityResult,
     ReportResult,
     _is_verified_analysis_result,
     _verified_result,
@@ -78,10 +90,18 @@ from .specs import (
     DiagonalRootSpec,
     OperatorElementRootSpec,
     DirectSolveSpec,
-    HBSolveSpec,
     HybridizedPoleSpec,
     OperatorSpec,
+    StaticCapacitanceSpec,
+    StaticCapacitanceElementSpec,
     OptimizationSpec,
+    CMAESSpec,
+    SensitivitySpec,
+    FixedMeshSpec,
+    AcceptedIterateSelection,
+    LBFGSBSpec,
+    ProjectedLBFGSSpec,
+    HybridSpec,
     OptimizationProgress,
     QuantityAbsolute,
     QuantityDifference,
@@ -91,62 +111,12 @@ from .specs import (
     ResidueNormalizedCouplingSpec,
     ResponseElementSpec,
     TransferZeroSpec,
-    _selector_unit,
 )
 
 
-# Omission selects the backend default; explicit None remains invalid.
+# Omission selects the existing cadence default; explicit None remains invalid.
 _OMITTED_COMMIT_EVERY_GENERATIONS = object()
-
-def _coordinate_id(value: str | ElectricNodeRef | CoordinateRef) -> str:
-    if isinstance(value, str):
-        if not value:
-            raise ValueError("coordinate IDs must not be empty")
-        return value
-    identifier = getattr(value, "id", None)
-    if isinstance(identifier, str) and identifier:
-        return identifier
-    name = getattr(value, "name", None)
-    if isinstance(name, str) and name:
-        return name
-    raise TypeError("coordinate must be a public SCNSim coordinate handle or ID")
-
-
-def _parameter_key(parameter: ParameterRef) -> tuple[str, str]:
-    """Return one independent definitions-collection/local identity."""
-
-    if not isinstance(parameter, ParameterRef):
-        raise TypeError("parameter must be ParameterRef")
-    definitions_id = getattr(parameter, "definitions_id", None)
-    identifier = getattr(parameter, "id", None)
-    if not isinstance(definitions_id, str) or not definitions_id or not isinstance(identifier, str) or not identifier:
-        raise TypeError("ParameterRef has no canonical SCNSim parameter identity")
-    return definitions_id, identifier
-
-
-def _view_declaration(lineage: Mapping[str, object]) -> dict[str, object]:
-    """Project a lazy Python View to the request's declarative-only record."""
-
-    ptc = lineage.get("ptc")
-    transforms = lineage.get("transforms")
-    retain = lineage.get("retain")
-    if transforms is None or not isinstance(transforms, Sequence) or isinstance(transforms, (str, bytes)):
-        raise CompilerInvariantError("View transform declaration is malformed", stage="request_encode")
-    return {
-        "type": "network_view",
-        "ptc": None if ptc is None else {"selected_ports": list(ptc["selected_ports"])},
-        "transforms": [
-            {
-                "id": item["id"],
-                "input_coordinates": list(item["input_coordinates"]),
-                "output_coordinates": list(item["output_coordinates"]),
-            }
-            for item in transforms
-        ],
-        "retain": None if retain is None else {
-            "retained_coordinates": list(retain["retained_coordinates"]),
-        },
-    }
+_OMITTED_CHECKPOINT = object()
 
 
 def _parameter_value_record(parameter: ParameterRef, value: object) -> Mapping[str, object]:
@@ -167,85 +137,6 @@ def _uses_baseline_root(spec: object) -> bool:
             for selector in _quantity_selectors(objective.quantity)
         )
     return False
-
-
-def _plan_has_affine_binding(value: object) -> bool:
-    """Recognize affine expansion without interpreting its unimplemented support."""
-
-    if isinstance(value, Mapping):
-        return value.get("kind") == "affine" or any(
-            _plan_has_affine_binding(item) for item in value.values()
-        )
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        return any(_plan_has_affine_binding(item) for item in value)
-    return False
-
-
-def _plan_public_coordinates(plan: Mapping[str, object]) -> tuple[str, ...]:
-    """Collect selectable opaque compiler coordinates from the sealed snapshot."""
-
-    connectivity = plan.get("connectivity")
-    nodes = connectivity.get("node_coordinates") if isinstance(connectivity, Mapping) else None
-    if not isinstance(nodes, Sequence) or isinstance(nodes, (str, bytes)):
-        raise CompilerInvariantError("Plan node-coordinate table is malformed", stage="plan_seal")
-    coordinates = tuple(
-        str(node["compiler_node_id"])
-        for node in nodes
-        if isinstance(node, Mapping) and node.get("visibility") == "public"
-    )
-    if not coordinates or len(set(coordinates)) != len(coordinates):
-        raise CompilerInvariantError("Plan public coordinate table is malformed", stage="plan_seal")
-    return coordinates
-
-
-def _source_unit_identity(
-    *,
-    scope: str,
-    component_path: Sequence[str] = (),
-    parameter_id: str,
-    field: str,
-) -> str:
-    """Encode one source-unit authority without flattening path segments."""
-
-    if (
-        not isinstance(scope, str)
-        or not scope
-        or not isinstance(parameter_id, str)
-        or not parameter_id
-        or not isinstance(field, str)
-        or not field
-        or any(not isinstance(segment, str) or not segment for segment in component_path)
-    ):
-        raise CompilerInvariantError("source-unit provenance identity is malformed", stage="request_encode")
-    return canonical_json_bytes(
-        {
-            "scope": scope,
-            "component_path": list(component_path),
-            "parameter_id": parameter_id,
-            "field": field,
-        }
-    ).decode("utf-8")
-
-
-def _quantity_selectors(value: object) -> tuple[QuantitySelector, ...]:
-    if isinstance(value, QuantitySelector):
-        return (value,)
-    if isinstance(value, QuantitySum):
-        selectors = tuple(
-            selector
-            for term in value.terms
-            for selector in _quantity_selectors(term)
-        )
-        if selectors:
-            return selectors
-    if isinstance(value, QuantityDifference):
-        return _quantity_selectors(value.left) + _quantity_selectors(value.right)
-    if isinstance(value, QuantityAbsolute):
-        return _quantity_selectors(value.operand)
-    raise InvalidOptimizationSpec(
-        "objectives require a closed Direct scalar expression",
-        stage="spec_validation",
-    )
 
 
 class ReductionPipeline:
@@ -315,6 +206,7 @@ class NetworkViewRef:
     """Immutable lazy reference to one Plan and one reduction lineage."""
 
     __slots__ = (
+        "__weakref__",
         "_run",
         "_lineage",
         "_retained",
@@ -356,11 +248,11 @@ class NetworkViewRef:
 
 
 class CircuitRun:
-    """Execution namespace for one permanently sealed Plan and workspace leaf."""
+    """Sealed Plan execution with saved Workspace or detached checked JAX memory Results."""
 
     __slots__ = (
-        "_backend",
         "_precision",
+        "_timing",
         "_plan",
         "_snapshot",
         "_baseline_point",
@@ -369,28 +261,53 @@ class CircuitRun:
         "_plan_sha256",
         "_binding",
         "_original",
+        "_original_declaration",
+        "_lifecycle",
         "_runtime_base",
         "_parameter_lookup",
         "_public_coordinates",
         "_coordinate_lookup",
         "_affine_plan",
         "_source_provenance",
+        "_warm_executables",
+        "_execution_policy",
+        "_storage",
+        "_last_memory_benchmark",
     )
 
     def __init__(
         self,
         *,
         plan: CircuitPlan,
-        workspace: str | PathLike[str],
+        workspace: str | PathLike[str] | None = None,
         versioned: bool = False,
-        backend: str = "jax",
+        storage: str = "workspace",
         precision: str = "float64",
+        timing: str = "aggregate",
+        execution_policy: ExecutionPolicy | None = None,
     ) -> None:
         if not isinstance(plan, CircuitPlan):
             raise TypeError("plan must be a CircuitPlan")
         if not isinstance(versioned, bool):
             raise TypeError("versioned must be bool")
-        self._backend, self._precision = self._backend_options(backend, precision)
+        if storage not in {"workspace", "memory"}:
+            raise ValueError("storage must be 'workspace' or 'memory'")
+        if storage == "workspace" and workspace is None:
+            raise TypeError("storage='workspace' requires workspace")
+        if storage == "memory" and (workspace is not None or versioned):
+            raise ValueError("storage='memory' does not accept workspace or versioned=True")
+        self._storage = storage
+        self._last_memory_benchmark = None
+        self._precision = self._precision_options(precision)
+        self._timing = self._timing_options(timing)
+        if storage == "memory" and self._timing != "aggregate":
+            raise ValueError("storage='memory' supports timing='aggregate' only")
+        self._lifecycle = RunLifecycle()
+        if execution_policy is not None and not isinstance(execution_policy, ExecutionPolicy):
+            raise TypeError("execution_policy must be ExecutionPolicy or None")
+        self._execution_policy = ExecutionPolicy() if execution_policy is None else execution_policy
+        # Run-owned executable entries exclude Plan/coefficient/result bodies.
+        self._warm_executables = CompileOwner(policy=self._execution_policy)
         with plan._run_seal_preparation() as seal_token:
             self._prepare_run(
                 plan=plan,
@@ -403,49 +320,25 @@ class CircuitRun:
         self,
         *,
         plan: CircuitPlan,
-        workspace: str | PathLike[str],
+        workspace: str | PathLike[str] | None,
         versioned: bool,
         seal_token: object | None,
     ) -> None:
-        snapshot = plan._capture_authoring_snapshot()
-        baseline_point = resolve_parameter_point(snapshot)
+        captured = capture_run_binding(plan)
+        snapshot = captured.snapshot
         self._plan = plan
         self._snapshot = snapshot
-        self._baseline_point = baseline_point
-        self._plan_document = canonical_plan_snapshot(snapshot)
-        self._plan_bytes = canonical_json_bytes(self._plan_document)
-        self._plan_sha256 = sha256_hex(self._plan_bytes)
+        self._baseline_point = captured.baseline_point
+        self._plan_document = captured.plan_document
+        self._plan_bytes = captured.plan_bytes
+        self._plan_sha256 = captured.plan_sha256
         self._runtime_base = _runtime_identity_base()
-        self._parameter_lookup = {
-            _parameter_key(parameter): parameter
-            for parameter in baseline_point.effective_parameters.values
-        }
+        self._parameter_lookup = captured.parameter_lookup
         self._source_provenance = snapshot.source_provenance
-        self._public_coordinates = frozenset(_plan_public_coordinates(self._plan_document))
-        lookup: dict[str, str | None] = {}
-        for node in self._plan_document["connectivity"]["node_coordinates"]:
-            compiler_id = str(node["compiler_node_id"])
-            lookup[compiler_id] = compiler_id
-            for alias in node["public_aliases"]:
-                identifier = alias.get("id")
-                if isinstance(identifier, str):
-                    if identifier not in lookup:
-                        lookup[identifier] = compiler_id
-                    elif lookup[identifier] != compiler_id:
-                        lookup[identifier] = None
-                if alias.get("kind") == "exposed_coordinate":
-                    scope = alias.get("scope")
-                    if isinstance(scope, list) and all(isinstance(item, str) for item in scope) and isinstance(identifier, str):
-                        scoped = canonical_json_bytes({"scope": scope, "id": identifier}).decode("utf-8")
-                        previous = lookup.setdefault(scoped, compiler_id)
-                        if previous != compiler_id:
-                            raise CompilerInvariantError(
-                                "typed public coordinate resolves to multiple physical nodes",
-                                stage="plan_seal",
-                            )
-        self._coordinate_lookup = MappingProxyType(lookup)
-        self._affine_plan = _plan_has_affine_binding(self._plan_document)
-        original = self._original_lineage()
+        self._public_coordinates = captured.public_coordinates
+        self._coordinate_lookup = captured.coordinate_lookup
+        self._affine_plan = captured.affine_plan
+        original = self._original_lineage(coordinate_order=captured.coordinate_order)
         nodes_by_net = {
             str(node["final_net"]): str(node["compiler_node_id"])
             for node in self._plan_document["connectivity"]["node_coordinates"]
@@ -454,13 +347,16 @@ class CircuitRun:
             nodes_by_net[str(port["net"])]: str(port["id"])
             for port in self._plan_document["connectivity"]["ports"]
         }
-        self._original = NetworkViewRef._create(
-            self,
-            original,
-            available_coordinates=tuple(sorted(self._public_coordinates)),
+        self._original_declaration = ViewDeclaration.create(
+            lineage=original, available_coordinates=tuple(sorted(self._public_coordinates)),
             port_coordinates=port_coordinates,
             coordinate_load_states={coordinate: "raw" for coordinate in port_coordinates},
         )
+        self._original = None
+        if self._storage == "memory":
+            plan._seal_validated(snapshot, seal_token)
+            self._binding = None
+            return
         self._binding = bind_workspace(
             workspace,
             plan_sha256=self._plan_sha256,
@@ -468,201 +364,96 @@ class CircuitRun:
             versioned=versioned,
             commit=lambda: plan._seal_validated(snapshot, seal_token),
         )
+        from .workspace.evidence import recover_operation_workspace
+
+        with self._binding.writer():
+            recover_operation_workspace(self._binding)
 
     @property
+    @run_activity
     def original(self) -> NetworkViewRef:
         """The sealed Plan's immutable zero-reduction root View."""
 
-        return self._original
+        existing = None if self._original is None else self._original()
+        if existing is None:
+            declaration = self._original_declaration
+            existing = NetworkViewRef._create(
+                self, declaration.lineage(),
+                available_coordinates=declaration.available_coordinates,
+                port_coordinates=dict(declaration.port_coordinates),
+                coordinate_load_states=dict(declaration.coordinate_load_states),
+            )
+            self._original = weakref(existing)
+        return existing
 
-    def _original_lineage(self) -> dict[str, object]:
+    def close(self) -> None:
+        """Release this Run's warm holders; active calls reject close, not cancel."""
+        def release():
+            self._warm_executables.clear()
+            self._original = None
+        self._lifecycle.close(release)
+
+    def _original_lineage(self, *, coordinate_order: tuple[str, ...]) -> dict[str, object]:
         return _original_lineage_document(
-            self._plan_document, self._plan_sha256, self._runtime_base
+            self._plan_document, self._plan_sha256, self._runtime_base,
+            coordinate_order=coordinate_order,
         )
 
+    @run_activity
     def _derive_view(self, parent: NetworkViewRef, pipeline: ReductionPipeline) -> NetworkViewRef:
-        """Apply one immutable dev5 grammar suffix without executing it.
-
-        Candidate-dependent transform weights and B/R/M realization remain a
-        preflight responsibility; this Ref records only exact declarations and
-        current coordinate identities.
-        """
-
-        if pipeline._retained is not None and parent._retained:
-            raise ValueError("retain() is terminal and cannot be added to a retained View")
-        if pipeline._ptc is not None and (
-            parent._lineage["ptc"] is not None or parent._lineage["transforms"]
-        ):
-            raise ValueError("ptc() must be the first reduction in a View lineage")
-        available = list(parent._available_coordinates)
-        port_coordinates = dict(parent._port_coordinates)
-        load_states = dict(parent._coordinate_load_states)
-        ptc = parent._lineage["ptc"]
-        if pipeline._ptc is not None:
-            port_by_id = {port.id: port for port in self._plan.ports}
-            requested: set[str] = set()
-            for port in pipeline._ptc:
-                if port.plan is not self._plan or port.id not in port_by_id or port_by_id[port.id] is not port:
-                    raise ValueError("ptc() PortRef belongs to another Plan")
-                if port.role != "nonloading_probe":
-                    raise ValueError("ptc() accepts only nonloading_probe Ports")
-                if port.id in requested:
-                    raise ValueError("ptc() Ports must be unique")
-                requested.add(port.id)
-            ptc = {
-                "type": "ptc",
-                "selected_ports": [port.id for port in self._plan.ports if port.id in requested],
-            }
-            selected_ports = set(ptc["selected_ports"])
-            for coordinate, port_id in port_coordinates.items():
-                load_states[coordinate] = (
-                    "compensated" if port_id in selected_ports else "raw"
-                )
-        transforms = [dict(value) for value in parent._lineage["transforms"]]
-
-        def resolve_coordinate(value: str | ElectricNodeRef | CoordinateRef) -> str:
-            # Derived coordinate IDs are already in the current basis. Every
-            # other spelling must resolve through the snapshot's typed/public
-            # alias table to one opaque compiler node ID.
-            if isinstance(value, str) and value in available:
-                return value
-            return self._coordinate_id(value)
-
-        for raw_left, raw_right, identifier in pipeline._transforms:
-            left, right = resolve_coordinate(raw_left), resolve_coordinate(raw_right)
-            if isinstance(raw_left, ElectricNodeRef) and raw_left.plan is not self._plan:
-                raise ValueError("transform_pair node belongs to another Plan")
-            if isinstance(raw_right, ElectricNodeRef) and raw_right.plan is not self._plan:
-                raise ValueError("transform_pair node belongs to another Plan")
-            if left == right or left not in available or right not in available:
-                raise ValueError("transform_pair() requires two distinct current Public coordinates")
-            common, differential = f"{identifier}.common", f"{identifier}.differential"
-            if (
-                common in available
-                or differential in available
-                or common in self._coordinate_lookup
-                or differential in self._coordinate_lookup
-            ):
-                raise ValueError("transform_pair generated coordinate collides with the current basis")
-            left_state = load_states.get(left, "not-port")
-            right_state = load_states.get(right, "not-port")
-            if (
-                left_state != right_state
-                and left_state != "not-port"
-                and right_state != "not-port"
-            ):
-                raise ValueError("transform_pair Port inputs must share one PTC load state")
-            generated_port = (
-                identifier
-                if left_state == right_state and left_state != "not-port"
-                else None
-            )
-            left_index, right_index = available.index(left), available.index(right)
-            insert_at = min(left_index, right_index)
-            available = [value for value in available if value not in {left, right}]
-            available[insert_at:insert_at] = [common, differential]
-            port_coordinates.pop(left, None)
-            port_coordinates.pop(right, None)
-            load_states.pop(left, None)
-            load_states.pop(right, None)
-            if generated_port is not None:
-                port_coordinates[common] = common
-                port_coordinates[differential] = differential
-                load_states[common] = left_state
-                load_states[differential] = left_state
-            else:
-                load_states[common] = "not-port"
-                load_states[differential] = "not-port"
-            transforms.append(
-                {
-                    "type": "transform_pair",
-                    "id": identifier,
-                    "input_coordinates": [left, right],
-                    "output_coordinates": [common, differential],
-                }
-            )
-        retained: tuple[str, ...] = parent._retained
-        retain_record = parent._lineage["retain"]
-        if pipeline._retained is not None:
-            resolved = tuple(resolve_coordinate(value) for value in pipeline._retained)
-            if any(isinstance(value, ElectricNodeRef) and value.plan is not self._plan for value in pipeline._retained):
-                raise ValueError("retained node belongs to another Plan")
-            if len(set(resolved)) != len(resolved) or not resolved or any(value not in available for value in resolved):
-                raise ValueError("retain() accepts only unique current Public coordinates")
-            retained = resolved
-            # Candidate-dependent B/R/M matrices are resolved by the Julia
-            # preflight from this exact declarative lineage.
-            retain_record = {
-                "type": "retain",
-                "retained_coordinates": list(resolved),
-                "eliminated_coordinates": [value for value in available if value not in resolved],
-                "output_coordinate_order": list(resolved),
-            }
-        terminal = list(retained) if retained else [port.id for port in self._plan.ports]
-        # A transform without retain() changes the compiled physical basis but
-        # not the raw public Direct boundary: logical Plan Ports remain the
-        # terminal channels in their declaration order.
-        port_realizable = (
-            bool(terminal)
-            if not retained
-            else bool(terminal) and all(value in port_coordinates for value in terminal)
-        )
-        record: dict[str, object] = {
-            "type": "network_view_lineage",
-            "original": dict(parent._lineage["original"]),
-            "ptc": ptc,
-            "transforms": transforms,
-            "retain": retain_record,
-            "terminal_coordinates": terminal,
-            "port_realizable": port_realizable,
-        }
-        record["lineage_sha256"] = sha256_hex(record)
+        declaration = derive_view(plan=self._plan, coordinate_lookup=self._coordinate_lookup,
+                                  parent=parent, pipeline=pipeline)
         return NetworkViewRef._create(
-            self,
-            record,
-            retained,
-            available_coordinates=tuple(available),
-            port_coordinates=port_coordinates,
-            coordinate_load_states=load_states,
+            self, declaration.lineage(), declaration.retained,
+            available_coordinates=declaration.available_coordinates,
+            port_coordinates=dict(declaration.port_coordinates),
+            coordinate_load_states=dict(declaration.coordinate_load_states),
         )
 
     @staticmethod
-    def _backend_options(backend: str, precision: str) -> tuple[str, str]:
-        if backend not in ("jax", "julia"):
-            raise ValueError("backend must be jax or julia")
+    def _precision_options(precision: str) -> str:
         if precision not in ("float64", "float32"):
             raise ValueError("precision must be float64 or float32")
-        return backend, precision
+        return precision
 
-    def _selected_backend(self, backend, precision) -> tuple[str, str]:
-        return self._backend_options(
-            self._backend if backend is None else backend,
+    def _selected_runtime(self, precision) -> tuple[str, str]:
+        return "jax", self._precision_options(
             self._precision if precision is None else precision,
         )
 
     @staticmethod
-    def _require_backend_spec(backend, precision, spec) -> None:
-        if backend == "julia":
-            if precision != "float64":
-                raise RuntimePreparationError(
-                    "The Julia backend requires precision='float64'.", stage="runtime_prepare")
-            return
-        supported = (DirectSolveSpec, DiagonalRootSpec, ResponseElementSpec)
+    def _timing_options(timing: str) -> str:
+        if timing not in ("aggregate", "detailed"):
+            raise ValueError("timing must be aggregate or detailed")
+        return timing
+
+    def _selected_timing(self, timing: str | None) -> str:
+        return self._timing_options(self._timing if timing is None else timing)
+
+    @staticmethod
+    def _require_spec(spec) -> None:
+        supported = (
+            DirectSolveSpec, DiagonalRootSpec, OperatorElementRootSpec,
+            HybridizedPoleSpec, TransferZeroSpec, ResidueNormalizedCouplingSpec,
+            ResponseElementSpec, OperatorSpec, StaticCapacitanceSpec, StaticCapacitanceElementSpec,
+        )
         quantities = (selector.spec for objective in spec.objectives
                       for selector in _quantity_selectors(objective.quantity)) if isinstance(spec, OptimizationSpec) else (spec,)
         for quantity in quantities:
             if not isinstance(quantity, supported):
                 raise RuntimePreparationError(
-                    f"{type(quantity).__name__} requires backend='julia', scnsim[julia] "
-                    "and manually provided Julia 1.12.6; JAX has no fallback.", stage="runtime_prepare")
+                    f"{type(quantity).__name__} is not supported by the JAX runtime.", stage="runtime_prepare")
 
     @contextmanager
-    def _operation_scope(self, method, backend, precision, start_tick_ns):
-        from .benchmark.operations import OperationRecorder
-        backend, precision = self._selected_backend(backend, precision)
-        with OperationRecorder(self._binding, kind=method, backend=backend,
-                               precision=precision, start_tick_ns=start_tick_ns) as trace:
-            yield backend, precision, trace
+    def _execution_scope(self, method, precision, start_tick_ns, timing=None):
+        from .diagnostics.operations import OperationRecorder
+        backend, precision = self._selected_runtime(precision)
+        recorder = OperationRecorder(self._binding, kind=method, backend=backend,
+                                     precision=precision, start_tick_ns=start_tick_ns,
+                                     timing=self._selected_timing(timing))
+        with operation_lease(self._binding, recorder.operation_id) as lease:
+            with recorder as trace:
+                yield backend, precision, trace, lease
 
     @overload
     def solve(
@@ -671,51 +462,50 @@ class CircuitRun:
         spec: DirectSolveSpec,
         *,
         parameters: ParameterSet | None = None,
-        backend: str | None = None,
         precision: str | None = None,
-    ) -> DirectSolveResult: ...
+        timing: str | None = None,
+    ) -> DirectSolveResult | InMemoryDirectSolveResult: ...
+
 
     @overload
     def solve(
         self,
         ref: NetworkViewRef,
-        spec: HBSolveSpec,
-        *,
-        parameters: ParameterSet | None = None,
-        backend: str | None = None,
-        precision: str | None = None,
-    ) -> HBBatchResult: ...
-
-    @overload
-    def solve(
-        self,
-        ref: NetworkViewRef,
-        spec: DirectSolveSpec | HBSolveSpec,
+        spec: DirectSolveSpec,
         *,
         parameters: ParameterSpace,
-        backend: str | None = None,
         precision: str | None = None,
+        timing: str | None = None,
     ) -> ParameterSweepResult: ...
 
+    @run_activity
     def solve(
         self,
         ref: NetworkViewRef,
-        spec: DirectSolveSpec | HBSolveSpec,
+        spec: DirectSolveSpec,
         *,
         parameters: ParameterSet | ParameterSpace | None = None,
-        backend: str | None = None,
         precision: str | None = None,
-    ) -> DirectSolveResult | HBBatchResult | ParameterSweepResult:
-        """Execute the selected Direct response or one shared-basis HB batch."""
+        timing: str | None = None,
+    ) -> DirectSolveResult | InMemoryDirectSolveResult | ParameterSweepResult | InMemoryParameterSweepResult:
+        """Execute the selected Direct response."""
 
         started_ns = perf_counter_ns()
-        with self._operation_scope("solve", backend, precision, started_ns) as (backend, precision, trace):
+        if self._storage == "memory":
+            if isinstance(parameters, ParameterSpace):
+                return self._analyze_memory("solve_direct", ref, spec, parameters=parameters,
+                                            precision=precision,
+                                            timing=timing, started_ns=started_ns)
+            return self._solve_memory(ref, spec, parameters=parameters,
+                                      precision=precision, timing=timing, started_ns=started_ns)
+        prepared: PreparedAnalysis
+        with self._execution_scope("solve", precision, started_ns, timing) as (backend, precision, trace, lease):
             self._require_ref(ref)
-            self._require_backend_spec(backend, precision, spec)
-            operation = "solve_hb" if isinstance(spec, HBSolveSpec) else "solve_direct"
+            self._require_spec(spec)
+            operation = "solve_direct"
             with trace.span("preparation"):
                 prepared = self._prepare_analysis(operation, ref, spec, parameters,
-                                                  backend=backend, precision=precision)
+                                                  precision=precision)
             return self._execute(prepared, bound_spec=spec, trace=trace)
 
     @overload
@@ -725,8 +515,8 @@ class CircuitRun:
         spec: DiagonalRootSpec,
         *,
         parameters: ParameterSet | None = None,
-        backend: str | None = None,
         precision: str | None = None,
+        timing: str | None = None,
     ) -> DiagonalRootResult: ...
 
     @overload
@@ -736,8 +526,8 @@ class CircuitRun:
         spec: OperatorElementRootSpec,
         *,
         parameters: ParameterSet | None = None,
-        backend: str | None = None,
         precision: str | None = None,
+        timing: str | None = None,
     ) -> OperatorElementRootResult: ...
 
     @overload
@@ -747,8 +537,8 @@ class CircuitRun:
         spec: OperatorSpec,
         *,
         parameters: ParameterSet | None = None,
-        backend: str | None = None,
         precision: str | None = None,
+        timing: str | None = None,
     ) -> OperatorResult: ...
 
     @overload
@@ -758,8 +548,8 @@ class CircuitRun:
         spec: HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec,
         *,
         parameters: ParameterSet | None = None,
-        backend: str | None = None,
         precision: str | None = None,
+        timing: str | None = None,
     ) -> DirectQuantityResult: ...
 
     @overload
@@ -769,10 +559,21 @@ class CircuitRun:
         spec: DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec,
         *,
         parameters: ParameterSpace,
-        backend: str | None = None,
         precision: str | None = None,
+        timing: str | None = None,
     ) -> ParameterSweepResult: ...
 
+    @overload
+    def evaluate(self, ref: NetworkViewRef, spec: StaticCapacitanceSpec, *,
+                 parameters: ParameterSet | None = None,
+                 precision: str | None = None, timing: str | None = None) -> StaticCapacitanceResult: ...
+
+    @overload
+    def evaluate(self, ref: NetworkViewRef, spec: StaticCapacitanceElementSpec, *,
+                 parameters: ParameterSet | None = None,
+                 precision: str | None = None, timing: str | None = None) -> StaticCapacitanceElementResult: ...
+
+    @run_activity
     def evaluate(
         self,
         ref: NetworkViewRef,
@@ -782,41 +583,235 @@ class CircuitRun:
         | TransferZeroSpec
         | ResidueNormalizedCouplingSpec
         | ResponseElementSpec
-        | OperatorSpec,
+        | OperatorSpec
+        | StaticCapacitanceSpec
+        | StaticCapacitanceElementSpec,
         *,
         parameters: ParameterSet | ParameterSpace | None = None,
-        backend: str | None = None,
         precision: str | None = None,
+        timing: str | None = None,
     ) -> (
         DiagonalRootResult
         | OperatorElementRootResult
         | DirectQuantityResult
         | OperatorResult
+        | StaticCapacitanceResult
+        | StaticCapacitanceElementResult
         | ParameterSweepResult
+        | InMemoryAnalysisResult
+        | InMemoryParameterSweepResult
     ):
         """Evaluate one typed Direct quantity without an unrelated sweep."""
-
+        if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)) and isinstance(parameters, ParameterSpace):
+            raise RuntimePreparationError("Static capacitance currently supports a single ParameterSet", stage="preflight")
         started_ns = perf_counter_ns()
-        with self._operation_scope("evaluate", backend, precision, started_ns) as (backend, precision, trace):
+        if self._storage == "memory":
+            return self._analyze_memory("evaluate_direct", ref, spec, parameters=parameters,
+                                        precision=precision,
+                                        timing=timing, started_ns=started_ns)
+        with self._execution_scope("evaluate", precision, started_ns, timing) as (backend, precision, trace, lease):
             self._require_ref(ref)
-            self._require_backend_spec(backend, precision, spec)
+            self._require_spec(spec)
             with trace.span("preparation"):
                 prepared = self._prepare_analysis("evaluate_direct", ref, spec, parameters,
-                                                  backend=backend, precision=precision)
+                                                  precision=precision)
             return self._execute(prepared, bound_spec=spec, trace=trace)
 
+    def _sensitivity_quantities(self, quantities, *, encoded: bool):
+        """Bind every expression leaf separately without retaining View closures."""
+        from .specs import _sensitivity_quantity_record
+
+        def bind(value):
+            if isinstance(value, QuantitySum):
+                return {"type": "quantity_sum", "terms": tuple(bind(term) for term in value.terms)}
+            if isinstance(value, QuantityDifference):
+                return {"type": "quantity_difference", "left": bind(value.left), "right": bind(value.right)}
+            if isinstance(value, QuantityAbsolute):
+                return {"type": "quantity_absolute", "operand": bind(value.operand)}
+            if not isinstance(value, QuantitySelector):
+                raise TypeError("quantities must contain bound physical selectors")
+            selected = value._view
+            self._require_ref(selected)
+            if not encoded:
+                return _sensitivity_quantity_record(value)
+            selected_spec = value.spec
+            if not isinstance(selected_spec, DirectSolveSpec):
+                self._validate_direct_quantity_spec("sensitivity", selected, selected_spec)
+            spec_record = _encode_spec(
+                selected_spec, self._baseline_point.effective_parameters,
+                coordinate_bindings={_coordinate_binding_key(coordinate): (
+                    self._static_coordinate_id(selected, coordinate)
+                    if isinstance(selected_spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec))
+                    else self._view_coordinate_id(selected, coordinate))
+                    for coordinate in _quantity_coordinates(selected_spec)}
+                if not isinstance(selected_spec, DirectSolveSpec) else {},
+                trace_channels={channel: self._trace_request_channel(selected, channel)
+                                for trace in getattr(selected_spec, "traces", ())
+                                for channel in (trace.input_port, trace.output_port)},
+            )
+            return {"type": value.type, "projection": value.projection, "spec": spec_record,
+                    "view": {**_view_declaration(selected._lineage), "plan_sha256": self._plan_sha256}}
+
+        return tuple({"id": label, "quantity": bind(quantity)} for label, quantity in quantities.items())
+
+    @run_activity
+    def prepare(
+        self, *, quantities: Mapping[str, object],
+        parameters: ParameterSet | None = None,
+        wrt: Sequence[ParameterRef] | None = None,
+        discretization: FixedMeshSpec | None = None,
+        precision: str | None = None,
+    ) -> PreparedFunction:
+        """Acquire a detached physical callable; do not solve or publish Results.
+
+        Compilation expands ordered structured continuous coordinates. Omitted
+        wrt selects its canonical captured continuous order. Remaining effective
+        point values are constants, without any Run/Workspace closure capture.
+        """
+        from .compilation.prepared_function import compile_prepared_function
+
+        backend, selected_precision = self._selected_runtime(precision)
+        from ._native import require_compensated_kernel
+        require_compensated_kernel()
+        declarations = self._sensitivity_quantities(quantities, encoded=True)
+        point = self._complete_parameters(parameters)
+        active = None if wrt is None else tuple(
+            _parameter_key(self._compatible_parameter(parameter)) for parameter in wrt
+        )
+        if discretization is not None and not isinstance(discretization, FixedMeshSpec):
+            raise TypeError("discretization must be FixedMeshSpec or None")
+        return compile_prepared_function(
+            plan_document=self._plan_document,
+            quantity_declarations=declarations,
+            parameter_record=point.parameter_record,
+            wrt=active,
+            mesh=None if discretization is None else discretization._canonical_record(),
+            precision=selected_precision,
+            program_owner=self._warm_executables,
+        )
+
+    @run_activity
+    def dependencies(self, *, quantities: Mapping[str, object]):
+        """Read declared physical consumers without mesh or device preparation."""
+        from .compilation.dependencies import describe_dependencies
+        declarations = self._sensitivity_quantities(quantities, encoded=True)
+        return describe_dependencies(self._plan_document, declarations,
+                                     self._baseline_point.parameter_record)
+
+    def _encoded_sensitivity_spec(self, spec: SensitivitySpec):
+        if not isinstance(spec, SensitivitySpec):
+            raise TypeError("spec must be SensitivitySpec")
+        for parameter in spec.wrt:
+            self._compatible_parameter(parameter)
+        declaration = dict(spec._canonical_record())
+        declaration["quantities"] = self._sensitivity_quantities(spec.quantities, encoded=True)
+        return declaration
+
+    def _prepare_sensitivity(self, spec: SensitivitySpec, parameters, *, precision):
+        from .execution.sensitivity_request import prepare_sensitivity
+        declaration = self._encoded_sensitivity_spec(spec)
+        point = self._complete_parameters(parameters)
+        return prepare_sensitivity(
+            plan_sha256=self._plan_sha256, encoded_spec=declaration,
+            parameter_record=point.parameter_record, runtime_base=self._runtime_base,
+            precision=precision,
+            source_units=self._source_units(spec, point.effective_parameters, parameter_space=parameters),
+        )
+
+    @run_activity
+    def sensitivity(self, spec: SensitivitySpec, *, parameters: ParameterSet | None = None,
+                    precision: str | None = None,
+                    timing: str | None = None) -> SensitivityResult | InMemorySensitivityResult:
+        """Execute the requested checked derivative of the same physical program."""
+        started_ns = perf_counter_ns()
+        if self._storage == "memory":
+            return self._sensitivity_memory(spec, parameters=parameters,
+                                             precision=precision, timing=timing, started_ns=started_ns)
+        backend, precision = self._selected_runtime(precision)
+        started_ns = perf_counter_ns()
+        with self._execution_scope("sensitivity", precision, started_ns, timing) as (backend, precision, trace, lease):
+            with trace.span("preparation"):
+                prepared = self._prepare_sensitivity(spec, parameters, precision=precision)
+            from .execution.jax_operation import execute_sensitivity_operation
+            return execute_sensitivity_operation(
+                binding=self._binding, plan_document=self._plan_document,
+                prepared_analysis=prepared, decoder=self._result_decoder(),
+                bound_spec=spec, trace=trace,
+                precision=precision, backend=backend,
+                program_owner=self._warm_executables,
+                execution_policy=self._execution_policy,
+            )
+
+    @run_activity
+    def warmup(
+        self,
+        view: NetworkViewRef | PreparedFunction,
+        spec: object | None = None,
+        *,
+        parameters: ParameterSet | None = None,
+        transforms: Sequence[str] = ("value",),
+        batch_shapes: Sequence[tuple[int, ...]] = (),
+    ):
+        """Compile declared signatures from detached or view/spec acquisition.
+
+        batch_shapes declare leading theta point-batch dimensions. View/spec
+        warming plans the actual checked operation, including ordered Objective
+        loss and each declared Hybrid stage. Prepared transforms remain raw,
+        caller-owned signatures. Runtime coefficients do not change static
+        variant identity within fixed operand modes; actual-frame consumers
+        remain explicitly lazy when their exact producer tree is unavailable.
+        Compilation performs no solve or successful evidence publication.
+        """
+        from .execution.warmup import prepare_warmup, warm_prepared
+
+        from ._native import require_compensated_kernel
+        require_compensated_kernel()
+        if isinstance(view, PreparedFunction):
+            if spec is not None or parameters is not None:
+                raise TypeError("prepared warmup does not take a spec or parameters")
+            with (nullcontext() if self._storage == "memory" else operation_lease(self._binding, str(uuid4()))):
+                return warm_prepared(view, executable_owner=self._warm_executables,
+                                     transforms=transforms, batch_shapes=batch_shapes)
+        self._require_ref(view)
+        if isinstance(spec, SensitivitySpec):
+            # Each finalized expression leaf owns its exact View; this argument
+            # verifies Run ownership rather than imposing a single leaf View.
+            prepared = self._prepare_sensitivity(spec, parameters, precision=self._precision)
+        else:
+            self._require_spec(spec)
+            operation = ("optimize_direct" if isinstance(spec, OptimizationSpec) else
+                         "solve_direct" if isinstance(spec, DirectSolveSpec) else "evaluate_direct")
+            prepared = self._prepare_analysis(operation, view, spec, parameters,
+                                              precision=self._precision)
+        with (nullcontext() if self._storage == "memory" else operation_lease(self._binding, str(uuid4()))):
+            return prepare_warmup(
+                plan_document=self._plan_document, analysis=prepared,
+                precision=self._precision, executable_owner=self._warm_executables,
+                baseline_parameters=self._baseline_point.parameter_record,
+                transforms=transforms, batch_shapes=batch_shapes,
+            )
+
+    @run_activity
     def benchmark(
-        self, *, operations=None, method=None, backend=None, precision=None,
+        self, *, operations=None, method=None, precision=None,
         status=None,
     ):
         """Read recorded operation traces from this Plan leaf without execution."""
+        if self._storage == "memory":
+            if any(value is not None for value in (operations, method, precision, status)):
+                raise TypeError("Memory benchmark returns only the last operation and accepts no filters")
+            if self._last_memory_benchmark is None:
+                raise ResultUnavailableError("No in-memory operation has completed", stage="memory_benchmark")
+            return self._last_memory_benchmark
         from .benchmark.api import benchmark
-        return benchmark(self, operations=operations, method=method,
-                         backend=backend, precision=precision, status=status)
+        return benchmark(self._binding, operations=operations, method=method,
+                         precision=precision, status=status)
 
+    @run_activity
     def recover_workspace(self) -> None:
         """Explicitly recover only this Run's bound Plan-leaf operation store."""
-        from .benchmark.storage import recover_operation_workspace
+        self._require_workspace_storage("recover_workspace")
+        from .workspace.evidence import recover_operation_workspace
 
         with self._binding.writer():
             recover_operation_workspace(self._binding)
@@ -827,13 +822,15 @@ class CircuitRun:
         spec: OptimizationSpec,
         *,
         parameters: ParameterSet | None = None,
-        backend: str | None = None,
         precision: str | None = None,
+        timing: str | None = None,
+        progress: bool = True,
         on_progress: Callable[[OptimizationProgress], object] | None = None,
-        checkpoint: str = "generation",
+        checkpoint: str | object = _OMITTED_CHECKPOINT,
         resume_from: Mapping[str, object] | None = None,
-        commit_every_generations: int = 10,
-    ) -> OptimizationResult: ...
+        restart_from: AcceptedIterateSelection | None = None,
+        commit_every_generations: int | object = _OMITTED_COMMIT_EVERY_GENERATIONS,
+    ) -> OptimizationResult | InMemoryOptimizationResult: ...
 
     @overload
     def optimize(
@@ -842,86 +839,160 @@ class CircuitRun:
         spec: OptimizationSpec,
         *,
         parameters: ParameterSet | None = None,
-        backend: str | None = None,
         precision: str | None = None,
+        timing: str | None = None,
+        progress: bool = True,
         on_progress: Callable[[OptimizationProgress], object] | None = None,
-        checkpoint: str = "generation",
+        checkpoint: str | object = _OMITTED_CHECKPOINT,
         resume_from: Mapping[str, object] | None = None,
-        commit_every_generations: int = 10,
-    ) -> OptimizationResult: ...
+        restart_from: AcceptedIterateSelection | None = None,
+        commit_every_generations: int | object = _OMITTED_COMMIT_EVERY_GENERATIONS,
+    ) -> OptimizationResult | InMemoryOptimizationResult: ...
 
+    @run_activity
     def optimize(
         self,
         ref_or_spec: NetworkViewRef | OptimizationSpec,
         spec: OptimizationSpec | None = None,
         *,
         parameters: ParameterSet | None = None,
-        backend: str | None = None,
         precision: str | None = None,
+        timing: str | None = None,
+        progress: bool = True,
         on_progress: Callable[[OptimizationProgress], object] | None = None,
-        checkpoint: str = "generation",
+        checkpoint: str | object = _OMITTED_CHECKPOINT,
         resume_from: Mapping[str, object] | None = None,
+        restart_from: AcceptedIterateSelection | None = None,
         commit_every_generations: int | object = _OMITTED_COMMIT_EVERY_GENERATIONS,
-    ) -> OptimizationResult:
-        """Run one pinned Direct CMA-ES request and return its exact winner."""
+    ) -> OptimizationResult | InMemoryOptimizationResult:
+        """Run the declared physical objective strategy with explicit persistence."""
+        if checkpoint is _OMITTED_CHECKPOINT:
+            checkpoint = "off" if self._storage == "memory" else "generation"
+        if self._storage == "memory":
+            if checkpoint != "off" or resume_from is not None or restart_from is not None:
+                raise RuntimePreparationError(
+                    "Memory optimization has no durable checkpoint, resume or saved accepted-iterate restart",
+                    stage="memory_capability",
+                )
 
         started_ns = perf_counter_ns()
-        with self._operation_scope("optimize", backend, precision, started_ns) as (backend, precision, trace):
+        with self._optimization_scope(precision, started_ns, timing) as (backend, precision, trace, lease):
+            generation_cadence_supplied = commit_every_generations is not _OMITTED_COMMIT_EVERY_GENERATIONS
             if commit_every_generations is _OMITTED_COMMIT_EVERY_GENERATIONS:
-                commit_every_generations = 10 if backend == "jax" else 1
+                commit_every_generations = 10
             if isinstance(commit_every_generations, bool) or not isinstance(commit_every_generations, int):
                 raise TypeError("commit_every_generations must be a positive integer")
             if commit_every_generations <= 0:
                 raise ValueError("commit_every_generations must be a positive integer")
-            if backend == "julia" and commit_every_generations != 1:
-                raise RuntimePreparationError(
-                    "commit_every_generations overrides require the JAX backend.", stage="runtime_prepare"
-                )
             if parameters is not None and not isinstance(parameters, ParameterSet):
                 raise TypeError(
                     "OptimizationSpec parameters must be a ParameterSet or None"
                 )
+            if not isinstance(progress, bool):
+                raise TypeError("progress must be bool")
             if on_progress is not None and not callable(on_progress):
                 raise TypeError("on_progress must be callable or None")
             default_ref, optimization_spec = self._optimization_arguments(ref_or_spec, spec)
+            has_cma = isinstance(optimization_spec.optimizer, CMAESSpec) or (
+                isinstance(optimization_spec.optimizer, HybridSpec)
+                and any(isinstance(stage.optimizer, CMAESSpec) for stage in optimization_spec.optimizer.stages)
+            )
+            if generation_cadence_supplied and not has_cma:
+                raise TypeError("commit_every_generations applies to CMA stages; local stages use commit_every_iterations")
+            if restart_from is not None:
+                if not isinstance(restart_from, AcceptedIterateSelection):
+                    raise TypeError("restart_from must be AcceptedIterateSelection")
+                if resume_from is not None:
+                    raise ValueError("restart_from and exact resume_from are distinct operations")
+                if isinstance(optimization_spec.optimizer, CMAESSpec):
+                    raise RuntimePreparationError("accepted-iterate restart requires local or Hybrid JAX optimization", stage="runtime_prepare")
             ref, selector_views = self._optimization_views(
                 optimization_spec, default_ref=default_ref
             )
-            self._require_backend_spec(backend, precision, optimization_spec)
+            self._require_spec(optimization_spec)
             if checkpoint not in ("generation", "off"):
                 raise ValueError("checkpoint must be generation or off")
-            if backend == "julia" and (checkpoint != "generation" or resume_from is not None):
-                raise RuntimePreparationError("Explicit checkpoint overrides require the JAX backend.", stage="runtime_prepare")
-            with trace.span("preparation"):
-                prepared = self._prepare_analysis(
-                    "optimize_direct",
-                    ref,
-                    optimization_spec,
-                    parameters,
-                    selector_views=selector_views,
-                    backend=backend, precision=precision,
-                )
-            return self._execute(prepared, bound_spec=optimization_spec, on_progress=on_progress,
-                                 checkpoint_policy=checkpoint, resume_from=resume_from,
-                                 commit_every_generations=commit_every_generations, trace=trace)
+            display = None
+            if progress:
+                from .execution.progress import OptimizationProgressDisplay
+
+                display = OptimizationProgressDisplay(enabled=True)
+                display.start()
+            try:
+                try:
+                    with trace.span("preparation"):
+                        prepared = self._prepare_analysis(
+                            "optimize_direct",
+                            ref,
+                            optimization_spec,
+                            parameters,
+                            selector_views=selector_views,
+                            precision=precision,
+                        )
+                except (Exception, KeyboardInterrupt) as error:
+                    if display is not None:
+                        try:
+                            display.update(
+                                phase="interrupted" if isinstance(error, KeyboardInterrupt) else "failed",
+                                completed_generations=0, total_generations=0,
+                                evaluated_count=0, best_cost=None,
+                                committed_generations=0,
+                            )
+                        except Exception as display_error:
+                            error.add_note(
+                                "Progress display failure during preparation error: "
+                                f"{type(display_error).__name__}"
+                            )
+                    raise
+                if self._storage == "memory":
+                    from .execution.memory_optimization import execute_memory_optimization
+                    from .results.memory_optimization import build_memory_optimization_result
+                    trace.bind(operation="optimize_direct", request_sha256=prepared.request_sha256)
+                    payload = execute_memory_optimization(
+                        plan_document=self._plan_document, prepared_analysis=prepared,
+                        trace=trace, program_owner=self._warm_executables,
+                        execution_policy=self._execution_policy,
+                        commit_every_generations=commit_every_generations,
+                        on_progress=on_progress, progress_observer=display,
+                    )
+                    with trace.span("result_assembly"):
+                        result = build_memory_optimization_result(
+                            payload=payload, request=prepared.request(),
+                            plan_sha256=self._plan_sha256, request_sha256=prepared.request_sha256,
+                            execution_id=trace.execution_id,
+                            parameter_lookup=MappingProxyType(dict(self._parameter_lookup)),
+                        )
+                else:
+                    result = self._execute(
+                        prepared, bound_spec=optimization_spec, on_progress=on_progress,
+                        progress_observer=display, checkpoint_policy=checkpoint,
+                        resume_from=resume_from,
+                        restart_from=None if restart_from is None else restart_from._canonical_record(),
+                        commit_every_generations=commit_every_generations, trace=trace,
+                    )
+            finally:
+                if display is not None:
+                    display.close()
+        if self._storage == "memory":
+            from .results.memory_optimization import attach_memory_optimization_benchmark
+            return attach_memory_optimization_benchmark(result, trace.snapshot())
+        return result
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: DirectSolveSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None) -> DirectSolveResult | ParameterSweepResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: DirectSolveSpec, *, parameters: ParameterSet | ParameterSpace | None = None, precision: str | None = None, attempt: object | None = None) -> DirectSolveResult | ParameterSweepResult: ...
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: DiagonalRootSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None) -> DiagonalRootResult | ParameterSweepResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: DiagonalRootSpec, *, parameters: ParameterSet | ParameterSpace | None = None, precision: str | None = None, attempt: object | None = None) -> DiagonalRootResult | ParameterSweepResult: ...
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: OperatorElementRootSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None) -> OperatorElementRootResult | ParameterSweepResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: OperatorElementRootSpec, *, parameters: ParameterSet | ParameterSpace | None = None, precision: str | None = None, attempt: object | None = None) -> OperatorElementRootResult | ParameterSweepResult: ...
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: OptimizationSpec, *, parameters: ParameterSet | None = None, backend: str | None = None, precision: str | None = None) -> OptimizationResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: OptimizationSpec, *, parameters: ParameterSet | None = None, precision: str | None = None, attempt: object | None = None) -> OptimizationResult: ...
+
 
     @overload
-    def resolve(self, ref: NetworkViewRef, spec: HBSolveSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None) -> HBBatchResult | ParameterSweepResult: ...
-
-    @overload
-    def resolve(self, ref: NetworkViewRef, spec: OperatorSpec, *, parameters: ParameterSet | ParameterSpace | None = None, backend: str | None = None, precision: str | None = None) -> OperatorResult | ParameterSweepResult: ...
+    def resolve(self, ref: NetworkViewRef, spec: OperatorSpec, *, parameters: ParameterSet | ParameterSpace | None = None, precision: str | None = None, attempt: object | None = None) -> OperatorResult | ParameterSweepResult: ...
 
     @overload
     def resolve(
@@ -930,15 +1001,33 @@ class CircuitRun:
         spec: HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec,
         *,
         parameters: ParameterSet | ParameterSpace | None = None,
-        backend: str | None = None,
         precision: str | None = None,
     ) -> DirectQuantityResult | ParameterSweepResult: ...
 
+    @staticmethod
+    def _terminal_attempt_id(attempt):
+        if attempt is None:
+            return None
+        if isinstance(attempt, str):
+            identity = attempt
+        elif isinstance(attempt, Mapping):
+            identity = attempt.get("attempt_id")
+        else:
+            identity = getattr(attempt, "attempt_id", None)
+        if not isinstance(identity, str) or not identity:
+            raise TypeError("attempt must supply an exact terminal attempt_id")
+        return identity
+
+    @overload
+    def resolve(self, spec: SensitivitySpec, *, parameters: ParameterSet | None = None,
+                precision: str | None = None,
+                attempt: object | None = None) -> SensitivityResult | None: ...
+
+    @run_activity
     def resolve(
         self,
-        ref: NetworkViewRef,
+        ref: NetworkViewRef | SensitivitySpec,
         spec: DirectSolveSpec
-        | HBSolveSpec
         | DiagonalRootSpec
         | OperatorElementRootSpec
         | HybridizedPoleSpec
@@ -946,30 +1035,55 @@ class CircuitRun:
         | ResidueNormalizedCouplingSpec
         | ResponseElementSpec
         | OperatorSpec
-        | OptimizationSpec,
+        | StaticCapacitanceSpec
+        | StaticCapacitanceElementSpec
+        | OptimizationSpec
+        | None = None,
         *,
         parameters: ParameterSet | ParameterSpace | None = None,
-        backend: str | None = None,
         precision: str | None = None,
+        attempt: object | None = None,
     ) -> (
         DirectSolveResult
-        | HBBatchResult
+
         | DiagonalRootResult
         | OperatorElementRootResult
         | DirectQuantityResult
         | OperatorResult
+        | StaticCapacitanceResult
+        | StaticCapacitanceElementResult
         | OptimizationResult
         | ParameterSweepResult
+        | SensitivityResult
+        | None
     ):
-        """Verify and load the success for this exact request without retrying."""
+        """Read exact success, or an explicitly selected sealed terminal."""
+        self._require_workspace_storage("resolve")
 
-        backend, precision = self._selected_backend(backend, precision)
-        self._require_backend_spec(backend, precision, spec)
+        requested_precision = precision
+        backend, precision = self._selected_runtime(precision)
+        attempt_id = self._terminal_attempt_id(attempt)
+        if isinstance(ref, SensitivitySpec):
+            if spec is not None:
+                raise TypeError("resolve received both a SensitivitySpec and a second Spec")
+            from .execution.jax_operation import resolve_jax_operation
+            if attempt_id is not None and parameters is None:
+                from .execution.sensitivity_request import finalize_sensitivity_spec
+                expected_spec = finalize_sensitivity_spec(self._encoded_sensitivity_spec(ref))
+                return resolve_jax_operation(
+                    binding=self._binding, prepared_analysis=None,
+                    decoder=self._result_decoder(), bound_spec=ref, attempt_id=attempt_id,
+                    expected_spec=expected_spec, expected_backend="jax",
+                    expected_precision=requested_precision,
+                )
+            prepared = self._prepare_sensitivity(ref, parameters, precision=precision)
+            return resolve_jax_operation(binding=self._binding, prepared_analysis=prepared,
+                                         decoder=self._result_decoder(), bound_spec=ref,
+                                         attempt_id=attempt_id)
+        self._require_spec(spec)
         self._require_ref(ref)
         if isinstance(spec, DirectSolveSpec):
             operation = "solve_direct"
-        elif isinstance(spec, HBSolveSpec):
-            operation = "solve_hb"
         elif isinstance(
             spec,
             (
@@ -980,6 +1094,8 @@ class CircuitRun:
                 ResidueNormalizedCouplingSpec,
                 ResponseElementSpec,
                 OperatorSpec,
+                StaticCapacitanceSpec,
+                StaticCapacitanceElementSpec,
             ),
         ):
             operation = "evaluate_direct"
@@ -1000,26 +1116,17 @@ class CircuitRun:
             spec,
             parameters,
             selector_views=selector_views,
-            backend=backend, precision=precision,
+            precision=precision,
         )
-        if backend == "jax":
-            from .execution.jax_operation import resolve_jax_operation
-            return resolve_jax_operation(binding=self._binding, prepared_analysis=prepared,
-                                         decoder=self._result_decoder(), bound_spec=spec)
-        with self._binding.reader():
-            success = self._binding.resolve_success(prepared.request_sha256)
-            evidence_lease = _verified_evidence_lease(self._binding, success)
-            return self._decode_success(
-                success,
-                bound_spec=spec,
-                evidence_lease=evidence_lease,
-            )
+        from .execution.jax_operation import resolve_jax_operation
+        return resolve_jax_operation(binding=self._binding, prepared_analysis=prepared,
+                                     decoder=self._result_decoder(), bound_spec=spec, attempt_id=attempt_id)
 
+    @run_activity
     def explain(
         self,
         ref: NetworkViewRef,
         spec: DirectSolveSpec
-        | HBSolveSpec
         | DiagonalRootSpec
         | OperatorElementRootSpec
         | HybridizedPoleSpec
@@ -1027,18 +1134,22 @@ class CircuitRun:
         | ResidueNormalizedCouplingSpec
         | ResponseElementSpec
         | OperatorSpec
+        | StaticCapacitanceSpec
+        | StaticCapacitanceElementSpec
         | OptimizationSpec,
         *,
         parameters: ParameterSet | None = None,
+        precision: str | None = None,
     ) -> ExplanationResult:
-        """Compile and present request evidence without creating an attempt."""
+        """Explain the JAX compiler without creating an attempt or solve."""
+        self._require_workspace_storage("explain")
 
+        backend, precision = self._selected_runtime(precision)
         self._require_ref(ref)
         if not isinstance(
             spec,
             (
                 DirectSolveSpec,
-                HBSolveSpec,
                 DiagonalRootSpec,
                 OperatorElementRootSpec,
                 HybridizedPoleSpec,
@@ -1046,14 +1157,14 @@ class CircuitRun:
                 ResidueNormalizedCouplingSpec,
                 ResponseElementSpec,
                 OperatorSpec,
+                StaticCapacitanceSpec,
+                StaticCapacitanceElementSpec,
                 OptimizationSpec,
             ),
         ):
             unavailable(f"CircuitRun.explain({type(spec).__name__})")
         operation = (
-            "solve_hb"
-            if isinstance(spec, HBSolveSpec)
-            else "solve_direct"
+            "solve_direct"
             if isinstance(spec, DirectSolveSpec)
             else "evaluate_direct"
             if isinstance(
@@ -1066,10 +1177,13 @@ class CircuitRun:
                     ResidueNormalizedCouplingSpec,
                     ResponseElementSpec,
                     OperatorSpec,
+                    StaticCapacitanceSpec,
+                    StaticCapacitanceElementSpec,
                 ),
             )
             else "optimize_direct"
         )
+        self._require_spec(spec)
         selector_views = None
         if isinstance(spec, OptimizationSpec):
             ref, selector_views = self._optimization_views(spec, default_ref=ref)
@@ -1079,9 +1193,13 @@ class CircuitRun:
             spec,
             parameters,
             selector_views=selector_views,
+            precision=precision,
         )
         request = prepared.request()
-        compiled = self._preflight(request)
+        operation_id = str(uuid4())
+        with operation_lease(self._binding, operation_id) as lease:
+            from .execution.compilation import _run_jax_preflight
+            compiled = _run_jax_preflight(self._plan_document, request)
         return _verified_result(
             ExplanationResult,
             evidence={
@@ -1099,42 +1217,176 @@ class CircuitRun:
             },
         )
 
-    def inventory(self) -> InventoryResult:
-        """Inspect this Run's exact workspace leaf without selecting a latest result."""
 
-        with self._binding.reader():
-            inventory = self._binding.inventory_document()
-        requests = inventory.get("requests")
-        maintenance = inventory.get("maintenance")
-        if (
-            inventory.get("schema") != "scnsim.inventory"
-            or inventory.get("schema_version") != 3
-            or inventory.get("plan_sha256") != self._plan_sha256
-            or not isinstance(requests, list)
-            or any(not isinstance(row, Mapping) for row in requests)
-            or not isinstance(maintenance, list)
-            or len(maintenance) > 1
-            or any(not isinstance(row, Mapping) for row in maintenance)
-        ):
-            raise EvidenceIntegrityError("workspace inventory is malformed", stage="inventory")
-        return _verified_result(
-            InventoryResult,
-            requests=tuple(dict(row) for row in requests),
-            maintenance=tuple(dict(row) for row in maintenance),
-        )
-
+    @run_activity
     def build_report(self, spec: ReportSpec) -> ReportResult:
-        """Derive a self-contained report from explicit receipt-backed Results."""
+        """Derive a pure report from checked saved or detached numerical Results."""
+        from .results import _is_checked_report_input
 
         if (
             not isinstance(spec, ReportSpec)
             or not spec.inputs
-            or not all(_is_verified_analysis_result(result) for result in spec.inputs)
+            or not all(_is_checked_report_input(result) for result in spec.inputs)
         ):
             raise TypeError("build_report() requires ReportSpec")
         from .visualization.report import build_report
 
         return build_report(spec)
+
+    def _solve_memory(self, ref, spec, *, parameters, precision, timing, started_ns):
+        """Own the full Direct call without entering any saved-operation scope."""
+        backend, precision = self._selected_runtime(precision)
+        if not isinstance(spec, DirectSolveSpec) or isinstance(parameters, ParameterSpace):
+            raise RuntimePreparationError(
+                "Memory solve supports one JAX DirectSolveSpec point only",
+                stage="memory_capability",
+            )
+        if self._selected_timing(timing) != "aggregate":
+            raise ValueError("Memory solve supports timing='aggregate' only")
+        self._require_ref(ref)
+        from .diagnostics.memory_operation import MemoryOperationRecorder
+        from .execution.memory_direct import execute_memory_direct
+        from .results.memory_direct import build_memory_direct_result, attach_memory_benchmark
+
+        execution_id = str(uuid4())
+        trace = MemoryOperationRecorder(execution_id=execution_id, kind="solve",
+                                        backend=backend, precision=precision,
+                                        start_tick_ns=started_ns)
+        primary = None
+        try:
+            with trace.span("preparation"):
+                prepared = self._prepare_analysis("solve_direct", ref, spec, parameters,
+                                                  precision=precision)
+                trace.bind(operation="solve_direct", request_sha256=prepared.request_sha256)
+            # The execution owner drains and closes its operation resources
+            # before returning arrays; this facade also times typed assembly.
+            payload = execute_memory_direct(
+                plan_document=self._plan_document, prepared_analysis=prepared,
+                trace=trace, program_owner=self._warm_executables,
+                execution_policy=self._execution_policy,
+            )
+            with trace.span("result_assembly"):
+                result = build_memory_direct_result(
+                    payload=payload, request=prepared.request(),
+                    plan_sha256=self._plan_sha256, request_sha256=prepared.request_sha256,
+                    execution_id=execution_id,
+                )
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            try:
+                self._last_memory_benchmark = trace.finish(error=primary)
+            except BaseException as cleanup_error:
+                if primary is None:
+                    raise
+                primary.add_note(
+                    f"In-memory timing finalization also failed: {type(cleanup_error).__name__}: {cleanup_error}"
+                )
+        return attach_memory_benchmark(result, trace.snapshot())
+
+    @contextmanager
+    def _optimization_scope(self, precision, started_ns, timing):
+        """Select the actual storage owner without changing optimization math."""
+        if self._storage != "memory":
+            with self._execution_scope("optimize", precision, started_ns, timing) as scope:
+                yield scope
+            return
+        with self._memory_scope("optimize", precision, started_ns, timing) as scope:
+            yield (*scope, None)
+
+    @contextmanager
+    def _memory_scope(self, kind, precision, started_ns, timing):
+        """Own one RAM operation clock through producer drain and projection."""
+        backend, precision = self._selected_runtime(precision)
+        if self._selected_timing(timing) != "aggregate":
+            raise ValueError("Memory execution supports timing='aggregate' only")
+        from .diagnostics.memory_operation import MemoryOperationRecorder
+        trace = MemoryOperationRecorder(execution_id=str(uuid4()), kind=kind,
+                                        backend=backend, precision=precision,
+                                        start_tick_ns=started_ns)
+        primary = None
+        try:
+            yield backend, precision, trace
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            try:
+                self._last_memory_benchmark = trace.finish(error=primary)
+            except BaseException as cleanup_error:
+                if primary is None:
+                    raise
+                primary.add_note(
+                    f"In-memory timing finalization also failed: {type(cleanup_error).__name__}: {cleanup_error}"
+                )
+
+    def _analyze_memory(self, operation, ref, spec, *, parameters,
+                        precision, timing, started_ns):
+        """Bind ordinary point/Sweep declarations to the sole RAM producer."""
+        from .execution.memory_analysis import execute_memory_analysis
+        from .results.memory_analysis import (
+            build_memory_analysis_result, attach_memory_analysis_benchmark,
+        )
+        kind = "solve" if operation == "solve_direct" else "evaluate"
+        with self._memory_scope(kind, precision, started_ns, timing) as (backend, precision, trace):
+            self._require_ref(ref)
+            self._require_spec(spec)
+            with trace.span("preparation"):
+                prepared = self._prepare_analysis(operation, ref, spec, parameters,
+                                                  precision=precision)
+                trace.bind(operation=operation, request_sha256=prepared.request_sha256)
+                from .execution.prepared import capture_selector_binding
+                selector_binding = capture_selector_binding(
+                    plan_owner_id=id(self._plan), coordinate_lookup=self._coordinate_lookup,
+                    view=prepared.request()["view"],
+                )
+            payload = execute_memory_analysis(
+                plan_document=self._plan_document, prepared_analysis=prepared,
+                trace=trace, program_owner=self._warm_executables,
+                execution_policy=self._execution_policy,
+            )
+            with trace.span("result_assembly"):
+                result = build_memory_analysis_result(
+                    payload=payload, request=prepared.request(),
+                    plan_sha256=self._plan_sha256, request_sha256=prepared.request_sha256,
+                    execution_id=trace.execution_id,
+                    parameter_lookup=MappingProxyType(dict(self._parameter_lookup)),
+                    selector_binding=selector_binding,
+                )
+        return attach_memory_analysis_benchmark(result, trace.snapshot())
+
+    def _sensitivity_memory(self, spec, *, parameters, precision,
+                            timing, started_ns):
+        """Keep checked derivative payload and Result ownership separate."""
+        from .execution.memory_analysis import execute_memory_sensitivity
+        from .results.memory_sensitivity import (
+            build_memory_sensitivity_result, attach_memory_sensitivity_benchmark,
+        )
+        with self._memory_scope("sensitivity", precision, started_ns, timing) as (backend, precision, trace):
+            with trace.span("preparation"):
+                prepared = self._prepare_sensitivity(spec, parameters, precision=precision)
+                trace.bind(operation="sensitivity", request_sha256=prepared.request_sha256)
+            payload = execute_memory_sensitivity(
+                plan_document=self._plan_document, prepared_analysis=prepared,
+                trace=trace, program_owner=self._warm_executables,
+                execution_policy=self._execution_policy,
+            )
+            with trace.span("result_assembly"):
+                result = build_memory_sensitivity_result(
+                    payload=payload, request=prepared.request(),
+                    plan_sha256=self._plan_sha256, request_sha256=prepared.request_sha256,
+                    execution_id=trace.execution_id,
+                    parameter_lookup=MappingProxyType(dict(self._parameter_lookup)),
+                )
+        return attach_memory_sensitivity_benchmark(result, trace.snapshot())
+
+    def _require_workspace_storage(self, method: str) -> None:
+        if self._storage == "memory":
+            raise RuntimePreparationError(
+                f"CircuitRun.{method} is unavailable with storage='memory'; memory execution supports checked JAX analysis, Sensitivity and Optimization",
+                stage="memory_capability",
+            )
 
     def _require_ref(self, ref: NetworkViewRef) -> None:
         if not isinstance(ref, NetworkViewRef) or ref._run is not self:
@@ -1179,21 +1431,8 @@ class CircuitRun:
             )
         return ordered[0], MappingProxyType(bindings)
 
-    def _coordinate_id(self, value: str | ElectricNodeRef | CoordinateRef) -> str:
-        """Resolve a public alias to the snapshot's canonical compiler node."""
-
-        if isinstance(value, ElectricNodeRef) and value.plan is not self._plan:
-            raise ValueError("coordinate belongs to another Plan")
-        if isinstance(value, CoordinateRef):
-            if value.scope.root is not self._plan:
-                raise ValueError("coordinate belongs to another Plan")
-            key = canonical_json_bytes({"scope": list(value.scope.path()), "id": value.id}).decode("utf-8")
-            resolved = self._coordinate_lookup.get(key)
-        else:
-            resolved = self._coordinate_lookup.get(_coordinate_id(value))
-        if resolved is None:
-            raise ValueError("coordinate is not a public alias in this Plan")
-        return resolved
+    def _coordinate_id(self, value):
+        return coordinate_id(self._plan, self._coordinate_lookup, value)
 
     def _view_coordinate_id(
         self,
@@ -1207,11 +1446,21 @@ class CircuitRun:
             return value
         return self._coordinate_id(value)
 
+    def _static_coordinate_id(self, ref: NetworkViewRef, value: CoordinateRef | ElectricNodeRef | str) -> str:
+        """Bind public handles/aliases or retain a canonical static output-axis ID.
+
+        Full finite-mesh node membership belongs to the same-point compiler.
+        This does not expose internal nodes to RF View/retain declarations.
+        """
+        if isinstance(value, str) and value not in ref._available_coordinates and value not in self._coordinate_lookup:
+            return value
+        return self._view_coordinate_id(ref, value)
+
     def _validate_direct_request(
         self,
         operation: str,
         ref: NetworkViewRef,
-        spec: DirectSolveSpec | DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | OptimizationSpec,
+        spec: DirectSolveSpec | DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | StaticCapacitanceSpec | StaticCapacitanceElementSpec | OptimizationSpec,
         *,
         selector_views: Mapping[int, NetworkViewRef] | None = None,
     ) -> None:
@@ -1238,7 +1487,7 @@ class CircuitRun:
                 if trace.input_mode or trace.output_mode:
                     raise ValueError("Direct traces require empty mode tuples")
             return
-        if isinstance(spec, (DiagonalRootSpec, OperatorElementRootSpec, HybridizedPoleSpec, TransferZeroSpec, ResidueNormalizedCouplingSpec, ResponseElementSpec, OperatorSpec)):
+        if isinstance(spec, (DiagonalRootSpec, OperatorElementRootSpec, HybridizedPoleSpec, TransferZeroSpec, ResidueNormalizedCouplingSpec, ResponseElementSpec, OperatorSpec, StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
             self._validate_direct_quantity_spec(operation, ref, spec)
             return
         active = {
@@ -1274,12 +1523,20 @@ class CircuitRun:
         self,
         operation: str,
         ref: NetworkViewRef,
-        spec: DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec,
+        spec: DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | StaticCapacitanceSpec | StaticCapacitanceElementSpec,
         *,
         residue_branch: bool = False,
     ) -> None:
         """Apply the selected-View contract shared by evaluate and CMA selectors."""
 
+        if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
+            # View binding owns public-coordinate retention and PTC lineage.
+            # An element binds after the same compiled static partition; full
+            # View elements may still address returned finite-mesh axis IDs.
+            if isinstance(spec, StaticCapacitanceElementSpec):
+                for value in (spec.row, spec.column):
+                    self._static_coordinate_id(ref, value)
+            return
         if isinstance(spec, DiagonalRootSpec):
             coordinate = self._view_coordinate_id(ref, spec.coordinate)
             channels = tuple(ref._lineage["terminal_coordinates"])
@@ -1332,36 +1589,6 @@ class CircuitRun:
             return
         raise InvalidOptimizationSpec("optimization selector is outside the Direct quantity catalog", stage="spec_validation")
 
-    def _validate_hb_request(self, ref: NetworkViewRef, spec: HBSolveSpec) -> None:
-        """Bind public HB declarations to this sealed Plan and selected View."""
-
-        if ref._lineage.get("port_realizable") is not True:
-            raise PortRealizabilityError(
-                "HB solve requires a Port-realizable final View",
-                stage="preflight",
-                evidence={"type": "failure_evidence", "operation": "solve_hb", "context_kind": "runtime"},
-            )
-        plan_ports = tuple(self._plan.ports)
-        for drive in spec.drives:
-            if not any(port is drive.at for port in plan_ports):
-                raise SCNSimValidationError(
-                    "HB CurrentDrive belongs to another Plan",
-                    stage="preflight",
-                    evidence={"type": "failure_evidence", "operation": "solve_hb", "context_kind": "runtime"},
-                )
-        channels = frozenset(ref._lineage["terminal_coordinates"])
-        for trace in spec.traces:
-            try:
-                input_channel = self._trace_request_channel(ref, trace.input_port)
-                output_channel = self._trace_request_channel(ref, trace.output_port)
-            except ValueError:
-                input_channel = output_channel = None
-            if input_channel not in channels or output_channel not in channels:
-                raise PortRealizabilityError(
-                    "HB trace names a channel outside the selected View",
-                    stage="preflight",
-                    evidence={"type": "failure_evidence", "operation": "solve_hb", "context_kind": "runtime"},
-                )
         # Driven-PTC authorization is decided by Julia preflight after exact
         # oriented source-vector accumulation.  Comparing declaration scalars
         # here would reject valid cancellation across distinct logical Ports.
@@ -1389,13 +1616,7 @@ class CircuitRun:
         return resolve_parameter_point(self._snapshot, supplied)
 
     def _compatible_parameter(self, parameter: ParameterRef) -> ParameterRef:
-        current = self._parameter_lookup.get(_parameter_key(parameter))
-        if current is None or current._definition_record() != parameter._definition_record():
-            raise SCNSimValidationError(
-                "parameter is not a compatible consumed definition in this Plan",
-                stage="preflight",
-            )
-        return current
+        return compatible_parameter(self._parameter_lookup, parameter)
 
     def _parameter_source(
         self,
@@ -1508,6 +1729,17 @@ class CircuitRun:
     ) -> BoundOptimization:
         """Bind ordered selector leaves without retaining live View objects."""
 
+        stages = spec.optimizer.stages if isinstance(spec.optimizer, HybridSpec) else ()
+        controls = tuple(stage.optimizer for stage in stages) or (spec.optimizer,)
+        for control in controls:
+            if isinstance(control, (LBFGSBSpec, ProjectedLBFGSSpec)) and control.coordinate_scales is not None:
+                for parameter in control.coordinate_scales:
+                    self._compatible_parameter(parameter)
+        for stage in stages:
+            if stage.seed is not None:
+                for parameter in stage.seed.values:
+                    self._compatible_parameter(parameter)
+
         expressions: list[Mapping[str, object]] = []
         leaves: list[BoundOptimizationLeaf] = []
         for objective_ordinal, objective in enumerate(spec.objectives):
@@ -1537,6 +1769,8 @@ class CircuitRun:
                         "optimization objective contains a non-selector leaf",
                         stage="spec_validation",
                     )
+                if isinstance(selector.spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
+                    raise RuntimePreparationError("Static capacitance optimization is not supported", stage="preflight")
                 selected = selector_views.get(id(selector))
                 if selected is None:
                     raise InvalidOptimizationSpec(
@@ -1583,7 +1817,6 @@ class CircuitRun:
         operation: str,
         ref: NetworkViewRef,
         spec: DirectSolveSpec
-        | HBSolveSpec
         | DiagonalRootSpec
         | OperatorElementRootSpec
         | HybridizedPoleSpec
@@ -1591,31 +1824,29 @@ class CircuitRun:
         | ResidueNormalizedCouplingSpec
         | ResponseElementSpec
         | OperatorSpec
+        | StaticCapacitanceSpec
+        | StaticCapacitanceElementSpec
         | OptimizationSpec,
         parameters: ParameterSet | ParameterSpace | None,
         *,
         selector_views: Mapping[int, NetworkViewRef] | None = None,
-        backend: str = "julia",
         precision: str = "float64",
     ) -> PreparedAnalysis:
         """Normalize one non-executable analysis declaration exactly once."""
 
+        if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)) and isinstance(parameters, ParameterSpace):
+            raise RuntimePreparationError("Static capacitance currently supports a single ParameterSet", stage="preflight")
         if isinstance(spec, OptimizationSpec) and selector_views is None:
             ref, selector_views = self._optimization_views(spec, default_ref=ref)
-        if isinstance(spec, HBSolveSpec):
-            if operation != "solve_hb":
-                raise CompilerInvariantError(
-                    "HB Spec has a non-HB operation", stage="request_encode"
-                )
-            self._validate_hb_request(ref, spec)
-        else:
-            self._validate_direct_request(
-                operation,
-                ref,
-                spec,
-                selector_views=selector_views,
-            )
+        self._validate_direct_request(
+            operation,
+            ref,
+            spec,
+            selector_views=selector_views,
+        )
         parameter_source, resolved = self._parameter_source(parameters)
+        parameter_authorizations = tuple(ref._key_record()
+            for ref in resolved.effective_parameters.allow_extrapolation)
         if isinstance(spec, OptimizationSpec):
             active = {_parameter_key(variable.parameter) for variable in spec.variables}
             if parameters is not None and any(
@@ -1661,12 +1892,13 @@ class CircuitRun:
                     spec,
                     effective,
                     coordinate_bindings={
-                        _coordinate_binding_key(coordinate): self._view_coordinate_id(
-                            ref, coordinate
-                        )
+                        _coordinate_binding_key(coordinate): (
+                            self._static_coordinate_id(ref, coordinate)
+                            if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec))
+                            else self._view_coordinate_id(ref, coordinate))
                         for coordinate in _quantity_coordinates(spec)
                     }
-                    if not isinstance(spec, (DirectSolveSpec, HBSolveSpec))
+                    if not isinstance(spec, DirectSolveSpec)
                     else {},
                     trace_channels={
                         channel: self._trace_request_channel(ref, channel)
@@ -1686,49 +1918,14 @@ class CircuitRun:
                 "optimization declaration is not valid for this Plan",
                 stage="spec_validation",
             ) from error
-        semantic = dict(self._runtime_base)
-        if operation == "solve_direct":
-            semantic["algorithm_id"] = "scnsim.direct_response.v1"
-        elif operation == "solve_hb":
-            semantic["algorithm_id"] = "scnsim.hb_response.josephsoncircuits.v1"
-        elif operation == "evaluate_direct":
-            semantic["algorithm_id"] = {
-                "diagonal_root": "scnsim.diagonal_root.newton32.v2",
-                "operator_element_root": "scnsim.operator_element_root.newton32.v1",
-                "hybridized_pole": "scnsim.hybridized_pole.newton32.v1",
-                "transfer_zero": "scnsim.transfer_zero.newton32.v4",
-                "residue_normalized_coupling": "scnsim.residue_normalized_coupling.v2",
-                "response_element": "scnsim.response_element.v1",
-                "operator": "scnsim.direct_operator.v1",
-            }[encoded_spec["type"]]
-        elif operation == "optimize_direct":
-            semantic["algorithm_id"] = (
-                "scnsim.direct_cmaes.cmaes_jl_0_2_6_state_replay.v9"
-            )
-        else:
-            raise CompilerInvariantError(
-                "operation is outside the runtime", stage="request_encode"
-            )
-        if backend == "jax":
-            from .execution.request import _JAX_ALGORITHMS
-            semantic = _jax_runtime_identity(self._runtime_base, precision=precision)
-            semantic["algorithm_id"] = _JAX_ALGORITHMS[
-                encoded_spec["type"] if operation == "evaluate_direct" else operation
-            ]
-        return PreparedAnalysis.create(
-            plan_sha256=self._plan_sha256,
-            operation=operation,
-            view=_view_declaration(ref._lineage),
-            spec=encoded_spec,
-            parameter_source=parameter_source,
-            runtime_semantic=semantic,
-            source_units=source_units,
+        return prepare_request(
+            plan_sha256=self._plan_sha256, operation=operation,
+            view=_view_declaration(ref._lineage), encoded_spec=encoded_spec,
+            parameter_source=parameter_source, runtime_base=self._runtime_base,
+            source_units=source_units, precision=precision,
+            parameter_authorizations=parameter_authorizations,
         )
 
-    def _preflight(self, request: Mapping[str, object]) -> Mapping[str, object]:
-        """Run the compiler-only realization boundary without allocating work."""
-
-        return _run_preflight(self._plan_document, self._plan_bytes, request)
 
     def _execute(
         self,
@@ -1737,437 +1934,38 @@ class CircuitRun:
         trace,
         bound_spec: object | None = None,
         on_progress: Callable[[OptimizationProgress], object] | None = None,
+        progress_observer: object | None = None,
         checkpoint_policy: str = "generation",
         resume_from: Mapping[str, object] | None = None,
+        restart_from: Mapping[str, object] | None = None,
         commit_every_generations: int = 1,
     ):
-        if prepared_analysis.request()["runtime_semantic"].get("backend") == "jax":
-            from .execution.jax_operation import execute_jax_operation
-            return execute_jax_operation(
-                binding=self._binding, plan_document=self._plan_document,
-                prepared_analysis=prepared_analysis, decoder=self._result_decoder(),
-                bound_spec=bound_spec, on_progress=on_progress,
-                checkpoint_policy=checkpoint_policy, resume_from=resume_from,
-                commit_every_generations=commit_every_generations, trace=trace,
-            )
-        from .execution.coordinator import execute_prepared
+        from .execution.jax_operation import execute_jax_operation
+        return execute_jax_operation(
+            binding=self._binding, plan_document=self._plan_document,
+            prepared_analysis=prepared_analysis, decoder=self._result_decoder(),
+            bound_spec=bound_spec, on_progress=on_progress,
+            progress_observer=progress_observer,
+            checkpoint_policy=checkpoint_policy, resume_from=resume_from, restart_from=restart_from,
+            commit_every_generations=commit_every_generations, trace=trace,
+            program_owner=self._warm_executables,
+            execution_policy=self._execution_policy,
+        )
 
-        request = prepared_analysis.request()
-        # Native evidence has request/attempt/receipt authorities, rather than a
-        # benchmark task or environment record. Keep unavailable IDs null.
-        trace.bind(operation=request["operation"], request_sha256=prepared_analysis.request_sha256,
-                   task_id=None, environment_sha256=None, attempt_id=None,
-                   details={"native_clock": "unavailable", "runtime_semantic": request["runtime_semantic"]})
-        native_success = None
-        with trace.span("julia_execution", details={"request_sha256": prepared_analysis.request_sha256}):
-            try:
-                with execute_prepared(
-                    binding=self._binding,
-                    plan_document=self._plan_document,
-                    prepared_analysis=prepared_analysis,
-                    on_progress=on_progress,
-                    _timing_observer=lambda stage, start, end, details: trace.measure(
-                        stage, start_tick_ns=start, end_tick_ns=end, details=dict(details)),
-                ) as success:
-                    native_success = success
-                    evidence_lease = _verified_evidence_lease(self._binding, success)
-                    with trace.span("result_decode"):
-                        result = self._decode_success(
-                            success, bound_spec=bound_spec, evidence_lease=evidence_lease,
-                        )
-            finally:
-                if native_success is not None:
-                    # execute_prepared has released its reader/writer before
-                    # trace.bind starts its own short Plan transaction.
-                    from sys import exception
-                    primary = exception()
-                    try:
-                        attempt = native_success.attempt
-                        attempt_sha = sha256_hex(canonical_json_bytes(attempt))
-                        receipt_sha = sha256_hex(canonical_json_bytes(native_success.receipt))
-                        environment = {
-                            key: attempt[key] for key in (
-                                "julia_executable_sha256", "os", "architecture", "cpu",
-                                "julia_threads", "blas_threads", "blas_vendor",
-                            ) if key in attempt
-                        }
-                        trace.bind(
-                            operation=request["operation"], request_sha256=prepared_analysis.request_sha256,
-                            task_id=None, environment_sha256=None, attempt_id=attempt_sha,
-                            details={"native_clock": "unavailable", "native_environment": environment,
-                                     "runtime_semantic": request["runtime_semantic"],
-                                     "native_attempt_directory": attempt["directory"],
-                                     "native_identity": {"attempt_sha256": attempt_sha,
-                                                         "attempt_id_kind": "canonical_attempt_sha256",
-                                                         "receipt_sha256": receipt_sha}},
-                        )
-                        trace.add_numerical_ref({
-                            "role": "native_verified_success",
-                            "request_sha256": prepared_analysis.request_sha256,
-                            "attempt_sha256": attempt_sha,
-                            "result_sha256": native_success.receipt["result_sha256"],
-                            "receipt_sha256": receipt_sha,
-                            "attempt_directory": attempt["directory"],
-                        })
-                    except BaseException as trace_error:
-                        if primary is None:
-                            raise
-                        primary.add_note(
-                            f"Native operation trace binding also failed: {type(trace_error).__name__}: {trace_error}"
-                        )
-        return result
-
-    def _source_units(
-        self,
-        spec: DirectSolveSpec | HBSolveSpec | DiagonalRootSpec | OperatorElementRootSpec | HybridizedPoleSpec | TransferZeroSpec | ResidueNormalizedCouplingSpec | ResponseElementSpec | OperatorSpec | OptimizationSpec,
-        parameters: ParameterSet,
-        *,
-        parameter_space: ParameterSet | ParameterSpace | None,
-    ) -> list[dict[str, object]]:
-        captured = self._source_provenance.get("source_units")
-        if not isinstance(captured, Sequence) or isinstance(captured, (str, bytes)):
-            raise CompilerInvariantError(
-                "snapshot source-unit provenance is missing",
-                stage="request_encode",
-            )
-        evidence: list[dict[str, object]] = []
-        identities: set[str] = set()
-        for raw in captured:
-            if not isinstance(raw, Mapping) or set(raw) != {
-                "identity", "source_unit", "canonical_si_unit", "canonical_dimensionality",
-            }:
-                raise CompilerInvariantError(
-                    "snapshot source-unit provenance is malformed",
-                    stage="request_encode",
-                )
-            row = dict(raw)
-            identity = row.get("identity")
-            if not isinstance(identity, str) or not identity or identity in identities:
-                raise CompilerInvariantError(
-                    "snapshot source-unit provenance identities are invalid",
-                    stage="request_encode",
-                )
-            identities.add(identity)
-            evidence.append(row)
-
-        def add(identity: str, value: object, si_unit: str) -> None:
-            if identity in identities:
-                raise CompilerInvariantError(
-                    "source-unit provenance has duplicate parameter authority",
-                    stage="request_encode",
-                    evidence={"identity": identity},
-                )
-            identities.add(identity)
-            magnitude = np.asarray(value.magnitude)
-            probe = (
-                value
-                if magnitude.ndim == 0
-                else units.registry.Quantity(float(magnitude.flat[0]), value.units)
-            )
-            source_magnitude = getattr(probe, "magnitude", None)
-            encoded = (
-                complex_quantity_envelope(probe, si_unit=si_unit, registry=units.registry)
-                if isinstance(source_magnitude, complex) or getattr(getattr(source_magnitude, "dtype", None), "kind", None) == "c"
-                else quantity_envelope(probe, si_unit=si_unit, registry=units.registry)
-            )
-            evidence.append(
-                {
-                    "identity": identity,
-                    "source_unit": str(value.units),
-                    "canonical_si_unit": encoded["si_unit"],
-                    "canonical_dimensionality": encoded["dimensionality"],
-                }
-            )
-
-        for parameter, value in parameters.values.items():
-            definitions_id, identifier = _parameter_key(parameter)
-            if isinstance(parameter.spec, RLGCParameterSpec):
-                if not isinstance(value, RLGC):
-                    raise CompilerInvariantError("resolved RLGC parameter is malformed", stage="request_encode")
-                units_by_field = {
-                    "resistance_per_length": "ohm / meter",
-                    "inductance_per_length": "henry / meter",
-                    "conductance_per_length": "siemens / meter",
-                    "capacitance_per_length": "farad / meter",
-                    "extraction_frequency": "hertz",
-                }
-                for field, quantity in value._source_quantities.items():
-                    add(
-                        _source_unit_identity(
-                            scope="request_parameter_rlgc",
-                            component_path=(definitions_id,),
-                            parameter_id=identifier,
-                            field=field,
-                        ),
-                        quantity,
-                        units_by_field[field],
-                    )
-            else:
-                source_unit = parameters._source_units.get(parameter)
-                source_value = value if source_unit is None else value.to(source_unit)
-                add(
-                    _source_unit_identity(
-                        scope="request_parameter",
-                        component_path=(definitions_id,),
-                        parameter_id=identifier,
-                        field="value",
-                    ),
-                    source_value,
-                    parameter.spec.si_unit,
-                )
-        if isinstance(parameter_space, ParameterSpace) and parameter_space.kind == "grid":
-            for axis_index, ((parameter, values), source_units) in enumerate(
-                zip(parameter_space.axes, parameter_space._axis_source_units)
-            ):
-                current = self._compatible_parameter(parameter)
-                if isinstance(current.spec, RLGCParameterSpec):
-                    units_by_field = {
-                        "resistance_per_length": "ohm / meter",
-                        "inductance_per_length": "henry / meter",
-                        "conductance_per_length": "siemens / meter",
-                        "capacitance_per_length": "farad / meter",
-                        "extraction_frequency": "hertz",
-                    }
-                    for value_index, value in enumerate(values):
-                        if not isinstance(value, RLGC):
-                            raise CompilerInvariantError(
-                                "grid RLGC parameter is malformed",
-                                stage="request_encode",
-                            )
-                        for field, quantity in value._source_quantities.items():
-                            add(
-                                _source_unit_identity(
-                                    scope="request_grid_axis_rlgc",
-                                    component_path=(current.definitions_id,),
-                                    parameter_id=current.id,
-                                    field=f"{axis_index}:{value_index}:{field}",
-                                ),
-                                quantity,
-                                units_by_field[field],
-                            )
-                    continue
-                for value_index, (value, source_unit) in enumerate(zip(values, source_units)):
-                    source_value = value if source_unit is None else value.to(source_unit)
-                    add(
-                        _source_unit_identity(
-                            scope="request_grid_axis",
-                            component_path=(current.definitions_id,),
-                            parameter_id=current.id,
-                            field=f"{axis_index}:{value_index}",
-                        ),
-                        source_value,
-                        current.spec.si_unit,
-                    )
-        elif isinstance(parameter_space, ParameterSpace) and parameter_space.kind == "points":
-            for point_index, point in enumerate(parameter_space._points):
-                for parameter, value in point.values.items():
-                    current = self._compatible_parameter(parameter)
-                    if isinstance(current.spec, RLGCParameterSpec):
-                        if not isinstance(value, RLGC):
-                            raise CompilerInvariantError(
-                                "listed RLGC parameter is malformed",
-                                stage="request_encode",
-                            )
-                        units_by_field = {
-                            "resistance_per_length": "ohm / meter",
-                            "inductance_per_length": "henry / meter",
-                            "conductance_per_length": "siemens / meter",
-                            "capacitance_per_length": "farad / meter",
-                            "extraction_frequency": "hertz",
-                        }
-                        for field, quantity in value._source_quantities.items():
-                            add(
-                                _source_unit_identity(
-                                    scope="request_listed_point_rlgc",
-                                    component_path=(current.definitions_id,),
-                                    parameter_id=current.id,
-                                    field=f"{point_index}:{field}",
-                                ),
-                                quantity,
-                                units_by_field[field],
-                            )
-                        continue
-                    source_unit = point._source_units.get(parameter)
-                    if source_unit is None:
-                        continue
-                    add(
-                        _source_unit_identity(
-                            scope="request_listed_point",
-                            component_path=(current.definitions_id,),
-                            parameter_id=current.id,
-                            field=f"{point_index}",
-                        ),
-                        value.to(source_unit),
-                        current.spec.si_unit,
-                    )
-        if isinstance(spec, DirectSolveSpec):
-            add(_source_unit_identity(scope="request_spec", parameter_id="frequencies", field="value"), spec.frequencies, "hertz")
-        elif isinstance(spec, HBSolveSpec):
-            add(_source_unit_identity(scope="request_hb", parameter_id="frequencies", field="value"), spec.frequencies, "hertz")
-            for axis in spec.pump_axes:
-                add(_source_unit_identity(scope="request_hb", parameter_id=axis.id, field="pump_frequency"), axis.frequency, "hertz")
-            for case in spec.cases:
-                for drive in spec.drives:
-                    if drive in case.currents:
-                        add(
-                            _source_unit_identity(
-                                scope="request_hb",
-                                parameter_id=case.id,
-                                field=f"drive:{drive.id}:coefficient",
-                            ),
-                            case.currents[drive],
-                            "ampere",
-                        )
-        elif isinstance(spec, DiagonalRootSpec):
-            add(_source_unit_identity(scope="request_spec", parameter_id="root_hint", field="value"), spec.root_hint, "hertz")
-        elif isinstance(spec, OperatorElementRootSpec):
-            add(_source_unit_identity(scope="request_spec", parameter_id="root_hint", field="value"), spec.root_hint, "hertz")
-        elif isinstance(spec, HybridizedPoleSpec):
-            add(_source_unit_identity(scope="request_spec", parameter_id="hybridized_pole", field="anchor"), spec.anchor, "hertz")
-        elif isinstance(spec, TransferZeroSpec):
-            add(_source_unit_identity(scope="request_spec", parameter_id="transfer_zero", field="anchor"), spec.anchor, "hertz")
-        elif isinstance(spec, ResponseElementSpec):
-            add(_source_unit_identity(scope="request_spec", parameter_id="response_element", field="frequency"), spec.frequency, "hertz")
-        elif isinstance(spec, OperatorSpec):
-            add(_source_unit_identity(scope="request_spec", parameter_id="operator", field="frequencies"), spec.frequencies, "hertz")
-        elif isinstance(spec, ResidueNormalizedCouplingSpec):
-            if not isinstance(spec.frequency, str):
-                add(_source_unit_identity(scope="request_spec", parameter_id="residue_normalized_coupling", field="frequency"), spec.frequency, "hertz")
-            for branch_name, branch in (("branch_a", spec.branch_a), ("branch_b", spec.branch_b)):
-                if isinstance(branch, DiagonalRootSpec):
-                    add(_source_unit_identity(scope="request_spec", parameter_id="residue_normalized_coupling", field=f"{branch_name}:root_hint"), branch.root_hint, "hertz")
-                else:
-                    add(_source_unit_identity(scope="request_spec", parameter_id="residue_normalized_coupling", field=f"{branch_name}:anchor"), branch.anchor, "hertz")
-        else:
-            for index, variable in enumerate(spec.variables):
-                parameter = variable.parameter
-                definitions_id, identifier = _parameter_key(parameter)
-                for role, bounds in (
-                    ("model_default", variable.model_default_bounds),
-                    ("consumer_override", variable.consumer_override_bounds),
-                ):
-                    if bounds is None:
-                        continue
-                    add(
-                        _source_unit_identity(
-                            scope="request_optimization_variable",
-                            component_path=(definitions_id,),
-                            parameter_id=identifier,
-                            field=f"{index}:{role}:lower",
-                        ),
-                        bounds[0],
-                        parameter.spec.si_unit,
-                    )
-                    add(
-                        _source_unit_identity(
-                            scope="request_optimization_variable",
-                            component_path=(definitions_id,),
-                            parameter_id=identifier,
-                            field=f"{index}:{role}:upper",
-                        ),
-                        bounds[1],
-                        parameter.spec.si_unit,
-                    )
-                if variable.scale is not None:
-                    add(_source_unit_identity(scope="request_optimization_variable",
-                        component_path=(definitions_id,), parameter_id=identifier,
-                        field=f"{index}:domain:scale"), variable.scale, parameter.spec.si_unit)
-            for index, objective in enumerate(spec.objectives):
-                parameter_id = f"objective:{index}"
-                selectors = _quantity_selectors(objective.quantity)
-                selector = selectors[0]
-                objective_unit = _selector_unit(selector)
-                if objective_unit is None:
-                    raise InvalidOptimizationSpec(
-                        "optimization objective has no scalar quantity unit",
-                        stage="spec_validation",
-                    )
-                add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field="target"), objective.target, objective_unit)
-                add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field="weight"), objective.weight, "dimensionless")
-                if objective.scale is not None:
-                    add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field="scale"), objective.scale, objective_unit)
-                for term_index, term in enumerate(selectors):
-                    selected_spec = term.spec
-                    prefix = f"selector:{term_index}"
-                    if isinstance(selected_spec, (DiagonalRootSpec, OperatorElementRootSpec)):
-                        add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field=f"{prefix}:root_hint"), selected_spec.root_hint, "hertz")
-                    elif isinstance(selected_spec, HybridizedPoleSpec):
-                        add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field=f"{prefix}:anchor"), selected_spec.anchor, "hertz")
-                    elif isinstance(selected_spec, TransferZeroSpec):
-                        add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field=f"{prefix}:anchor"), selected_spec.anchor, "hertz")
-                    elif isinstance(selected_spec, ResponseElementSpec):
-                        add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field=f"{prefix}:frequency"), selected_spec.frequency, "hertz")
-                    elif isinstance(selected_spec, ResidueNormalizedCouplingSpec):
-                        if not isinstance(selected_spec.frequency, str):
-                            add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field=f"{prefix}:frequency"), selected_spec.frequency, "hertz")
-                        for branch_name, branch in (("branch_a", selected_spec.branch_a), ("branch_b", selected_spec.branch_b)):
-                            field = "root_hint" if isinstance(branch, DiagonalRootSpec) else "anchor"
-                            add(_source_unit_identity(scope="request_optimization_objective", parameter_id=parameter_id, field=f"{prefix}:{branch_name}:{field}"), getattr(branch, field), "hertz")
-        return sorted(evidence, key=lambda item: str(item["identity"]))
+    def _source_units(self, spec, parameters, *, parameter_space):
+        return source_units(self._source_provenance, self._parameter_lookup,
+                            spec, parameters, parameter_space=parameter_space)
 
     def _result_decoder(self):
         from .results.decode import VerifiedResultDecoder
         return VerifiedResultDecoder(
-            plan_sha256=self._plan_sha256, plan=self._plan,
+            plan_sha256=self._plan_sha256, plan_owner_id=id(self._plan),
+            binding_identity=MappingProxyType({
+                "root": self._binding.root,
+                "leaf": self._binding.leaf,
+                "plan_sha256": self._binding.plan_sha256,
+                "workspace_instance_id": self._binding.workspace_instance_id,
+            }),
             parameter_lookup=self._parameter_lookup,
             coordinate_lookup=self._coordinate_lookup,
         )
-
-    def _decode_success(
-        self,
-        success: VerifiedSuccess,
-        *,
-        bound_spec: object | None = None,
-        evidence_lease: _VerifiedEvidenceLease,
-    ):
-        from .results.decode import VerifiedResultDecoder
-
-        decoder = VerifiedResultDecoder(
-            plan_sha256=self._plan_sha256,
-            plan=self._plan,
-            parameter_lookup=self._parameter_lookup,
-            coordinate_lookup=self._coordinate_lookup,
-        )
-        return decoder._decode_success(
-            success,
-            bound_spec=bound_spec,
-            evidence_lease=evidence_lease,
-        )
-
-
-def _original_lineage_document(
-    plan: Mapping[str, object],
-    plan_sha256: str,
-    runtime: Mapping[str, object],
-) -> dict[str, object]:
-    node_order, _ = _plan_coordinates(plan)
-    connectivity = plan.get("connectivity")
-    ports = connectivity.get("ports") if isinstance(connectivity, Mapping) else None
-    if not isinstance(ports, Sequence) or isinstance(ports, (str, bytes)):
-        raise CompilerInvariantError("Plan Port inventory is malformed", stage="plan_seal")
-    port_order = [port["id"] for port in ports]
-    original = {
-        "type": "original",
-        "compiled_graph_sha256": sha256_hex(
-            {
-                "schema": "scnsim.compiled_graph_identity",
-                "schema_version": 1,
-                "plan_sha256": plan_sha256,
-                "julia_source_sha256": runtime["julia_source_sha256"],
-            }
-        ),
-        "coordinate_order": node_order,
-        "port_order": port_order,
-        "port_realizable": bool(port_order),
-    }
-    record: dict[str, object] = {
-        "type": "network_view_lineage",
-        "original": original,
-        "ptc": None,
-        "transforms": [],
-        "retain": None,
-        "terminal_coordinates": port_order,
-        "port_realizable": bool(port_order),
-    }
-    record["lineage_sha256"] = sha256_hex(record)
-    return record

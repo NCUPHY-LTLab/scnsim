@@ -77,7 +77,11 @@ def resolve_parameter_point(
     for (path, field), (
         base, binding, ref, unit, positive, nonnegative
     ) in fields.items():
-        if ref is None:
+        if binding["kind"] == "scalar_rlgc":
+            if effective_values_view is None:
+                effective_values_view = effective.values
+            value = binding["_scalar_rlgc"].value_at(effective_values_view, authorized=supplied.allow_extrapolation)
+        elif ref is None:
             value = base
         elif binding["kind"] == "affine":
             slope, intercept, support = binding["_affine_data"]

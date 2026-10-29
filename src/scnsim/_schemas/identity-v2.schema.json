@@ -115,8 +115,214 @@
         }
       ]
     },
+    "derivedQuantityMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "shape",
+        "values_f64",
+        "si_unit",
+        "dimensionality"
+      ],
+      "properties": {
+        "type": {
+          "const": "quantity_matrix_f64"
+        },
+        "shape": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "values_f64": {
+          "type": "array",
+          "items": {
+            "$ref": "identity-common.schema.json#/$defs/f64"
+          }
+        },
+        "si_unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimensionality": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "rlgcScalarTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "resistance",
+        "inductance",
+        "conductance",
+        "capacitance"
+      ],
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "parameter"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "ref"
+                },
+                "parameter": {
+                  "$ref": "#/$defs/parameterRef"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "input",
+                "slope",
+                "intercept",
+                "support"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "affine"
+                },
+                "input": {
+                  "$ref": "#/$defs/parameterRef"
+                },
+                "slope": {
+                  "$ref": "#/$defs/quantity"
+                },
+                "intercept": {
+                  "$ref": "#/$defs/quantity"
+                },
+                "support": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "prefixItems": [
+                    {
+                      "$ref": "#/$defs/quantity"
+                    },
+                    {
+                      "$ref": "#/$defs/quantity"
+                    }
+                  ],
+                  "items": false
+                }
+              }
+            }
+          ]
+        },
+        "resistance": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/derivedQuantityMatrix"
+            }
+          ]
+        },
+        "inductance": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/derivedQuantityMatrix"
+            }
+          ]
+        },
+        "conductance": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/derivedQuantityMatrix"
+            }
+          ]
+        },
+        "capacitance": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/derivedQuantityMatrix"
+            }
+          ]
+        }
+      },
+      "anyOf": [
+        {
+          "properties": {
+            "resistance": {
+              "$ref": "#/$defs/derivedQuantityMatrix"
+            }
+          }
+        },
+        {
+          "properties": {
+            "inductance": {
+              "$ref": "#/$defs/derivedQuantityMatrix"
+            }
+          }
+        },
+        {
+          "properties": {
+            "conductance": {
+              "$ref": "#/$defs/derivedQuantityMatrix"
+            }
+          }
+        },
+        {
+          "properties": {
+            "capacitance": {
+              "$ref": "#/$defs/derivedQuantityMatrix"
+            }
+          }
+        }
+      ]
+    },
+    "scalarRLGCBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "base",
+        "terms"
+      ],
+      "properties": {
+        "kind": {
+          "const": "scalar_rlgc"
+        },
+        "base": {
+          "$ref": "#/$defs/rlgc"
+        },
+        "terms": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/rlgcScalarTerm"
+          }
+        }
+      }
+    },
     "fieldBinding": {
       "oneOf": [
+        { "$ref": "#/$defs/scalarRLGCBinding" },
         {
           "type": "object", "additionalProperties": false,
           "required": ["kind", "value"],
@@ -404,13 +610,31 @@
         }
       }
     ] },
+    "derivedQuantity": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["type", "si_unit", "dimensionality", "si_value_f64"], "properties": {"type": {"const": "quantity_f64"}, "si_unit": {"type": "string", "minLength": 1}, "dimensionality": {"type": "string", "minLength": 1}, "si_value_f64": {"$ref": "identity-common.schema.json#/$defs/f64"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "si_unit", "dimensionality", "real_si_f64", "imag_si_f64"], "properties": {"type": {"const": "complex_quantity_f64"}, "si_unit": {"type": "string", "minLength": 1}, "dimensionality": {"type": "string", "minLength": 1}, "real_si_f64": {"$ref": "identity-common.schema.json#/$defs/f64"}, "imag_si_f64": {"$ref": "identity-common.schema.json#/$defs/f64"}}}]},
+    "outputCoordinate": {"type": "object", "additionalProperties": false, "required": ["quantity_label", "component", "index"], "properties": {"quantity_label": {"$ref": "#/$defs/identifier"}, "component": {"enum": ["real", "imag"]}, "index": {"type": "array", "items": {"type": "integer", "minimum": 0}}}},
+    "sensitivityParameterValue": {"type": "object", "additionalProperties": false, "required": ["parameter", "value"], "properties": {"parameter": {"$ref": "#/$defs/parameterRef"}, "value": {"$ref": "#/$defs/derivedQuantity"}}},
+    "sensitivityOutputValue": {"type": "object", "additionalProperties": false, "required": ["output", "value"], "properties": {"output": {"$ref": "#/$defs/outputCoordinate"}, "value": {"$ref": "#/$defs/derivedQuantity"}}},
+    "sensitivityDerivative": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"const": "jacobian"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "direction"], "properties": {"type": {"const": "jvp"}, "direction": {"type": "array", "items": {"$ref": "#/$defs/sensitivityParameterValue"}}}}, {"type": "object", "additionalProperties": false, "required": ["type", "weights"], "properties": {"type": {"const": "vjp"}, "weights": {"type": "array", "items": {"$ref": "#/$defs/sensitivityOutputValue"}}}}]},
+    "sensitivityScales": {"type": "object", "additionalProperties": false, "required": ["inputs", "outputs"], "properties": {"inputs": {"type": "array", "items": {"$ref": "#/$defs/sensitivityParameterValue"}}, "outputs": {"type": "array", "items": {"$ref": "#/$defs/sensitivityOutputValue"}}}},
+    "fixedMeshSpec": {"type": "object", "additionalProperties": false, "required": ["type", "resolution", "sections"], "properties": {"type": {"const": "fixed_mesh"}, "resolution": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["kind", "max_frequency", "sections_per_wavelength"], "properties": {"kind": {"const": "electrical_resolution"}, "max_frequency": {"$ref": "#/$defs/quantity"}, "sections_per_wavelength": {"type": "integer", "minimum": 1}}}]}, "sections": {"oneOf": [{"type": "null"}, {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "count"], "properties": {"path": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/identifier"}}, "count": {"type": "integer", "minimum": 1}}}}]}}, "oneOf": [{"properties": {"resolution": {"type": "object"}, "sections": {"type": "null"}}}, {"properties": {"resolution": {"type": "null"}, "sections": {"type": "array", "minItems": 1}}}]},
+    "sensitivityLeafView": {"type": "object", "additionalProperties": false, "required": ["type", "ptc", "transforms", "retain", "plan_sha256"], "properties": {"type": {"const": "network_view"}, "ptc": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["selected_ports"], "properties": {"selected_ports": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/identifier"}}}}]}, "transforms": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "input_coordinates", "output_coordinates"], "properties": {"id": {"$ref": "#/$defs/identifier"}, "input_coordinates": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/identifier"}}, "output_coordinates": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/identifier"}}}}}, "retain": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["retained_coordinates"], "properties": {"retained_coordinates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/identifier"}}}}]}, "plan_sha256": {"$ref": "#/$defs/sha256"}}},
+    "networkViewSet": {"type": "object", "additionalProperties": false, "required": ["type", "views"], "properties": {"type": {"const": "network_view_set"}, "views": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sensitivityLeafView"}}}},
+    "sensitivityExpression": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["type", "spec", "projection", "view"], "properties": {"type": {"const": "static_capacitance_projection"}, "spec": {"$ref": "identity-common.schema.json#/$defs/staticCapacitanceSpec"}, "projection": {"const": "matrix"}, "view": {"$ref": "#/$defs/sensitivityLeafView"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "spec", "projection", "view"], "properties": {"type": {"const": "static_capacitance_element_projection"}, "spec": {"$ref": "identity-common.schema.json#/$defs/staticCapacitanceElementSpec"}, "projection": {"const": "value"}, "view": {"$ref": "#/$defs/sensitivityLeafView"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "spec", "projection", "view"], "properties": {"type": {"const": "diagonal_root_projection"}, "spec": {"$ref": "identity-common.schema.json#/$defs/diagonalRootSpec"}, "projection": {"enum": ["frequency", "linewidth"]}, "view": {"$ref": "#/$defs/sensitivityLeafView"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "spec", "projection", "view"], "properties": {"type": {"const": "operator_element_root_projection"}, "spec": {"$ref": "identity-common.schema.json#/$defs/operatorElementRootSpec"}, "projection": {"const": "frequency"}, "view": {"$ref": "#/$defs/sensitivityLeafView"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "spec", "projection", "view"], "properties": {"type": {"const": "hybridized_pole_projection"}, "spec": {"$ref": "identity-common.schema.json#/$defs/hybridizedPoleSpec"}, "projection": {"enum": ["frequency", "linewidth"]}, "view": {"$ref": "#/$defs/sensitivityLeafView"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "spec", "projection", "view"], "properties": {"type": {"const": "transfer_zero_projection"}, "spec": {"$ref": "identity-common.schema.json#/$defs/transferZeroSpec"}, "projection": {"const": "frequency"}, "view": {"$ref": "#/$defs/sensitivityLeafView"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "spec", "projection", "view"], "properties": {"type": {"const": "residue_coupling_projection"}, "spec": {"$ref": "identity-common.schema.json#/$defs/residueNormalizedCouplingSpec"}, "projection": {"enum": ["real", "imag", "magnitude"]}, "view": {"$ref": "#/$defs/sensitivityLeafView"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "spec", "projection", "view"], "properties": {"type": {"const": "response_element_projection"}, "spec": {"$ref": "identity-common.schema.json#/$defs/responseElementSpec"}, "projection": {"enum": ["magnitude", "real", "imag"]}, "view": {"$ref": "#/$defs/sensitivityLeafView"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "projection", "spec", "view"], "properties": {"type": {"const": "matrix_projection"}, "projection": {"enum": ["S", "Y", "Z"]}, "spec": {"$ref": "identity-common.schema.json#/$defs/directSolveSpec"}, "view": {"$ref": "#/$defs/sensitivityLeafView"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "projection", "spec", "view"], "properties": {"type": {"const": "operator_projection"}, "projection": {"const": "matrix"}, "spec": {"$ref": "identity-common.schema.json#/$defs/operatorSpec"}, "view": {"$ref": "#/$defs/sensitivityLeafView"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "terms"], "properties": {"type": {"const": "quantity_sum"}, "terms": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sensitivityExpression"}}}}, {"type": "object", "additionalProperties": false, "required": ["type", "left", "right"], "properties": {"type": {"const": "quantity_difference"}, "left": {"$ref": "#/$defs/sensitivityExpression"}, "right": {"$ref": "#/$defs/sensitivityExpression"}}}, {"type": "object", "additionalProperties": false, "required": ["type", "operand"], "properties": {"type": {"const": "quantity_absolute"}, "operand": {"$ref": "#/$defs/sensitivityExpression"}}}]},
+    "sensitivitySpec": {"type": "object", "additionalProperties": false, "required": ["type", "quantities", "wrt", "derivative", "discretization", "scales", "functional_unit"], "properties": {"type": {"const": "sensitivity"}, "quantities": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["id", "quantity"], "properties": {"id": {"$ref": "#/$defs/identifier"}, "quantity": {"$ref": "#/$defs/sensitivityExpression"}}}}, "wrt": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/parameterRef"}}, "derivative": {"$ref": "#/$defs/sensitivityDerivative"}, "discretization": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/fixedMeshSpec"}]}, "scales": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sensitivityScales"}]}, "functional_unit": {"oneOf": [{"type": "null"}, {"type": "string", "minLength": 1}]}}},
+    "cmaesControlsV2": {"type": "object", "additionalProperties": false, "required": ["type", "seed", "max_evaluations", "population_size", "resolved_population_size", "initial_sigma_f64", "baseline_optimizer_coordinates_f64", "box_transform_id", "complete_generations", "unused_evaluations", "hidden_stops"], "properties": {"type": {"const": "cma_es"}, "seed": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807}, "max_evaluations": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807}, "population_size": {"oneOf": [{"type": "null"}, {"type": "integer", "minimum": 2, "maximum": 9223372036854775807}]}, "resolved_population_size": {"type": "integer", "minimum": 2, "maximum": 9223372036854775807}, "initial_sigma_f64": {"$ref": "identity-common.schema.json#/$defs/f64"}, "baseline_optimizer_coordinates_f64": {"type": "array", "minItems": 1, "items": {"$ref": "identity-common.schema.json#/$defs/f64"}}, "box_transform_id": {"enum": ["cmaes-jl-0.2.6-linquad-unit-box.v1", "cmaes-jl-0.2.6-native-domains.v1", "scnsim-python-cmaes-0.13.1-linquad-unit-box.v1", "scnsim-python-cmaes-0.13.1-native-domains.v1"]}, "complete_generations": {"type": "integer", "minimum": 1}, "unused_evaluations": {"type": "integer", "minimum": 0}, "hidden_stops": {"const": "disabled"}}},
+    "cmaesStageControlsV2": {"type": "object", "additionalProperties": false, "required": ["type", "seed", "max_evaluations", "population_size", "resolved_population_size", "initial_sigma_f64", "baseline_optimizer_coordinates_f64", "box_transform_id", "complete_generations", "unused_evaluations", "hidden_stops"], "properties": {"type": {"const": "cma_es"}, "seed": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807}, "max_evaluations": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807}, "population_size": {"oneOf": [{"type": "null"}, {"type": "integer", "minimum": 2, "maximum": 9223372036854775807}]}, "resolved_population_size": {"type": "integer", "minimum": 2, "maximum": 9223372036854775807}, "initial_sigma_f64": {"$ref": "identity-common.schema.json#/$defs/f64"}, "baseline_optimizer_coordinates_f64": {"oneOf": [{"type": "null"}, {"type": "array", "minItems": 1, "items": {"$ref": "identity-common.schema.json#/$defs/f64"}}]}, "box_transform_id": {"enum": ["cmaes-jl-0.2.6-linquad-unit-box.v1", "cmaes-jl-0.2.6-native-domains.v1", "scnsim-python-cmaes-0.13.1-linquad-unit-box.v1", "scnsim-python-cmaes-0.13.1-native-domains.v1"]}, "complete_generations": {"type": "integer", "minimum": 1}, "unused_evaluations": {"type": "integer", "minimum": 0}, "hidden_stops": {"const": "disabled"}}},
+    "lbfgsbControls": {"type": "object", "additionalProperties": false, "required": ["type", "max_evaluations", "max_iterations", "ftol_f64", "gtol_f64", "max_line_search", "commit_every_iterations", "coordinate_scales"], "properties": {"type": {"const": "lbfgsb"}, "max_evaluations": {"type": "integer", "minimum": 1}, "max_iterations": {"type": "integer", "minimum": 1}, "ftol_f64": {"$ref": "identity-common.schema.json#/$defs/f64"}, "gtol_f64": {"$ref": "identity-common.schema.json#/$defs/f64"}, "max_line_search": {"type": "integer", "minimum": 1}, "commit_every_iterations": {"type": "integer", "minimum": 1}, "coordinate_scales": {"oneOf": [{"type": "null"}, {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["parameter", "value"], "properties": {"parameter": {"$ref": "#/$defs/parameterRef"}, "value": {"$ref": "#/$defs/quantity"}}}}]}}},
+    "projectedLBFGSControls": {"type": "object", "additionalProperties": false, "required": ["type", "max_evaluations", "max_iterations", "ftol_f64", "gtol_f64", "max_line_search", "commit_every_iterations", "coordinate_scales"], "properties": {"type": {"const": "projected_lbfgs"}, "max_evaluations": {"type": "integer", "minimum": 1}, "max_iterations": {"type": "integer", "minimum": 1}, "ftol_f64": {"$ref": "identity-common.schema.json#/$defs/f64"}, "gtol_f64": {"$ref": "identity-common.schema.json#/$defs/f64"}, "max_line_search": {"type": "integer", "minimum": 1}, "commit_every_iterations": {"type": "integer", "minimum": 1}, "coordinate_scales": {"oneOf": [{"type": "null"}, {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["parameter", "value"], "properties": {"parameter": {"$ref": "#/$defs/parameterRef"}, "value": {"$ref": "#/$defs/quantity"}}}}]}}},
+    "optimizerControls": {"oneOf": [{"$ref": "#/$defs/cmaesControlsV2"}, {"$ref": "#/$defs/lbfgsbControls"}, {"$ref": "#/$defs/projectedLBFGSControls"}, {"$ref": "#/$defs/hybridControls"}]},
+    "hybridControls": {"type": "object", "additionalProperties": false, "required": ["type", "stages", "comparison_stage_id"], "properties": {"type": {"const": "hybrid"}, "stages": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["id", "optimizer", "discretization", "seed"], "properties": {"id": {"$ref": "#/$defs/identifier"}, "optimizer": {"oneOf": [{"$ref": "#/$defs/cmaesStageControlsV2"}, {"$ref": "#/$defs/lbfgsbControls"}, {"$ref": "#/$defs/projectedLBFGSControls"}]}, "discretization": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/fixedMeshSpec"}]}, "seed": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/parameterSet"}]}}}}, "comparison_stage_id": {"$ref": "#/$defs/identifier"}}},
     "optimizationSpecV2": {
       "type": "object", "additionalProperties": false,
       "required": ["type", "variables", "objectives", "optimizer", "allow_extrapolation"],
       "properties": {
         "type": { "const": "optimization" }, "variables": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/optimizationVariableV2" } },
         "objectives": { "type": "array", "minItems": 1, "items": { "$ref": "identity-common.schema.json#/$defs/costObjective" } },
-        "optimizer": { "$ref": "identity-common.schema.json#/$defs/cmaesControls" },
+        "optimizer": { "$ref": "#/$defs/optimizerControls" },
+        "discretization": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/fixedMeshSpec" }] },
         "allow_extrapolation": { "type": "array", "items": { "$ref": "#/$defs/parameterRef" } }
       }
     },
@@ -419,8 +643,8 @@
       "required": ["schema", "schema_version", "plan_sha256", "operation", "view", "spec", "parameter_source", "runtime_semantic"],
       "properties": {
         "schema": { "const": "scnsim.request" }, "schema_version": { "const": 2 }, "plan_sha256": { "$ref": "#/$defs/sha256" },
-        "operation": { "enum": ["solve_direct", "solve_hb", "evaluate_direct", "optimize_direct"] }, "view": { "$ref": "#/$defs/networkView" },
-        "spec": { "oneOf": [{ "$ref": "identity-common.schema.json#/$defs/directSolveSpec" }, { "$ref": "identity-common.schema.json#/$defs/hbSolveSpec" }, { "$ref": "identity-common.schema.json#/$defs/directEvaluationSpec" }, { "$ref": "#/$defs/optimizationSpecV2" }] },
+        "operation": { "enum": ["solve_direct",  "evaluate_direct", "optimize_direct", "sensitivity"] }, "view": { "oneOf": [{ "$ref": "#/$defs/networkView" }, { "$ref": "#/$defs/networkViewSet" }] },
+        "spec": { "oneOf": [{ "$ref": "identity-common.schema.json#/$defs/directSolveSpec" },  { "$ref": "identity-common.schema.json#/$defs/directEvaluationSpec" }, { "$ref": "#/$defs/optimizationSpecV2" }, { "$ref": "#/$defs/sensitivitySpec" }] },
         "parameter_source": { "$ref": "#/$defs/parameterSource" }, "runtime_semantic": { "$ref": "#/$defs/runtimeSemantic" }
       }
     },
@@ -591,17 +815,8 @@
         "scalar_catalog": { "type": "object", "additionalProperties": false, "required": ["root", "frequency", "slope"], "properties": { "root": { "$ref": "#/$defs/complexQuantity" }, "frequency": { "$ref": "#/$defs/quantity" }, "slope": { "$ref": "#/$defs/complexQuantity" } } }
       }
     },
-    "pointHBCase": {
-      "oneOf": [
-        { "type": "object", "additionalProperties": false, "required": ["case_ordinal", "case_id", "status", "bias_state", "pump_state", "effective_sources", "operating_point_closure", "artifacts", "traces", "reconciliation", "backend_normalization_evidence_sha256", "state_node_map"], "properties": { "case_ordinal": { "type": "integer", "minimum": 1 }, "case_id": { "$ref": "#/$defs/identifier" }, "status": { "const": "success" }, "bias_state": { "enum": ["off", "on"] }, "pump_state": { "enum": ["off", "on"] }, "effective_sources": { "type": "array", "items": { "$ref": "identity-common.schema.json#/$defs/hbEffectiveSource" } }, "operating_point_closure": { "$ref": "identity-common.schema.json#/$defs/hbOperatingPointClosure" }, "artifacts": { "type": "object", "additionalProperties": { "$ref": "#/$defs/pointArtifact" } }, "traces": { "type": "array", "items": { "$ref": "#/$defs/pointArtifact" } }, "reconciliation": { "$ref": "identity-common.schema.json#/$defs/hbReconciliation" }, "backend_normalization_evidence_sha256": { "$ref": "#/$defs/sha256" }, "state_node_map": { "type": "array", "minItems": 1, "items": { "$ref": "identity-common.schema.json#/$defs/hbStateNodeMapEntry" } } } },
-        { "type": "object", "additionalProperties": false, "required": ["case_ordinal", "case_id", "status", "effective_sources", "failure"], "properties": { "case_ordinal": { "type": "integer", "minimum": 1 }, "case_id": { "$ref": "#/$defs/identifier" }, "status": { "const": "failure" }, "effective_sources": { "type": "array", "items": { "$ref": "identity-common.schema.json#/$defs/hbEffectiveSource" } }, "failure": { "$ref": "identity-common.schema.json#/$defs/hbCaseFailure" } } }
-      ]
-    },
-    "pointHBBatch": {
-      "type": "object", "additionalProperties": false,
-      "required": ["schema", "schema_version", "result_kind", "lattice", "truncation", "topology_evidence", "cases"],
-      "properties": { "discretization": { "$ref": "#/$defs/lineDiscretization" }, "schema": { "const": "scnsim.parameter_point_payload" }, "schema_version": { "const": 2 }, "result_kind": { "const": "hb_batch" }, "lattice": { "$ref": "identity-common.schema.json#/$defs/hbLattice" }, "truncation": { "$ref": "identity-common.schema.json#/$defs/hbTruncation" }, "topology_evidence": { "$ref": "identity-common.schema.json#/$defs/hbTopologyEvidence" }, "cases": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pointHBCase" } } }
-    },
+
+
     "pointScalarCatalog": {
       "type": "object", "additionalProperties": false,
       "properties": {
@@ -645,7 +860,7 @@
       ]
     },
     "parameterPointPayload": {
-      "oneOf": [ { "$ref": "#/$defs/pointDirectResponse" }, { "$ref": "#/$defs/pointDiagonalRoot" }, { "$ref": "#/$defs/pointOperatorElementRoot" }, { "$ref": "#/$defs/pointHBBatch" }, { "$ref": "#/$defs/pointScalarPayload" } ]
+      "oneOf": [ { "$ref": "#/$defs/pointDirectResponse" }, { "$ref": "#/$defs/pointDiagonalRoot" }, { "$ref": "#/$defs/pointOperatorElementRoot" },  { "$ref": "#/$defs/pointScalarPayload" } ]
     },
     "singlePointEnvelope": {
       "type": "object",
@@ -673,12 +888,7 @@
         { "type": "object", "additionalProperties": false, "required": ["schema", "schema_version", "result_kind", "request_sha256", "attempt_sha256", "parameters", "parameters_sha256", "ref_lineage", "scalar_catalog", "array_catalog"], "properties": { "discretization": { "$ref": "#/$defs/lineDiscretization" }, "schema": { "const": "scnsim.result" }, "schema_version": { "const": 2 }, "result_kind": { "const": "operator_element_root" }, "request_sha256": { "$ref": "#/$defs/sha256" }, "attempt_sha256": { "$ref": "#/$defs/sha256" }, "parameters": { "$ref": "#/$defs/parameterSet" }, "parameters_sha256": { "$ref": "#/$defs/sha256" }, "ref_lineage": { "$ref": "identity-common.schema.json#/$defs/refLineage" }, "scalar_catalog": { "type": "object", "additionalProperties": false, "required": ["root", "frequency", "slope"], "properties": { "root": { "$ref": "#/$defs/complexQuantity" }, "frequency": { "$ref": "#/$defs/quantity" }, "slope": { "$ref": "#/$defs/complexQuantity" } } }, "array_catalog": { "type": "object", "maxProperties": 0 } } }
       ]
     },
-    "singleHBResult": {
-      "allOf": [
-        { "$ref": "#/$defs/singlePointEnvelope" },
-        { "type": "object", "additionalProperties": false, "required": ["schema", "schema_version", "result_kind", "request_sha256", "attempt_sha256", "parameters", "parameters_sha256", "ref_lineage", "lattice", "truncation", "topology_evidence", "cases"], "properties": { "discretization": { "$ref": "#/$defs/lineDiscretization" }, "schema": { "const": "scnsim.result" }, "schema_version": { "const": 2 }, "result_kind": { "const": "hb_batch" }, "request_sha256": { "$ref": "#/$defs/sha256" }, "attempt_sha256": { "$ref": "#/$defs/sha256" }, "parameters": { "$ref": "#/$defs/parameterSet" }, "parameters_sha256": { "$ref": "#/$defs/sha256" }, "ref_lineage": { "$ref": "identity-common.schema.json#/$defs/refLineage" }, "lattice": { "$ref": "identity-common.schema.json#/$defs/hbLattice" }, "truncation": { "$ref": "identity-common.schema.json#/$defs/hbTruncation" }, "topology_evidence": { "$ref": "identity-common.schema.json#/$defs/hbTopologyEvidence" }, "cases": { "type": "array", "minItems": 1, "items": { "$ref": "identity-common.schema.json#/$defs/hbCaseOutcome" } } } }
-      ]
-    },
+
     "singleOptimizationResult": {
       "allOf": [
         { "$ref": "#/$defs/singlePointEnvelope" },
@@ -711,7 +921,7 @@
       "properties": { "discretization": { "$ref": "#/$defs/lineDiscretization" }, "schema": { "const": "scnsim.result" }, "schema_version": { "const": 2 }, "result_kind": { "const": "operator" }, "request_sha256": { "$ref": "#/$defs/sha256" }, "attempt_sha256": { "$ref": "#/$defs/sha256" }, "parameters": { "$ref": "#/$defs/parameterSet" }, "parameters_sha256": { "$ref": "#/$defs/sha256" }, "ref_lineage": { "$ref": "identity-common.schema.json#/$defs/refLineage" }, "scalar_catalog": { "type": "object", "maxProperties": 0 }, "array_catalog": { "type": "object", "additionalProperties": false, "required": ["frequencies", "operator"], "properties": { "frequencies": { "$ref": "identity-common.schema.json#/$defs/directFrequencyArtifact" }, "operator": { "$ref": "identity-common.schema.json#/$defs/operatorArtifact" } } } }
     },
     "singlePointResult": {
-      "oneOf": [ { "$ref": "#/$defs/singleDirectResult" }, { "$ref": "#/$defs/singleDiagonalResult" }, { "$ref": "#/$defs/singleOperatorElementRootResult" }, { "$ref": "#/$defs/singleHBResult" }, { "$ref": "#/$defs/singleOptimizationResult" }, { "$ref": "#/$defs/singleHybridizedPoleResult" }, { "$ref": "#/$defs/singleTransferZeroResult" }, { "$ref": "#/$defs/singleResidueCouplingResult" }, { "$ref": "#/$defs/singleResponseElementResult" }, { "$ref": "#/$defs/singleOperatorResult" } ]
+      "oneOf": [ { "$ref": "#/$defs/singleDirectResult" }, { "$ref": "#/$defs/singleDiagonalResult" }, { "$ref": "#/$defs/singleOperatorElementRootResult" },  { "$ref": "#/$defs/singleOptimizationResult" }, { "$ref": "#/$defs/singleHybridizedPoleResult" }, { "$ref": "#/$defs/singleTransferZeroResult" }, { "$ref": "#/$defs/singleResidueCouplingResult" }, { "$ref": "#/$defs/singleResponseElementResult" }, { "$ref": "#/$defs/singleOperatorResult" } ]
     },
     "candidateOutcome": {
       "type": "object",

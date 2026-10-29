@@ -1,0 +1,18 @@
+---
+title: "第 5 章 · 第 2 課 — 公開實例"
+subtitle: "元件庫與可重用 Composite 工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1 課" appearance="simple"}
+請先閱讀[第 1 課](01-library.qmd)，再於乾淨核心中執行[完整本章 Notebook（英文）](/en/examples/engineer/chapter-05/chapter.ipynb)，不要單獨執行本頁。
+:::
+
+{{< include _02-instance.qmd >}}
+
+[上一課：第 1 課 — 元件庫邊界](01-library.qmd) ·
+[下一課：第 3 課 — 父層重用](03-reuse.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-05/chapter.ipynb)

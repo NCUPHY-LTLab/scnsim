@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Mapping
 from html import escape
+from math import ceil
 from typing import Any, Literal
 
 import numpy as np
@@ -15,7 +17,7 @@ from .common import (
     Channel, Component, MatrixKind, _channel_label, _channel_record,
     _component_values, _display_axis, _family, _frequency_axis,
     _frequency_unit_for_axis, _matrix_meta, _matrix_values, _plotly,
-    _presentation_channel, _presentation_source, _quantity_text,
+    _presentation_channel, _presentation_source,
     _require_axis_semantics, _response_axis, _set_db_viewport, _style,
     _subplot_type, _trace, _trace_meta, _unit_label,
 )
@@ -58,8 +60,8 @@ def _validate_matrix_arguments(
 def _matrix_table(view: Any, *, family: str, frequency: Quantity) -> Any:
     go, _, _ = _plotly()
     index = _frequency_index(view, frequency)
-    values = _matrix_values(view)[index]
-    unit = str(view.matrix.units)
+    values = _matrix_plane(view, family=family, frequency_index=index)
+    unit = _matrix_unit(view)
     shown_frequency = frequency.to_compact()
     headers = [
         f"output \\ input<br>{shown_frequency:~P}",
@@ -78,7 +80,10 @@ def _matrix_heatmap(view: Any, *, family: str, frequency: Quantity, component: C
     go, _, _ = _plotly()
     index = _frequency_index(view, frequency)
     values, _ = _component_values(
-        _matrix_values(view)[index], component, family=family, magnitude=magnitude
+        _matrix_plane(view, family=family, frequency_index=index),
+        component,
+        family=family,
+        magnitude=magnitude,
     )
     unit = _unit_label(view, family, component, magnitude)
     return go.Heatmap(
@@ -88,6 +93,36 @@ def _matrix_heatmap(view: Any, *, family: str, frequency: Quantity, component: C
         colorbar={"title": unit},
         hovertemplate="output=%{y}<br>input=%{x}<br>value=%{z}<br>unit=" + unit + "<extra></extra>",
     )
+
+
+def _matrix_unit(view: Any) -> str:
+    from .common import _matrix_unit as matrix_unit
+
+    return matrix_unit(view)
+
+
+def _matrix_plane(view: Any, *, family: str, frequency_index: int) -> np.ndarray:
+    """Read only one requested matrix plane from a fixed Direct result."""
+    reader = getattr(view, "_fixed_reader", None)
+    if reader is None:
+        return _matrix_values(view)[frequency_index]
+    selected_frequency = slice(frequency_index, frequency_index + 1)
+    first = np.asarray(reader.project_matrix(
+        family, view.input_channels[0], view.output_channels[0], selected_frequency
+    )["values"])
+    plane = np.empty(
+        (len(view.output_channels), len(view.input_channels)), dtype=first.dtype
+    )
+    plane[0, 0] = first[0]
+    for output_index, output_channel in enumerate(view.output_channels):
+        for input_index, input_channel in enumerate(view.input_channels):
+            if output_index == 0 and input_index == 0:
+                continue
+            selected = reader.project_matrix(
+                family, input_channel, output_channel, selected_frequency
+            )
+            plane[output_index, input_index] = np.asarray(selected["values"])[0]
+    return plane
 
 
 def matrix_plot(
@@ -300,89 +335,88 @@ def matrix_add_to(
     return figure
 
 
-def scalar_plot(result: Any, *, theme: Theme = Theme.AUTO) -> Any:
-    go, _, _ = _plotly()
-    fields = (
-        "root", "frequency", "linewidth", "slope", "value", "magnitude",
-        "real", "imag", "zero", "numerator_slope", "denominator", "coupling",
-        "branch_a_residue", "branch_b_residue", "evaluation_omega", "family",
+def _scalar_cell_text(value: str) -> str:
+    """Escape a shared presentation string and insert renderer-only line breaks."""
+
+    paragraphs = value.splitlines() or [value]
+    lines = [
+        line
+        for paragraph in paragraphs
+        for line in (textwrap.wrap(paragraph, width=36, break_long_words=True, break_on_hyphens=False) or [""])
+    ]
+    return "<br>".join(escape(line) for line in lines)
+
+
+def scalar_plot(result: Any, *, theme: Theme = Theme.AUTO, detailed: bool = False) -> Any:
+    from ..quantity_presentation import build_scalar_presentation
+
+    presentation = build_scalar_presentation(result, detailed=detailed)
+    tables = presentation.tables
+    go, _, make_subplots = _plotly()
+
+    prepared: list[tuple[Any, list[list[str]], int, int]] = []
+    for table in tables:
+        rendered_rows = [tuple(_scalar_cell_text(value) for value in row) for row in table.rows]
+        columns = [list(column) for column in zip(*rendered_rows, strict=True)] if rendered_rows else [
+            [] for _ in table.columns
+        ]
+        line_count = max(
+            (value.count("<br>") + 1 for row in rendered_rows for value in row),
+            default=1,
+        )
+        cell_height = max(30, 20 * line_count + 8)
+        table_height = 42 + cell_height * max(1, len(rendered_rows))
+        prepared.append((table, columns, cell_height, table_height))
+
+    total_table_height = sum(item[3] for item in prepared)
+    row_heights = [item[3] / total_table_height for item in prepared]
+    vertical_spacing = min(0.08, 0.28 / len(prepared))
+    figure = make_subplots(
+        rows=len(prepared),
+        cols=1,
+        specs=[[{"type": "domain"}] for _ in prepared],
+        row_heights=row_heights,
+        subplot_titles=tuple(table.title for table, _, _, _ in prepared),
+        vertical_spacing=vertical_spacing,
     )
-    names = ["definition"]
-    values = [type(result).__name__]
-    for name in fields:
-        value = getattr(result, name, None)
-        if value is not None:
-            names.append(name)
-            values.append(escape(str(value)))
-    identity = getattr(result, "identity", None)
-    for name in ("plan_sha256", "request_sha256", "attempt_sha256", "result_sha256"):
-        value = getattr(identity, name, None)
-        if value is not None:
-            names.append(name.removesuffix("_sha256"))
-            values.append(escape(str(value)))
-    presentation = getattr(result, "_presentation", {})
-    if isinstance(presentation, Mapping):
-        lineage = presentation.get("ref_lineage")
-        if isinstance(lineage, Mapping) and isinstance(lineage.get("lineage_sha256"), str):
-            names.append("view_lineage")
-            values.append(escape(lineage["lineage_sha256"]))
-        spec = presentation.get("spec")
-        if isinstance(spec, Mapping) and isinstance(spec.get("type"), str):
-            names.append("quantity_spec")
-            values.append(escape(spec["type"]))
-            if spec["type"] in {"diagonal_root", "operator_element_root"}:
-                basis = lineage.get("terminal_coordinates") if isinstance(lineage, Mapping) else None
-                if isinstance(basis, (list, tuple)):
-                    names.append("final_view_basis")
-                    values.append(escape(", ".join(str(item) for item in basis)))
-                row = spec.get("coordinate") if spec["type"] == "diagonal_root" else spec.get("row")
-                column = spec.get("coordinate") if spec["type"] == "diagonal_root" else spec.get("column")
-                names.extend(("root_equation", "root_hint", "frequency_interpretation"))
-                values.extend((
-                    escape(f"F_View[{row}, {column}](omega) = 0"),
-                    escape(_quantity_text(spec.get("root_hint"))),
-                    "Re(omega) / (2 pi); slope = dF_View[row,column] / d omega",
-                ))
-            elif spec["type"] == "residue_normalized_coupling":
-                branch_a = spec.get("branch_a")
-                branch_b = spec.get("branch_b")
-                if not isinstance(branch_a, Mapping) or not isinstance(branch_b, Mapping):
-                    raise ValueError("Residue coupling branch presentation is malformed")
-
-                def branch_text(branch: Mapping[str, object]) -> str:
-                    if branch.get("type") == "diagonal_root":
-                        return (
-                            f"diagonal coordinate={branch.get('coordinate')}; "
-                            f"root_hint={_quantity_text(branch.get('root_hint'))}"
-                        )
-                    if branch.get("type") == "hybridized_pole":
-                        return (
-                            "hybridized coordinates="
-                            f"{','.join(str(item) for item in branch.get('coordinates', ()))}; "
-                            f"anchor={_quantity_text(branch.get('anchor'))}"
-                        )
-                    raise ValueError("Residue coupling branch presentation is unsupported")
-
-                declared_frequency = spec.get("frequency")
-                names.extend((
-                    "branch_a",
-                    "branch_b",
-                    "evaluation_mode",
-                    "coupling_projection",
-                ))
-                values.extend((
-                    escape(branch_text(branch_a)),
-                    escape(branch_text(branch_b)),
-                    (
-                        "candidate complex-root midpoint"
-                        if declared_frequency == "complex_root_midpoint"
-                        else f"fixed frequency {_quantity_text(declared_frequency)}"
-                    ),
-                    "full complex coupling (Re J, Im J, abs J available separately)",
-                ))
-    figure = go.Figure(data=[go.Table(header={"values": ["field", "value"]}, cells={"values": [names, values]})])
-    figure.update_layout(meta={"scnsim": {"kind": "scalar_quantity", "fields": names}})
-    return _style(figure, theme, title="Direct scalar quantity")
+    for row_index, (table, columns, cell_height, _) in enumerate(prepared, start=1):
+        figure.add_trace(
+            go.Table(
+                header={
+                    "values": [_scalar_cell_text(value) for value in table.columns],
+                    "align": "left",
+                    "height": 42,
+                    "font": {"size": 13},
+                },
+                cells={
+                    "values": columns,
+                    "align": "left",
+                    "height": cell_height,
+                    "font": {"size": 12},
+                },
+            ),
+            row=row_index,
+            col=1,
+        )
+    figure.update_annotations(font_size=14)
+    _style(figure, theme, title=presentation.title)
+    margins = figure.layout.margin
+    top_margin = int(margins.t or 0)
+    bottom_margin = int(margins.b or 0)
+    domain_fraction = 1.0 - vertical_spacing * max(0, len(prepared) - 1)
+    # Domain rows share only the drawable area after Plotly's margins and gaps.
+    plot_area_height = ceil(total_table_height / domain_fraction)
+    figure.update_layout(
+        height=max(300, top_margin + bottom_margin + plot_area_height),
+        meta={
+            "scnsim": {
+                "kind": "scalar_quantity",
+                "table_titles": [table.title for table, _, _, _ in prepared],
+                "detailed": detailed,
+            }
+        },
+    )
+    return figure
 
 
 def scalar_add_to(result: Any, figure: Any, *, row: int, col: int) -> Any:

@@ -1,0 +1,39 @@
+---
+title: "概念總覽"
+subtitle: "從實體電路連結到需要的計算"
+lang: zh-TW
+toc-depth: 2
+sidebar: concept
+---
+
+有用的電路計算從三個選擇開始：電路包含什麼、觀察哪個網路邊界，以及希望取得什麼量。SCNSim 將這些選擇分開，讓同一個實體模型回答不同問題，不必為每個求解器或圖表重建電路。
+
+## 從電路到物理量
+
+**電路計畫（Plan）**描述元件、連接、接地、埠（Port）及所屬子系統，也就是實體電路本身。**檢視（View）**描述觀察方式：補償哪些負載、如何轉換座標，以及保留哪些座標。**請求（request）**選擇響應、特徵量、靈敏度（Sensitivity）、掃描或最佳化（Optimization）。**結果（Result）**攜帶計算值、單位及所選情境，供繪圖、比較或報告使用。
+
+| 下一個問題 | 接著閱讀 |
+|---|---|
+| 電路有哪些元件？如何重用共振器或網路？ | [電路模型、子系統與重用](physical-authority-and-reusable-composition.qmd) |
+| 什麼是座標、埠或選定的網路檢視（Network view）？ | [編譯（Compilation）、座標與檢視](compilation-coordinates-and-network-views.qmd) |
+| 相量（Phasor）符號、電流方向與波參考代表什麼？ | [模擬慣例](simulation-conventions.qmd) |
+| 需要哪種計算與工作點？ | [線性 Direct 實現](direct-and-hb-realizations.qmd) |
+| 單位、參數（Parameter）與純量目標如何配合？ | [單位、參數與最佳化](units-parameters-and-optimization.qmd) |
+| 分布式傳輸線如何以區段表示？ | [電氣解析度（Electrical resolution）](electrical-resolution.qmd) |
+| Run 負責什麼？計算後可以讀取什麼？ | [請求、執行與結果](requests-execution-and-result-ownership.qmd) |
+
+## 選擇計算，不另建一套電路
+
+需要**響應（response）**時，在指定頻率上請求 S、Y 或 Z。具名曲線（trace）是該響應的投影。需要**特徵量（characteristic quantity）**時，選擇物理意義符合問題的算子元素、極點（Pole）、傳輸零點（Transfer zero）或耦合。實頻率幅值圖中的凹點不一定是複數傳輸零點；[根與分支指南](../guides/roots-and-branch-selection.qmd)說明提示（Hint）、明確搜尋與分支追蹤（Branch tracking）。
+
+需要**靈敏度（sensitivity）**時，列出參數及所求導數。單位由物理量和參數決定；導數描述所選局部分支與離散模型。需要**探索參數**時，以有序掃描重用模型，或對宣告的純量目標進行最佳化。返回的最佳點是搜尋結果，不會取代 Plan 的基準值（Baseline value），也不是另一份電路定義。
+
+## 明確保留模型與觀察邊界
+
+量測埠會加入宣告的負載及波參考。保留未設埠的座標，不會讓它變成埠。補償與座標轉換（Coordinate transformation）屬於 View，不應暗中改變元件值或實體連接。比較響應、根、導數或目標值時，必須使用相同的選定邊界。
+
+分布式傳輸線的解析度也是計算模型的一部分。宣告的根搜尋區域可以協助作者選擇解析度，但不會自動重新劃分已封存 Plan 的網格。比較物理量時，請同時考慮實際 View、負載、單位、工作點與已實現的解析度。
+
+## 從概念走向可執行範例
+
+[工程師課程](../index.qmd)將這些概念用於完整宣告的電路。模型選擇不明確時，先讀上方概念頁，再依計算需求閱讀[根與分支](../guides/roots-and-branch-selection.qmd)、[靈敏度](../guides/sensitivity.qmd)或[基準量測（Benchmark）](../guides/benchmark.qmd)指南。詳細公開介面與數值定義由[執行期契約（英文）](/en/docs/v1-runtime-contract.html)規定；本總覽提供閱讀路線，不另定方程或求解器規則。

@@ -1,0 +1,47 @@
+## 第 5 課 — 在同一 Plan 上改變電容 {#lesson-change-capacitance}
+
+**先備條件：**請在整章 Notebook 中執行第 1–4 課。
+
+`ParameterSet` 為已綁定電容選取 120 fF；比較同一 Plan 上 110 fF 基準值與此參數點的 S11，不會建立第二個電路。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-001.qmd >}}
+
+沿用相同的頻率網格、已封存的 Run、原始 View 與 Direct 請求。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-002.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-003.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+基準值為 110 fF，所選參數點為 120 fF；兩條曲線皆為 Port 1 `signal_in` 的 S11。
+
+<iframe class="w-100" height="400" src="../figures/01-s11-comparison-magnitude.html" title="110 與 120 fF 的 S11 振幅" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/01-s11-comparison-magnitude.svg" label="開啟 S11 振幅比較圖" >}}
+
+<iframe class="w-100" height="400" src="../figures/01-s11-comparison-phase.html" title="110 與 120 fF 的 S11 相位" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/01-s11-comparison-phase.svg" label="開啟 S11 相位比較圖" >}}
+
+[下載基準／所選複數響應資料](../figures/01-s11-data.csv)。
+
+:::
+
+在所選參數點上評估相同的負載根請求。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-004.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-01/_05-change-capacitance.qmd/block-005.qmd >}}
+
+產生的物理量表會並列兩個負載 Result 與獨立的未載入 LC 計算值。它不會從近乎平坦的理想單埠振幅推斷凹陷。
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/01-quantities.md >}}
+
+[下載基準值與選定量值表](../figures/01-quantities.csv).
+
+:::
+
+改變所選實體電容會移動相位特徵與負載根，但不會重新定義電路。Plan、請求、參數點與每個 Result 都保有各自的身分。

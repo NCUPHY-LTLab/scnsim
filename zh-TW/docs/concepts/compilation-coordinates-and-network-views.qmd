@@ -1,0 +1,93 @@
+---
+title: "接線端點、座標與網路檢視（Network view）"
+lang: zh-TW
+sidebar: concept
+---
+
+以電路計畫（Circuit plan）宣告實體接線，再用網路檢視選擇計算的座標與負載邊界。接線端點、分析座標與繪圖位置各有不同用途。
+
+::: {.callout-warning}
+## 已接受的 View 語意；仍在收斂的參數綁定（Parameter binding）
+
+本頁的 View 與縮減意義仍是已接受的完整 V1 語意。提供 Plan 的結構化宣告範例是另一項 `CONVERGING` 目標。獨立參數定義、空間與逐點實現也仍在收斂；精確目標行為由參數系統契約規定。轉換、能力與失敗的確切規則由連結的執行期契約規定。
+:::
+
+相量（Phasor）符號、埠電流方向、矩陣（Matrix）軸、波參考、負載邊界，請讀[模擬慣例](simulation-conventions.qmd)。
+
+## 一份電路可以回答不同問題
+
+考慮具有 `floating_plus` 與 `floating_minus` 實體端子的浮接電路。這兩個端子一直是宣告電路的一部分。一項分析可以檢視兩個原始端子，另一項可以使用共模與差模座標，第三項則只保留差模座標。
+
+這是對同一份 Plan 提出的不同問題，不是三份重新接線的電路。
+
+先以 `CircuitPlan` 宣告實體電路，再為計算選取有序的 `NetworkViewRef`。根的 Spec 指定的是**最終 View 內**的座標或有序算子元素，本身不保留邊界。`run.evaluate(view, spec)` 隨後返回頻率與斜率屬於該選定方程的 Result。即使 Spec 使用相同座標名稱與根提示，改變 `retain()` 仍會改變方程。
+
+## 區分不同種類的身分
+
+| 種類 | 意義 | 不代表什麼 |
+|---|---|---|
+| `BusRef` | 一條宣告的網路，供一般接線直接使用 | 螢幕位置或訊號流向 |
+| `TapRef` | 匯流排（Bus）上的具名接點，與該匯流排共用電氣節點 | 新節點或版面指令 |
+| `PinRef` | 原生端子，或子項向父項公開的邊界 | 不會因 ID 叫 `tap` 就成為分析座標 |
+| `GroundRef` | 在所屬範圍內表示唯一標準參考的端點 | 公開子項接腳或跨整頁的接地線 |
+| 節點座標 | 公開供分析使用的具名電氣座標 | 繪圖位置 |
+| `NetworkViewRef` | 從已封存 Plan 衍生的不可變有序分析沿革（Lineage） | 另一份 `CircuitPlan` |
+
+匯流排可以有數個接點而仍只有一個電氣節點。子項接腳可將該節點跨越所有權邊界公開；座標可讓該節點用於分析。每項角色都明確宣告，不從畫面位置或「readout」等名稱推論。
+
+目標介面的 `link(endpoints=(...))` 將兩個以上合適的 `BusRef`、`TapRef` 或 `PinRef` 控制代碼連成同一條直接零元件關係。它不建立分析座標，也不接受 `GroundRef`。外部接地改用公開接腳上的 `ground_pins(pins=(...))`；本來就接地的支路仍接至 `scope.ground`。這些宣告可以使數個擁有端本地控制代碼電氣等效，但不會公開子項的私有控制代碼。
+
+## 先用原始網路，需要時才選定 View {#network-view-lineage}
+
+`CircuitRun(plan=...)` 封存完整 Plan 並提供 `run.original`。這個根 `NetworkViewRef` 對原始網路提出問題，不進行縮減。後續管線可衍生另一份不可變 Ref：
+
+1. PTC 改變選定分析看見的有效拓撲，並保留其所補償的宣告埠證據。
+2. `transform_pair()` 改變座標表示，例如將實體正／負端子轉成共模／差模。
+3. `retain()` 選擇特定計算保留的邊界。
+
+View 選擇保留座標（Retained coordinate）邊界，Spec 選擇在該 View 上評估的物理方程。下列靜態電容（Static capacitance）對應是仍在收斂的 dev36 擴充，不改變既有動態方程：
+
+| 宣告 | 負責內容 | 靜態電容行為 |
+|---|---|---|
+| 透過 `run.original.reduce(...)` 套用的 `ReductionPipeline().retain(...)` | 有序保留座標及其補集 | 選擇保留矩陣軸。有限補集（含內部有限 π 節點）接受靜態零電荷縮減（Zero-charge reduction）。 |
+| `StaticCapacitanceSpec()` | 靜態電容方程與輸出選擇器 | View 沒有 retain 時評估完整轉換後有限 C，否則評估保留 View 的 C；沒有 `zero_charge` 輸入。 |
+| View 沿革中的 PTC | 既有埠負載補償選擇 | 有效 PTC 沿革仍可使用。其電阻／參考負載遮罩不改變 C 或轉換權重；靜態 C 不套用 RF 埠適用條件或正規化。 |
+
+對靜態 C，`retain()` 產生僅含 C 的邊界 $q_e=0$。既有動態 Direct 響應、算子、根與殘值耦合方程，在相同保留 View 上仍使用完整動態 Schur 行為。靜態方程與 API 請見[靜態電容契約（英文）](/en/docs/contracts/static-capacitance.html)及[指南](../guides/static-capacitance.qmd)。
+
+保留座標時，宣告 `ReductionPipeline().retain(coordinate_a, coordinate_b)`，再以 `run.original.reduce(...)` 套用。它們是同一份已擷取 Plan 的既有公開座標控制代碼，排列順序宣告保留軸順序。公開接腳、埠名稱與座標不可互換。保留座標不增加邏輯埠，也不改變 Plan 連接。完整有限靜態矩陣的軸 ID 可用來選取靜態元素，但不會成為新的公開 retain 控制代碼。刻意公開座標的方式見[組裝邊界（英文）](/en/docs/contracts/circuit-plan-assembly.html#public-boundaries)。
+
+順序很重要，並保留在 Ref 沿革中。Direct 必須忠實實現同一最終 View，否則明確失敗。
+
+工程師[第 3 章](../../examples/engineer/chapter-03/01-build.qmd)先在 `run.original` 上保留雙埠饋線／讀出請求。[第 4 章](../../examples/engineer/chapter-04/03-ptc-core.qmd)則保留同一份四埠實體 Plan，衍生探針補償、保留座標的饋線 View；選用延伸再轉換同一保留沿革。這些是既有 View 契約的應用，不是縮減後的替代 Plan。
+
+工程師[第 7 章](../../examples/engineer/chapter-07/01-rlgc.qmd)同樣區分有序 N=2 宣告本體與八區段有限 π 編譯（Compilation）模型。四個訊號埠屬於宣告網路，RLGC 參考導體仍是模型中繼資料，不是另一個埠。
+
+## 在實現 View 前綁定數值
+
+`ParameterSet` 只替 Plan 已使用的 ref 選值。`ParameterSpace` 要求 SCNSim 在有序點集合上實現同一 Plan 與選定 View。每點重新組裝相依於參數的原生值、轉換、矩陣與縮減；Plan 拓撲與 View 沿革不會成為可變批次狀態。
+
+頻率網格與矩陣索引仍是 Result 維度，不是參數軸。在固定傳輸線 RLGC 值上的純量掃描可追蹤已接受的根分支。此目標不跨完整 RLGC 矩陣的改變追蹤同一根；不支援的請求會失敗，不會改用各點獨立選根。
+
+## 電路圖仍是 Plan 的投影
+
+呼叫端宣告的電路圖說明原始 Plan。確定性的編譯器展開屬於數值檢視，不是目前的自動繪圖產生器。參數化圖可以投影一份明確 `ParameterSet`，但不繪製選定 `NetworkViewRef`、PTC 有效拓撲、求解器狀態、掃描或 Result。繪圖不能建立或修改 View。
+
+因此浮接範例的原始圖仍顯示 `floating_plus` 與 `floating_minus`。Result 可以用 `floating.common`、`floating.differential` 索引，但這些分析座標不是新實體端子，也不會在圖中被移入另一個電路層級。
+
+## 為何要分開
+
+區分 Plan 與 View，讓同一模型保留來源沿革，並回答數個明確問題。這可避免把探針補償誤認為製程改動、把轉換座標誤認為導線，或把保留矩陣邊界誤認為完整新電路。
+
+此概念不引入縮減版 `CircuitPlan`、匿名子項座標的公開存取、任意轉換權重或後端專用埠清單。
+
+## 契約章節
+
+- [將一份 Plan 封存至一個 Run（英文）](/en/docs/v1-runtime-contract.html#seal-one-plan-into-one-run)
+- [宣告浮接電路 Ref 圖（英文）](/en/docs/v1-runtime-contract.html#floating-qubit-ref-graph)
+- [共用拓撲與統一節點檢視（英文）](/en/docs/v1-runtime-contract.html#shared-topology-and-unified-node-views)
+- [選擇性埠終端補償（英文）](/en/docs/v1-runtime-contract.html#selective-port-termination-compensation-ptc-is-a-shared-topology-step)
+- [自動配對節點座標（英文）](/en/docs/v1-runtime-contract.html#automatic-paired-node-coordinates-are-a-shared-view-step)
+- [保留任意節點座標檢視（英文）](/en/docs/v1-runtime-contract.html#retain-an-arbitrary-node-coordinate-view)
+- [呼叫端宣告電路圖（英文）](/en/docs/v1-runtime-contract.html#authoring-and-compiled-schematics)
+- [參數系統契約（英文）](/en/docs/contracts/parameter-system.html)

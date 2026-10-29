@@ -1,0 +1,19 @@
+---
+title: "第 4 章 — 四埠完整範例"
+subtitle: "工程課程 · 繁體中文"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 第 4 章 — 四埠完整範例
+
+本章在乾淨核心中獨立執行。五個網頁課程是依序排列來源片段的閱讀版本，不是獨立 Notebook。QMD 是可編輯權威來源；`chapter.ipynb` 是產生的零輸出傳遞檔。第 3 課完成必要主線，第 4–5 課則是同一 Plan 的選讀分析延伸。
+
+主線建立原始四埠實體 Plan、檢視明確電路圖，再讀取原始與探針補償後的 Direct Result。
+{{< include _01-physical-plan.qmd >}}
+{{< include _02-explicit-capstone.qmd >}}
+{{< include _03-ptc-core.qmd >}}
+{{< include _04-optional-transform.qmd >}}
+{{< include _05-optional-quantity.qmd >}}

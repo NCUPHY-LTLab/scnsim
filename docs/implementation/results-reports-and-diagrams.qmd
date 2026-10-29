@@ -4,24 +4,26 @@ subtitle: "How does verified evidence become a Python-facing presentation?"
 toc-depth: 2
 ---
 
-**Status:** accepted numerical Result mechanics outside the new report surface
-remain `STABILIZED`. `ReportPanel`, automatic report selection, and the pure
-report composer are a `CONVERGING` candidate. Structured authoring, its
-identity integration, and certified diagrams are another `CONVERGING` scope
-with an integrated implementation baseline; see the
-[central evidence status](../contracts/index.qmd#implementation-evidence-status). Adaptive
-presentation-theme semantics remain a separate `CONVERGING` candidate.
+Numerical Results, saved evidence, and presentation have separate owners.
+This page follows typed values into plots, reports, and caller-declared circuit
+diagrams. For the public reading and lifetime rules, start with
+[Result ownership](../concepts/requests-execution-and-result-ownership.qmd).
 
 ## Separate materialized values from analysis evidence
 
-`Result` is the shared immutable, already-materialized value role.
+`Result` is the shared immutable value or fixed evidence-selection role. Readers keep fixed completion metadata, not a Run, worker, connection or full
+decoded history. The
+[Runtime lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle) owns
+its selection, short-snapshot and materialization rules. Already delivered
+values are detached; reading an unloaded portion may perform readonly evidence
+I/O, never numerical execution.
 `AnalysisResult` is the receipt-backed terminal subset and exposes immutable
 `ResultIdentity(plan_sha256, request_sha256, attempt_sha256, result_sha256)`.
-`DirectSolveResult`, `DiagonalRootResult`, `OptimizationResult`, and
-`HBBatchResult` derive from it. Each HB batch contains one `HBCaseOutcome` for
-every declared case. The outcome is a derived view of its parent receipt: a
-success exposes matrices and states; a numerical failure exposes its stored
-`HBCaseFailure`. `ExplanationResult`, `CircuitDiagramResult`, and
+The attempt digest remains the canonical completed terminal attempt document;
+SCNSim operation-store schema revision 8 binds it through `terminal_attempt_ref`, not a running allocation.
+Saved Direct, diagonal-root and Optimization Results derive from the
+analysis-result role. Memory Results retain detached values without fabricating
+saved request/attempt identities. `ExplanationResult`, `CircuitDiagramResult`, and
 `ReportResult` remain derived values and do not fabricate operation receipts.
 
 ## Reconstruct typed Results in Python
@@ -32,33 +34,51 @@ matrix payloads become labeled NumPy arrays with ordered coordinate, mode,
 frequency, unit, and load-state metadata. An Analysis Result retains request,
 attempt, artifact, and runtime identity even when its chunks load lazily.
 
-Direct matrix channels use `(coordinate, ())`. HB input and output channels use
-flattened `(coordinate, mode)` pairs in coordinate-major/mode-minor order.
-`MatrixView.input_channels` and `output_channels` expose those exact stored-axis
-labels; presentation never infers a reshape or relabels a mode.
+Direct matrix channels preserve their ordered coordinate/mode labels. Public
+matrix and trace projections use those saved axes; presentation does not infer
+connectivity, reshape a different physical boundary or execute a missing result.
+Direct and Operator readonly evidence belongs to the same numerical call and is
+also available for Sweep points and saved resolution. Conditional affine evidence
+is absent when unused. See [Workspace evidence v3](../contracts/workspace-evidence-v3.qmd).
 
-HB operating-point arrays use the separate structured axes
-`(pump_mode, node_coordinate)`. Each pump-mode label is an ordered integer tuple
-in request pump-axis order, and each node-coordinate label is the sealed
-compiler identity recorded by `state_node_map`. These labels are evidence, not
-new View selectors or Port aliases.
+## Scalar Quantity presentation
 
-The Result catalog describes artifact meaning: role, dtype, shape, axes, units,
-and channel order. HB links carry case-local `{case_id, id, path, sha256}`
-references. The manifest instead seals the byte tree. A repeated local ID or
-SHA-256 across cases is valid; only the complete receipt-bound reference has an
-addressable role.
+```python
+quantity_result.show(theme=Theme.AUTO, detailed=False)  # HtmlPresentation
+quantity_result.plot(theme=Theme.AUTO, detailed=False)  # detached Plotly Figure
+```
 
-No Result unpickles arbitrary Python objects. Missing chunks, mismatched shape,
-unit disagreement, forbidden non-finite values, or a real/imag manifest
-mismatch fails verification instead of returning a partial typed object.
+`DirectQuantityResult.show(*, theme=Theme.AUTO, detailed=False)` returns an
+`HtmlPresentation` with themed HTML tables. Its `plot()` accepts the same
+keywords and returns a detached Figure containing grouped tables. Both consume
+one shared immutable presentation record; field selection, value formatting
+and provenance selection have one authority. Scalar quantities are evidence
+tables, not invented response curves. Existing `add_to()` behavior is unchanged.
+
+The default view separates Quantity, Value and Unit columns, with definition
+bindings in separate tables. Numeric declaration units have their own column.
+Values use at most 12 significant digits and engineering display units in the
+existing unit family. Real and imaginary components share one unit and scale;
+small nonzero components remain visible. Display formatting does not convert
+angular frequency into cyclic frequency or recompute a root, slope, residue,
+response or coupling.
+
+`detailed=True` adds provenance and original magnitude/unit tables. Original
+magnitudes use their stored representation, preserving access to values behind
+the compact display. HTML escapes text; Figure tables retain the same ordered
+content. Theme, long names and complex values affect only presentation. Neither
+surface mutates the Result, Workspace, decoder, numerical values or identity,
+and neither launches a calculation. Other Result presentation contracts remain
+unchanged.
 
 ## Keep presentation downstream of execution
 
-Plotly renders every numerical Result surface. `plot()` returns one detached
-native `plotly.graph_objects.Figure` without displaying it; `show()` displays
-the same presentation exactly once and returns `None`, preventing a final
-notebook expression from displaying its MIME representation a second time.
+For numerical plots, `plot()` returns one detached native
+`plotly.graph_objects.Figure` without displaying it. Matrix, sweep, operator,
+HB and Optimization `show()` display the plot once and return `None`, preventing
+a final notebook expression from displaying its MIME representation a second
+time. Scalar `DirectQuantityResult.show()` instead returns the HTML value
+described below, for the Notebook or IDE to display.
 Editing a Figure returned by `plot()` cannot mutate verified Result arrays,
 evidence, or identity. `add_to(fig, row=..., col=..., ...)` adds one
 explicitly selected trace, heatmap, or table to a compatible caller-owned
@@ -158,18 +178,18 @@ The paired line cycle, in order, is
 `#a16207/#facc15`, `#be185d/#f472b6`, `#0e7490/#22d3ee`, and
 `#475569/#cbd5e1`. Each pair is the light/dark rendering of one trace index.
 
-## Structured diagram implementation target
+## Structured manual diagrams {#structured-diagram-implementation-target}
 
 The [diagram contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd)
-is the sole `CONVERGING` diagram authority. It consumes explicit series,
+owns the manual diagram behavior. It consumes explicit series,
 parallel, branch, bus, tap, link, exposure, coupling, and recursive ownership
 facts from the independent
 [assembly contract](../contracts/circuit-plan-assembly.qmd), not an inferred
 neighbor partition or pre-render catalog.
 
-The implementation baseline is integrated. The design below retains the
-contract's required mechanisms; scoped validation does not establish universal
-layout support, whole-course execution, or Human acceptance.
+The caller supplies the complete geometry. Preparation measures the same native
+bodies that realization draws; the renderer does not place components or route
+wires automatically.
 
 ### Package and capture boundaries
 
@@ -179,86 +199,140 @@ Implementation remains separated behind private diagram boundaries:
 |---|---|
 | snapshot and expected evidence | capture one immutable structured Plan; derive visible expectations and separate complete source rows |
 | authoring IR | retain recursive scopes and explicit structured operators without intent inference |
-| composition inventory and recipe | bind existing Blocks and owner-local attachments to one Plan; capture complete public settings and wiring |
-| scene and local layout | measure native parts and child scenes, jointly place Blocks/anchors/junctions, and emit one neutral scene |
+| preparation inventory and full layout | bind readonly captured occurrence/contact refs and complete scope geometry to one exact Plan/point |
+| scene and explicit realization | measure cardinal native bodies and complete child fragments; emit only declared poses, routes and annotations |
 | layout constraints | verify requested shapes and sides against actual visible geometry separately from A/B |
 | independent witnesses | reconstruct only visible electrical and ownership observations from the scene |
 | frozen serialization | expose the checked scene through one immutable result |
 
 Capture must be pure. Coordinate promotion and normalization operate on copied
 records; the renderer cannot mutate a Plan temporarily and restore it. The
-same capture feeds compiler preflight. The existing canonical encoder remains
-the current implementation baseline. Target identity integration must
-deliberately add the structural declarations rather than claiming compatibility
-by similarity.
+same capture feeds compiler preflight. The existing canonical encoder owns the captured Plan and parameter binding.
+Drawing coordinates remain presentation state and do not change the numerical
+Plan identity.
 
 The expected-visible manifests derive independently from the structured source
-snapshot or compiled expansion. Complete authored operator, exposure,
+snapshot. Historical compiled exports retain their original expansion evidence. Complete authored operator, exposure,
 alias, parameter-definition, parameter-binding, effective-point, unit, bus,
 tap, ground-provenance, and ownership records remain separate verified source
-rows. Observed witnesses derive only from emitted neutral geometry and may not
-read placement tables, source rows, or hidden answers.
+rows. Observed continuity and pin incidence derive from the emitted scene. Declaration refs may associate bodies/pins with source occurrences, but cannot supply the observed net answer or turn an absent wire into a connection.
 
-### One public composition recipe
+### One explicit authoring layout
 
-`SchematicComposition(plan=plan)`, `automatic(plan=plan, hints=None)`, and
-`layout=None` share one fixed Default completion path. Explicit per-field
-choices win; omitted axes, eligible orders, sides, and other fields receive
-stable defaults. The constructor is partial-default, not a strict whole-manual
-mode. Inspection is nonmutating. Hidden Composite contents remain
-nonaddressable.
+The [full-layout contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd#schematic-composition)
+is the only public geometry authority. `prepare_schematic()` captures immutable
+Plan/point inventory and cardinal native measurements without requiring layout
+or initializing a numerical backend. Authoring `render_schematic()` requires a
+complete `SchematicLayout`; it does not fill omitted geometry.
 
-Blocks and attachment inventory retain the
-[public composition contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd#schematic-composition).
-`replace_wiring(at=...)` still replaces one complete owner-local group:
-incomplete edited attachments or arms fail at capture; Default never fills
-missing manual wires. Bus/Link/public-Pin aliases in the same local class share
-one authority, and old
-wiring refs are invalidated. Subsystem Pins select parent-facing incidence;
-ComponentInstance Pins select their occurrence-owner incidence. There is no
-child-private fallback. `endpoint(pin)` resolves in that group; an ambiguous
-Tap requires an explicit structure boundary. Ground networks and private Series
-midpoints/Parallel rails cannot be generally replaced.
+Every physical occurrence has an explicit cardinal pose and supported optional native body span. Group membership and
+order remain source facts, not a request to pack an entire Series/Parallel.
+Scope-local routes bind real contacts, named junction arms and complete
+cardinal waypoints; actual jumps, coupling guides and annotation anchors are explicit.
+Captured coupling branches/coefficient/polarity and native winding-dot markers
+remain separate from layout coordinates and electrical contacts.
+Readonly drawing refs for Composite interiors never mutate electrical handles.
 
-Local signal classes follow authored Bus/Tap, Link, exposure/backing, and
-structural-boundary relations without crossing a child or physical body.
-Equivalent public child pins may therefore join distinct parent-local groups;
-their shared global net is carried by real child wiring, not a parent shortcut.
-Only actual outward incidence supplies parent attachments. Open public pins
-keep their boundary/side targets without imaginary wires, and a Port belongs
-only to its root Bus's local class. Child measurement remains complete and
-parent placement translates it whole. A/B and composition checks reconstruct
-electrical continuity, named boundaries, and each local visible wire component
-independently; sibling-group ink is not coverage for the selected group.
+Child measurement returns the complete immutable realized scene with actual
+exposed contacts, bounds, obstacles and terminal access. Parent realization
+adopts that identical fragment under its declared pose. There is no hidden
+child `_place_structure`, default materialization or route chooser. Native
+orientation is selected before final contact and upright text measurement.
 
-The existing axis/order/terminal/Port/tap/ground setters and
-straight/L/T/Cross/connect primitives remain. Scope order contains independent
-complete peers and child regions; Parallel order contains its complete
-branches. Structures remain axis/endpoint Blocks, not extra scope peers.
-`port_orientation()` atomically sets perpendicular boundary/load sides in the
-root frame; `port_side()` preserves an explicit compatible load and rejects
-incompatibility atomically. `ground_side()` does not accept Port. The complete
-Port Block's external anchor is its circuit-facing lead end.
+The preparation identity binds source, Plan, effective parameters, font metrics
+and presentation options. A Python helper constructs fresh instance/point refs
+and full scope layouts. Lossless JSON and `Result.layout` retain that binding;
+old hints, `SchematicComposition` and `to_composition()` are replaced rather
+than adapted. Expected source declarations and actual-ink witnesses remain
+separate authorities.
 
-One captured AuthoringSnapshot, effective ResolvedPlanPoint, and display/font
-settings feed one isolated Default completion, one measured body per child,
-one constructive placement, and one fixed routing realization. Caller state,
-refs, and old results never mutate. Authoring `diagram.composition` is the
-detached immutable completed public recipe; compiled diagrams expose `None`.
-Exact-Plan `to_composition(plan=plan)` returns a new editable fixed recipe.
-Another single parameter point remeasures/reroutes without freezing pixels or
-exposing editable private inventory. There is no reset-to-auto operation or
-new request/schema/digest system.
+### Declare, then show a diagram
 
-Parallel-generated branch `SeriesRef` axis constraints, including those from
-`SchematicLayout.axes`, are redundant constraints on the containing Parallel's
-shared orientation, not independent Block rotations. Capture accepts equality
-with the effective Parallel axis and rejects conflicts with branch/Parallel
-IDs; setter order never chooses an override.
+The following uses the manual diagram interface. The caller's
+`layout_factory` must supply complete geometry from this preparation; it is an
+ordinary caller function, not package automatic completion.
 
-### Compiled matrix-stamp projection
+```python
+def declare_diagram(plan, layout_factory, *, point=None, drawing_unit=None):
+    from scnsim import CircuitDiagramSpec
 
-The compiled projection remains a complete **matrix-stamp** view, never a
+    prepared = plan.prepare_schematic(
+        CircuitDiagramSpec(drawing_unit=drawing_unit), parameters=point
+    )
+    layout = layout_factory(prepared)
+    diagram = plan.declare_schematic(
+        CircuitDiagramSpec(layout=layout, drawing_unit=drawing_unit),
+        parameters=point,
+    )
+    plan.show_schematic()
+    return diagram
+```
+
+A caller may supply `DiagramUnit(name, units_per_u)`; `None` retains existing
+native geometry. Coordinates remain binary64, including fractional drawing
+units, without physical-metre conversion or automatic snapping. Before routing,
+`prepared.measure_body(body_ref, rotation=0, span=span)` gives actual native
+anchors; the corresponding `DiagramPose(origin, rotation=0, span=span)` uses the
+same span. TL/MTL explicit spans are exact terminal-plane separation, not
+physical TL length, and labels cannot silently enlarge the body. Native default
+span remains available with `None`.
+
+For a one-conductor CPW, choose native measured content-fit or explicit box
+width/height through `DiagramBoxSize`. An omitted axis keeps native sizing;
+an explicit axis is exact even if caller text overlaps or overflows. Width is
+local longitudinal rectangle width, height transverse, before cardinal
+rotation. `span` and `box.width` are mutually exclusive; explicit width places
+contact planes at width plus the two unit-scaled terminal stubs. Height may
+accompany span. MTL keeps its existing span capability.
+
+The following preparation helper returns declarations for the caller's complete
+scope layout. `cpw_ref` comes from this exact preparation, and `caption_anchors`
+contains the caller's chosen TextRun-origin positions for the captured CPW
+caption refs. It supplies no Plan fields or replacement text:
+
+```python
+def cpw_geometry(preparation, cpw_ref, *, origin, caption_anchors,
+                 rotation=0, width=None, height=None):
+    from scnsim import DiagramBoxSize, DiagramCaption, DiagramPose
+
+    box = DiagramBoxSize(width=width, height=height)
+    fragment = preparation.measure_body(cpw_ref, rotation=rotation, box=box)
+    pose = DiagramPose(origin, rotation, box=box)
+    captions = tuple(
+        DiagramCaption(row["ref"], caption_anchors[row["ref"]])
+        for scope in preparation.scopes
+        for row in scope.captions
+        if row["source"]["kind"] == "native_field"
+        and row["target"] == cpw_ref
+    )
+    return fragment, pose, captions
+```
+
+Use `fragment.contacts` and measured text bounds to author the real routes and
+caption positions, then include the returned pose/captions in the complete
+layout. Native content-fit is calculated before arbitrary caller-relative
+caption positions, so these positions do not trigger resizing. Captured CPW
+kind/title/physical length/section text is retained; no clipping, font scaling
+or custom content silently changes it. This interface is still under
+implementation, not an executed rendering observation. The single
+[contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd#schematic-composition)
+retains exact structural/failure semantics.
+
+Declaration replaces one Plan association only after successful render/audit/
+freeze; failure preserves its previous association. `show_schematic()` displays
+the stored captured point through the existing FrozenDrawing notebook rich-
+display hook, with missing/stale binding errors and no layout realization,
+recertification, solver or parameter override. This serializes the held scene
+for notebook presentation, rather than calling a standalone GUI Figure.show.
+It uses existing IPython notebook support from the locked course-generation
+environment; import/serialization errors propagate without a new dependency
+or fallback. Detached prior Results remain readable. Unit/span,
+T/Cross/jump incidence and failure semantics are defined only by the linked
+[contract](../contracts/automatic-semantic-circuit-diagram-layout.qmd).
+
+### Historical compiled matrix-stamp projection {#compiled-matrix-stamp-projection}
+
+The retired automatic compiled projection recorded a complete **matrix-stamp** view, never a
 scalar-equivalent circuit. With the existing `exp(-i omega t)` convention and
 $s=-i\omega$, each series station contributes
 
@@ -287,155 +361,20 @@ sign, unit, incidence, section/end/station, conductor order, and exact zero.
 The observed witness reconstructs these facts from the neutral scene instead
 of copying the expected table.
 
-### Structured native scene and local layout
+### Structured native scene and explicit realization
 
-Authoring IR mirrors the declared hierarchy and operators. It does not derive
-S/P/M interfaces, a quotient topology, a global physical flow, or a second
-electrical graph. Every inline Subsystem and reusable Composite expands its
-native child diagram in a measured ownership region with a visible ID.
+Authoring IR retains the declared hierarchy, physical occurrences and operators.
+Native measurement supplies immutable local fragments and actual contacts for
+each cardinal orientation. Full scope realization consumes declared frames,
+poses, boundaries, routes, junctions, jumps, captions and analysis leaders.
+It translates whole child fragments and preserves actual terminal-access
+sources. Aesthetic obstacle/label spacing is caller-owned; wrong-pin contact,
+missing wire and indistinguishable different-net conductive overlap still fail.
+Same-owner or same-net metadata cannot supply missing actual incidence. Missing geometry fails without search, padding or completion.
 
-### Resolve fixed defaults before measurement
-
-Resolve sides and attachment identities once. Series default horizontal;
-Parallel defaults vertical with start above end and branches left-to-right.
-Peers follow declaration order along the scope axis without forced top
-alignment. Explicit settings conjoin and never get overwritten. Parallel
-branch axes follow their containing Parallel; the existing ground-side control
-may determine a grounded structure's orientation.
-
-Port boundary side comes from the selected wiring arm or intrinsic incident
-direction, then the scope's leading side when undetermined (left for
-horizontal, top for vertical). Horizontal Port loads default downward;
-vertical loads default rightward. Explicit poses are never reselected around
-obstacles. Public-boundary direction resolves from an explicit setting or
-parent arm before child measurement. Attachment inventory follows
-first-incidence insertion order: authored structures in declaration order
-(external start/at boundary before end), then exposed scope pins, child public
-pins, and independent complete-component pins; root Ports follow declaration
-order. Real contact keys are deduplicated. `.tap()` declarations supply
-membership and explicit-order validation, not a separate placement order.
-Applicable explicit `tap_order` supplies a presentation precedence overlay
-used by otherwise-Default arm assignment and constructive contact placement.
-The immutable source inventory keeps its original order, and manual or fixed
-wiring is not rewritten.
-Unspecified ordering uses the structural/attachment declaration fallback,
-while all explicit geometric constraints remain conjoined and validated.
-
-Default uses the same public primitive builders as explicit wiring. Two
-contacts use straight/L; three use a T with exact compatible directions or the
-fixed scope branch (bottom for horizontal, right for vertical). Four distinct
-directions use Cross, otherwise connected Ts. Larger groups use a fixed T
-chain along the scope axis. Assign exact compatible arms first, then remaining
-contacts/arms in stable source/cardinal order. No alternate trees, poses,
-axes, or costs are enumerated. The five-map `SchematicLayout` convenience
-feeds these same field setters and fixed completion.
-
-### Construct one measured scene
-
-Compact child measurement allocates only actually needed fixed route lanes on
-each side, plus measured component and public-analysis labels, title, ground,
-border, and escape space. Public-analysis labels are the exact named root Buses
-and child Coordinates explicitly published by `expose_coordinate()`; anonymous
-root Buses, private child Buses, anonymous internal IDs, and other exposure
-kinds are excluded. Co-located public aliases share one measured multi-line
-text run with every exact name on its own line, while the producer never merges
-different owner-local source groups by `final_net`. These labels and their
-nonconductive leaders are measured before
-the final child frame, anchors, and fixed route lanes are committed.
-Unused full-ring reservation and redundant straight-connector spacing are
-removed. Frame and public anchors finalize together before parent translation;
-there is no post-hoc crop, global clearance reduction, search, public coordinate
-knob, or example-specific path.
-
-Each child owns one measured native payload: upright labels, complete frame,
-public anchors, local grounds, and reserved exits. Parent placement translates
-that payload whole. Composite local/inverse-frame conventions remain intact;
-neither its private contents nor measured anchors are rewritten. A single-pin
-readout can hang from its parent T without inventing another Pin, Port, or
-load. Complete native CPW/MTL bodies and scopes without child Subsystems follow
-the same construction.
-
-Preallocate measured Block, junction-subtree, Port/load/text, connector, and
-coupling-guide strips. Branch extents can offset rows and enlarge subsequent
-columns while preserving projected peer order; this is not top-aligned boxes
-followed by late detours. A stable spanning traversal places each body once.
-It is a placement device, not a wiring restriction: remaining edges and cycles
-are each retained once in reserved closure tracks.
-
-Allocate channels and distinct lanes in stable group/connection order before
-emitting wires. Aligned routes are direct; prescribed bends and
-channel/perimeter routes are arithmetic constructions. There is no reachable
-authoring visibility graph, Dijkstra, candidate-position enumeration,
-beam/backtracking, routing-order retry, or readability score, including inside
-structural wiring, public-boundary/label completion, and mutual guides.
-Reducing the previous search to a one-candidate limit is not this algorithm.
-
-Native measurement, segment geometry, contact splitting, junction/jump
-emission, final collision checks, and independent A/B/composition checks remain
-shared building blocks. Different-net crossings use the existing jump
-convention. Separate same-net routes cannot introduce incidental bridges,
-add/erase requested T/Cross arms, or lose loop edges. Mutual guides occupy
-nonconductive channels without acquiring placement or electrical authority;
-coupling capacitors remain real authored conductive Blocks.
-
-Unsupported fixed geometry fails with the actual scope, Block, junction, or
-constraint. There is no fallback search, partial success, per-example renderer,
-role/name guessing, or second authoring engine. Failure does not make the
-electrical circuit invalid and is not proof of geometric impossibility.
-Invalid input, stale/foreign/private/ground refs, and integrity errors retain
-their fail-fast boundaries. Freeze the completed recipe with the same verified
-scene; final source facts do not become observed A/B ink.
-
-The compiled renderer and its routing remain unchanged. Authoring may reuse
-shared segment/checking helpers but not compiled search functions. This
-replacement defines no numerical timing threshold, timeout, public performance
-control, scientific Gate, or universal two-dimensional embedding promise.
-
-Local ground occurrences come from authored structural terminations, not a
-scope-wide ground tree. A Parallel's shared grounded rail has one glyph;
-independent grounded shunts each have their own, including both floating-network
-shunts. Grounds default outward. `ground_side(...)` moves the grounded
-termination's presentation side, rotating its structure if necessary without
-changing electrical orientation or domain. Parent-applied pins and Port loads
-retain their separate graphical roles while all glyphs denote the same
-canonical reference.
-
-The current renderer revision retains the local `U = 2.2` setting, actual font
-metrics, separate readable name/value boxes, registered anchors, obstacle
-clearance, continuous same-net paths, true T junctions, and other-net jump
-arcs. `U = 2.2` is an implementation setting, not a TARGET semantic threshold
-or user Gate. The main authoring image uses conventional native symbols, wires,
-junctions, Ports, local grounds, physical coupling marks, and subtle titled
-ownership regions. Operator/debug marks, routing guides, and private aliases do
-not appear in that image. Ownership regions and labels remain unmistakably
-nonconductive. Literal authored local IDs remain literal display identities;
-the renderer neither title-cases them nor invents compact aliases. The existing
-`show_provenance=True` default emits a compact separated footer that can be
-hidden without changing the circuit scene or evidence. Public analysis names
-remain visible when parameter values or provenance are hidden; neither switch
-controls name publication.
-
-An authoring `NodeMark` may be unlabelled; required compiled-marker labels stay
-visible. A connected two-ray bend or contact may harmlessly carry a filled dot,
-and every true three-or-more-ray wire junction carries one. Isolated dots and
-marks that imply a different-net connection are invalid, but the renderer does
-not reject a dot merely because it has only two incident rays. Mutual winding
-dots are separate marks whose orientation evidence remains visible.
-
-Ordinary L/JJ glyphs in the normal schematic need neither direction arrows nor
-`+`/`−` reference-polarity signs. Ordered model endpoints and branch reference
-conventions remain intact through rotation without being claimed as visible
-facts of an unmarked symmetric body. Mutual winding dots, their endpoint
-incidence, and coupling information retain sufficient visible relative polarity.
-A presentation of signed branch current, voltage, or phase must explain its
-reference endpoints. This is a presentation responsibility, not a new
-signed-result API or a claim that diagram rendering computes those quantities.
-
-Layout is deterministic only for the same renderer revision, inputs, Theme,
-font files, and metrics environment. The contract does not prescribe a global
-graph-search algorithm or promise all graphs are layoutable. Failure reports
-the affected declaration or constraints and returns no partial/best-effort
-certified result.
+Nonconductive structure envelopes derive from the declared member geometry
+without moving members. Actual visible ink supplies connectivity observations;
+layout metadata does not become an observed net answer. The automatic compiled diagram producer is retired; mathematical compiler lowering remains independent of manual layout.
 
 ### Independent witnesses and frozen output
 
@@ -450,10 +389,10 @@ multi-incidence Tap cannot support an independent exact Tap-name-to-picture
 claim; its authored identity stays verified source evidence rather than an
 observed scene fact.
 
-Witness A reconstructs electrical bodies, terminals, wires, zero-wire
-equivalence, grounds, Ports, couplings, and compiled matrix associations. It
-checks authoring geometry against the exact Plan and point, or compiled geometry
-against the exact compiler-emitted expansion for that Plan and point. This is
+The electrical part of the single actual-scene witness (A) observes bodies,
+terminals, continuous wires, junction/jump incidence, grounds, Ports and
+couplings, then compares with the captured Plan and point. Source associations
+cannot replace real observed pin/wire continuity. This is
 projection correspondence. In authoring projections with
 `show_parameter_values=True`, A also
 reconstructs every displayed effective scalar physical value and displayed unit
@@ -462,8 +401,8 @@ projection of that same resolved point. This is not a tolerance or bit-exact
 Float64 roundtrip claim. The audit distinguishes displayed values from exact
 source values. Hidden value labels make no
 visible-scalar-label claim, although the certificate still binds the exact
-effective point. This qualification does not weaken the compiled projection's
-matrix, coefficient, sign, unit, half-shunt, or omission evidence.
+effective point. Historical compiled matrix/coefficient/sign/unit/half-shunt
+and omission evidence remains attributed to its original projection.
 
 Authoring scalar formatting uses Decimal `ROUND_HALF_EVEN` to six significant
 digits with trailing zeros removed. It starts from the exact captured Float64
@@ -483,7 +422,7 @@ as `1 section` or `<N> sections`. It omits
 conductor/reference/head-tail labels. A compares its two visible endpoints
 without claiming ordered head/tail identity; exact identity and RLGC are
 source-verified. MTL retains necessary ordered conductor/terminal evidence,
-and compiled scientific evidence stays unchanged.
+and numerical compiler evidence stays unchanged; compiled drawing exports remain historical.
 
 Open-pin observations come from actual visible stubs and terminal incidence,
 never open flags, expected maps, or placement answers. A required cut connection
@@ -506,8 +445,8 @@ Complete ordered model orientation remains separately verified source/provenance
 evidence. For mutually coupled branches, A reconstructs relative polarity from
 actual visible winding dots, their endpoint incidence, and coupling information;
 a consistent reference reversal carries the corresponding coupling-sign
-transformation, never deletion of sign evidence. Required oriented compiled
-evidence remains unchanged.
+transformation, never deletion of sign evidence. Historical oriented compiled
+evidence retains its original meaning.
 
 With `show_parameter_values=True`, the mutual annotation exposes its signed
 numerical coefficient. With values hidden, sign-only coupling information
@@ -568,21 +507,30 @@ They are documentation artifacts, not runtime evidence:
 - Chapters 5–6 teach deliberate Composite publication/reuse and bounded
   diagram customization on unchanged Plans.
 - Chapter 7 teaches ordered N=2 RLGC, labeled four-Port channels, and separate
-  authoring/compiled diagram limitations.
+  manual authoring geometry and explicitly historical compiled outcomes.
 - Chapter 8 persists Results and a Report, then reconstructs and resolves the
   exact root request in a second independent kernel.
 
-Every ASCDLS diagram remains a projection of the explicit authored or compiled
-Plan. It may bind one explicit `ParameterSet`, including an optimization
+Every current ASCDLS diagram remains a projection of the explicit authored
+Plan; automatic compiled drawing is retired. It may bind one explicit `ParameterSet`, including an optimization
 winner supplied by the caller; it rejects `ParameterSpace`. It does not create,
 select, or depict a request-specific View, PTC-effective topology, or solver
 Result. Exact point/audit identity belongs to the
 [Parameter System Contract](../contracts/parameter-system.qmd#parameterized-diagrams).
 
 Selected Engineer-course diagram exports are source-bound evidence, not a claim that
-all course cells executed. The central evidence status retains current
-limitations; Human acceptance and durable stabilization of reopened semantics
-remain separate lifecycle steps.
+all course cells executed. Their original provenance is retained in the
+[historical evidence record](../contracts/implementation-evidence-history.qmd).
+
+## Bound history projections
+
+Optimization presentation reads the minimum fixed projection: history/cost,
+objective/residual and parameters use ordered compact summaries; comparison
+reads baseline and exact best; detail tables read selected candidate bodies.
+`plot`, `show`, `repr` and Notebook display do not first convert the entire ledger
+or dependency history to ordinary containers. A complete history plot can read
+all cost points without loading every numerical body. These projections share
+the completion seal; they are not independently mutable numerical authorities.
 
 ## Assemble reports from explicit inputs
 
@@ -644,3 +592,37 @@ Suffix, missing-parent, and existing-target checks use `ValueError`,
 their ordinary `OSError` subtype. Export creates no operation receipt.
 
 [Next: External inputs and delivery](external-inputs-and-delivery.qmd)
+
+## History: HB Result and state axes
+
+<details>
+<summary>Retired pre-1.0 contract</summary>
+
+`DirectSolveResult`, `DiagonalRootResult`, `OptimizationResult`, and
+`HBBatchResult` derive from it. Each HB batch contains one `HBCaseOutcome` for
+every declared case. The outcome is a derived view of its parent receipt: a
+success exposes matrices and states; a numerical failure exposes its stored
+`HBCaseFailure`. 
+
+Direct matrix channels use `(coordinate, ())`. HB input and output channels use
+flattened `(coordinate, mode)` pairs in coordinate-major/mode-minor order.
+`MatrixView.input_channels` and `output_channels` expose those exact stored-axis
+labels; presentation never infers a reshape or relabels a mode.
+
+HB operating-point arrays use the separate structured axes
+`(pump_mode, node_coordinate)`. Each pump-mode label is an ordered integer tuple
+in request pump-axis order, and each node-coordinate label is the sealed
+compiler identity recorded by `state_node_map`. These labels are evidence, not
+new View selectors or Port aliases.
+
+The Result catalog describes artifact meaning: role, dtype, shape, axes, units,
+and channel order. HB links carry case-local `{case_id, id, path, sha256}`
+references. The manifest instead seals the byte tree. A repeated local ID or
+SHA-256 across cases is valid; only the complete receipt-bound reference has an
+addressable role.
+
+No Result unpickles arbitrary Python objects. Missing chunks, mismatched shape,
+unit disagreement, forbidden non-finite values, or a real/imag manifest
+mismatch fails verification instead of returning a partial typed object.
+
+</details>

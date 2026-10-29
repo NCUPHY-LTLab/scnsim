@@ -1,0 +1,19 @@
+## 第 1 課 — 建立雙埠饋線與讀出電路 {#lesson-ch3-build}
+
+### 從乾淨的本章核心開始
+
+請依照[工程課程環境設定](../setup.qmd)，開啟本章的 `chapter.ipynb`，重新啟動 Python 核心後按 **Run All**。第 3 章是新的執行單位，不會延續第 1 或第 2 章的狀態。
+
+下方主 Plan 是範圍明確的雙埠教學宣告。每個線段主體都是單節有限 π 型純量無損 CPW 近似。兩段 1 mm 線路共用一個饋線抽頭；固定 6 fF 電容將該抽頭直接耦合至接地的 110 fF／5.8 nH 讀出電路。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-03/_01-build.qmd/block-001.qmd >}}
+
+參考導體是 RLGC 中繼資料；`input`、`middle` 與 `output` 是明確宣告的三條訊號匯流排。`head` 與 `tail` 保留各線段端點順序，不推斷實際功率流方向。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-03/_01-build.qmd/block-002.qmd >}}
+
+讀出電路公開的 Pin 是配線邊界。本章不需要讀出分析 Coordinate，因為所請求的觀測量是完整的雙埠饋線散射響應。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-03/_01-build.qmd/block-003.qmd >}}
+
+兩個邏輯 Port 各自持有宣告的 50 Ω 負載。讀出電路是側耦合的內部子系統，不是第三個 Port。

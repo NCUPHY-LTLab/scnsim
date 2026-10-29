@@ -1,7 +1,7 @@
 """SQLite authority for one bound Plan leaf's operation evidence.
 
 The caller retains the Plan lock before entering this store. This module then
-owns the operation flock and native SQLite transaction, in that order. Canonical
+owns the platform operation lock and native SQLite transaction, in that order. Canonical
 payload meaning, numerical artifacts, callbacks and resumable generation policy
 belong to the adapter; no computation or callback runs inside a transaction.
 Readers use native mode=ro and never recover implicitly. Object digests identify
@@ -10,8 +10,8 @@ exact immutable bytes, not the mutable database file or an absolute location.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
+import json
 import os
 import sqlite3
 import sys
@@ -20,11 +20,18 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 
-from ..errors import EvidenceIntegrityError, WorkspaceRecoveryRequiredError
+from ..canonical import canonical_json_bytes
+from ..errors import (
+    EvidenceIntegrityError,
+    UnsupportedEvidenceVersionError,
+    WorkspaceRecoveryRequiredError,
+)
+from ..numeric_encoding import record_bytes, record_document
+from ._os_io import lock_fd, unlock_fd
 from .storage import _fsync_directory
 
 _DATABASE = "operations.sqlite3"
-_VERSION = 3
+_VERSION = 8
 _SCHEMA = (
     "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     "CREATE TABLE objects (sha256 TEXT PRIMARY KEY, payload BLOB NOT NULL)",
@@ -43,16 +50,68 @@ _SCHEMA = (
     "start_ns INTEGER, end_ns INTEGER, clock_id TEXT, "
     "FOREIGN KEY(sha256,role) REFERENCES object_roles(sha256,role))",
     "CREATE INDEX operation_filters ON operations(method,backend,precision,status)",
-    "CREATE TABLE spans (span_id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, role TEXT NOT NULL, "
-    "operation_id TEXT NOT NULL, parent_span_id TEXT, kind TEXT, start_ns INTEGER, "
-    "end_ns INTEGER, clock_id TEXT, "
-    "FOREIGN KEY(sha256,role) REFERENCES object_roles(sha256,role))",
-    "CREATE INDEX span_operations ON spans(operation_id,start_ns,span_id)",
+    "CREATE TABLE completion_generations (completion_sha TEXT NOT NULL, generation INTEGER NOT NULL, "
+    "block_ref TEXT NOT NULL, first_ordinal INTEGER NOT NULL, row_count INTEGER NOT NULL, "
+    "summary_json TEXT NOT NULL, PRIMARY KEY(completion_sha,generation))",
+    "CREATE TABLE completion_candidates (completion_sha TEXT NOT NULL, ordinal INTEGER NOT NULL, "
+    "generation INTEGER NOT NULL, row_offset INTEGER NOT NULL, block_ref TEXT NOT NULL, "
+    "value_ref TEXT NOT NULL, summary_json TEXT NOT NULL, PRIMARY KEY(completion_sha,ordinal))",
+    "CREATE INDEX completion_candidate_order ON completion_candidates(completion_sha,generation,ordinal)",
+    "CREATE TABLE sensitivity_blocks (completion_sha TEXT NOT NULL, ordinal INTEGER NOT NULL, "
+    "block_id TEXT NOT NULL, kind TEXT NOT NULL, block_ref TEXT NOT NULL, quantity_id TEXT, "
+    "output_slice_json TEXT, parameter_slice_json TEXT, primal_blocks_json TEXT NOT NULL, "
+    "primal_status TEXT, derivative_status TEXT, summary_json TEXT NOT NULL, "
+    "PRIMARY KEY(completion_sha,ordinal), UNIQUE(completion_sha,block_id))",
+    "CREATE INDEX sensitivity_block_order ON sensitivity_blocks(completion_sha,quantity_id,ordinal)",
+    "CREATE TABLE optimization_stage_indexes (completion_sha TEXT NOT NULL, stage_ordinal INTEGER NOT NULL, "
+    "stage_id TEXT NOT NULL, model_identity_json TEXT NOT NULL, summary_ref TEXT NOT NULL, "
+    "history_ref TEXT NOT NULL, PRIMARY KEY(completion_sha,stage_ordinal), "
+    "UNIQUE(completion_sha,stage_id))",
+    "CREATE TABLE optimization_history_rows (completion_sha TEXT NOT NULL, stage_id TEXT NOT NULL, "
+    "ordinal INTEGER NOT NULL, model_identity_json TEXT NOT NULL, candidate_ref TEXT NOT NULL, "
+    "summary_json TEXT NOT NULL, PRIMARY KEY(completion_sha,stage_id,ordinal))",
+    "CREATE INDEX optimization_history_order ON optimization_history_rows(completion_sha,stage_id,ordinal)",
+    "CREATE TABLE optimization_transition_rows (completion_sha TEXT NOT NULL, ordinal INTEGER NOT NULL, "
+    "transition_id TEXT NOT NULL, transition_ref TEXT NOT NULL, PRIMARY KEY(completion_sha,ordinal), "
+    "UNIQUE(completion_sha,transition_id))",
 )
 
 
 def _integrity(message: str, **evidence: object) -> EvidenceIntegrityError:
     return EvidenceIntegrityError(message, stage="operation_store", evidence=evidence)
+
+
+def _unsupported_version(found: str) -> UnsupportedEvidenceVersionError:
+    return UnsupportedEvidenceVersionError(
+        "Operation evidence was written by a pre-1.0 development build that 1.0 does not support; use a new Workspace and recompute.",
+        stage="operation_store",
+        evidence={"found_schema_version": found, "supported_schema_version": _VERSION,
+                  "action": "use a new Workspace and recompute"},
+    )
+
+
+def preflight_operation_store(root: Path) -> None:
+    """Inspect existing version metadata without locks, writes or recovery."""
+    root = Path(root)
+    path = root / _DATABASE
+    for name in ("benchmark.json", "requests", ".zgroup", ".zarray", "zarr.json"):
+        legacy = root / name
+        if legacy.exists() or legacy.is_symlink():
+            raise _unsupported_version("legacy")
+    if not path.exists() and not path.is_symlink():
+        return
+    if root.is_symlink() or path.is_symlink() or not root.is_dir():
+        raise _integrity("Operation store must not traverse a symlink.", path=str(path))
+    connection = sqlite3.connect(path.absolute().as_uri() + "?mode=ro&immutable=1",
+                                 uri=True, isolation_level=None)
+    try:
+        metadata = dict(connection.execute("SELECT key,value FROM metadata"))
+        if metadata.get("schema_version") != str(_VERSION):
+            raise _unsupported_version(metadata.get("schema_version"))
+        if metadata.get("evidence_version") != "3":
+            raise _unsupported_version(metadata.get("evidence_version"))
+    finally:
+        _close(connection)
 
 
 def _reference(digest: str, role: str, length: int) -> dict[str, Any]:
@@ -105,7 +164,7 @@ class OperationStore:
         self._phase_scope = phase_scope or (lambda name, details: nullcontext())
         self.root = Path(root)
         self.path = self.root / _DATABASE
-        self._metadata = {"schema_version": str(_VERSION), "plan_sha256": plan_sha256,
+        self._metadata = {"schema_version": str(_VERSION), "evidence_version": "3", "plan_sha256": plan_sha256,
                           "workspace_instance_id": workspace_instance_id}
 
     @contextmanager
@@ -136,6 +195,7 @@ class OperationStore:
         """Read the archived binding; this does not assert active Plan identity."""
         store = cls(root, plan_sha256="", workspace_instance_id="")
         if not store.path.exists() and not store.path.is_symlink():
+            preflight_operation_store(store.root)
             return None
         with store._lock(exclusive=False):
             connection = None
@@ -143,8 +203,12 @@ class OperationStore:
                 connection = store._connect(mode="ro")
                 connection.execute("BEGIN")
                 metadata = dict(connection.execute("SELECT key,value FROM metadata"))
-                if set(metadata) != {"schema_version", "plan_sha256", "workspace_instance_id"} or metadata["schema_version"] != str(_VERSION):
+                if set(metadata) != {"schema_version", "evidence_version", "plan_sha256", "workspace_instance_id"}:
                     raise _integrity("Operation database binding metadata is malformed.")
+                if metadata["schema_version"] != str(_VERSION):
+                    raise _unsupported_version(metadata["schema_version"])
+                if metadata["evidence_version"] != "3":
+                    raise _unsupported_version(metadata["evidence_version"])
                 return cls(root, plan_sha256=metadata["plan_sha256"],
                            workspace_instance_id=metadata["workspace_instance_id"])
             except sqlite3.Error as error:
@@ -162,17 +226,34 @@ class OperationStore:
 
     @contextmanager
     def _lock(self, *, exclusive: bool) -> Iterator[None]:
+        preflight_operation_store(self.root)
         self._check_paths()
         path = self.root / ".scnsim.lock"
         flags = (os.O_RDWR | os.O_CREAT) if exclusive else os.O_RDONLY
         descriptor = os.open(path, flags | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        acquired = False
         try:
             with self._scope("sqlite_lock_wait", {"exclusive": exclusive}):
-                fcntl.flock(descriptor, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+                lock_fd(descriptor, exclusive=exclusive)
+            acquired = True
             yield
         finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-            os.close(descriptor)
+            primary = sys.exc_info()[1]
+            try:
+                if acquired:
+                    unlock_fd(descriptor)
+            except BaseException as error:
+                if primary is None:
+                    primary = error
+                    raise
+                _secondary(primary, "Operation lock release", error)
+            finally:
+                try:
+                    os.close(descriptor)
+                except BaseException as error:
+                    if primary is None:
+                        raise
+                    _secondary(primary, "Operation lock close", error)
 
     def _connect(self, *, mode: str) -> sqlite3.Connection:
         self._check_paths()
@@ -191,11 +272,14 @@ class OperationStore:
 
     def _verify_binding(self, connection: sqlite3.Connection) -> None:
         actual = dict(connection.execute("SELECT key,value FROM metadata"))
+        if actual.get("schema_version") is not None and actual["schema_version"] != str(_VERSION):
+            raise _unsupported_version(actual["schema_version"])
         if actual != self._metadata:
             raise _integrity("Operation database does not belong to this bound Plan leaf.",
                              expected=self._metadata, actual=actual)
 
     def initialize(self) -> None:
+        preflight_operation_store(self.root)
         created_root = not self.root.exists()
         self.root.mkdir(exist_ok=True)
         if created_root:
@@ -280,6 +364,7 @@ class OperationStore:
                     transaction.outcome = {"status": "committed", "transaction_id": transaction_id}
             finally:
                 details.update(transaction.counts)
+                transaction._verified_objects.clear()
                 _close(connection)
 
     def _reconcile(self, transaction_id: str) -> dict[str, Any]:
@@ -295,11 +380,39 @@ class OperationStore:
                     "reconciliation_error": str(error)}
 
     def recover(self) -> None:
+        """Perform native rollback and confirm this leaf's committed binding.
+
+        This bounded reopen does not audit historical payloads. SQLite owns
+        journal recovery; transaction-marker reconciliation remains the separate
+        exact-txid path used for an unconfirmed commit, with no blind replay.
+        """
         with self._lock(exclusive=True):
             connection = self._connect(mode="rw")
             try:
                 # The first native read performs any required rollback. Never
                 # inspect or edit SQLite's rollback journal ourselves.
+                self._verify_binding(connection)
+            finally:
+                _close(connection)
+            # A fresh native read transaction confirms the committed binding,
+            # rather than treating the recovery connection as readback evidence.
+            connection = self._connect(mode="ro")
+            try:
+                connection.execute("BEGIN")
+                self._verify_binding(connection)
+            finally:
+                _close(connection)
+
+    def audit(self) -> None:
+        """Explicit complete structural/reference/byte audit of committed data.
+
+        This readonly inspection never performs recovery. A hot journal retains
+        the same explicit recovery-required failure as other readonly readers.
+        """
+        with self._lock(exclusive=False):
+            connection = self._connect(mode="ro")
+            try:
+                connection.execute("BEGIN")
                 self._verify_binding(connection)
                 if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                     raise _integrity("SQLite reported damaged operation evidence.")
@@ -310,13 +423,9 @@ class OperationStore:
                     "SELECT r.sha256,r.role,length(o.payload) FROM object_roles r JOIN objects o USING(sha256)"
                 ):
                     snapshot.get_object(_reference(digest, role, length))
-            finally:
-                _close(connection)
-            # Reopen after native recovery to verify the selected committed DB,
-            # rather than presenting a still-open recovery connection as evidence.
-            connection = self._connect(mode="ro")
-            try:
-                self._verify_binding(connection)
+            except sqlite3.Error as error:
+                _recovery_error(error)
+                raise
             finally:
                 _close(connection)
 
@@ -326,13 +435,34 @@ class Snapshot:
 
     def __init__(self, connection: sqlite3.Connection):
         self._connection = connection
+        self._verified_objects = {}
+        self._reuse_verified = False
 
-    def get_object(self, reference: Mapping[str, Any]) -> bytes:
+    @contextmanager
+    def reuse_verified_objects(self):
+        """Reuse verified bytes only within one numerical projection."""
+        previous = self._reuse_verified
+        self._reuse_verified = True
+        try:
+            yield self
+        finally:
+            self._reuse_verified = previous
+            if not previous:
+                self._verified_objects.clear()
+
+    @staticmethod
+    def _object_key(reference: Mapping[str, Any]):
         if set(reference) != {"schema_version", "storage", "database", "role", "sha256", "byte_length"} or (
             reference["schema_version"] != _VERSION or reference["storage"] != "sqlite"
             or reference["database"] != _DATABASE
         ):
             raise _integrity("Invalid SQLite object reference.", reference=dict(reference))
+        return (reference["sha256"], reference["role"], reference["byte_length"])
+
+    def get_object(self, reference: Mapping[str, Any]) -> bytes:
+        key = self._object_key(reference)
+        if key in self._verified_objects:
+            return self._verified_objects[key]
         row = self._connection.execute(
             "SELECT o.payload FROM objects o JOIN object_roles r USING(sha256) WHERE r.sha256=? AND r.role=?",
             (reference["sha256"], reference["role"]),
@@ -342,7 +472,77 @@ class Snapshot:
         payload = bytes(row[0])
         if len(payload) != reference["byte_length"] or hashlib.sha256(payload).hexdigest() != reference["sha256"]:
             raise _integrity("SQLite object bytes do not match their content reference.", reference=dict(reference))
+        if self._reuse_verified:
+            self._verified_objects[key] = payload
         return payload
+
+    def get_objects(self, references: Sequence[Mapping[str, Any]]):
+        """JOIN one evidence group's references to bytes, preserving input order."""
+        for reference in references:
+            self._object_key(reference)
+        cursor = self._connection.execute(
+            "SELECT j.key,o.payload,r.role FROM json_each(?) j "
+            "LEFT JOIN objects o ON o.sha256=json_extract(j.value,'$.sha256') "
+            "LEFT JOIN object_roles r ON r.sha256=o.sha256 AND r.role=json_extract(j.value,'$.role') "
+            "ORDER BY cast(j.key AS INTEGER)", (json.dumps(list(references)),))
+        for index, payload, role in cursor:
+            reference = references[index]
+            key = self._object_key(reference)
+            if payload is None or role is None:
+                raise _integrity("Referenced SQLite object is missing.", reference=dict(reference))
+            if key in self._verified_objects:
+                yield self._verified_objects[key]
+                continue
+            payload = bytes(payload)
+            if len(payload) != reference['byte_length'] or hashlib.sha256(payload).hexdigest() != reference['sha256']:
+                raise _integrity("SQLite object bytes do not match their content reference.", reference=dict(reference))
+            if self._reuse_verified:
+                self._verified_objects[key] = payload
+            yield payload
+
+    def iter_task_changes(self, stream: str, *, include_evaluations: bool):
+        """Locate numerical/control rows; SQL filtering is never verification.
+
+        Old task streams have only task_change as their indexed kind. Native
+        JSON inspection avoids Python materialization of diagnostic payloads.
+        Malformed JSON is included so it cannot disappear as a filtered row.
+        Selected payloads still pass the ordinary role/length/hash boundary.
+        """
+        # Preserve the task event sequence invariant without decoding or returning
+        # diagnostic bodies to Python. Malformed JSON is verified below.
+        count, first, last, distinct, wrong_type = self._connection.execute(
+            "WITH rows AS (SELECT CASE WHEN json_valid(o.payload) THEN o.payload ELSE '{}' END AS body "
+            "FROM entries e LEFT JOIN objects o ON o.sha256=e.sha256 WHERE e.stream=?) "
+            "SELECT count(*),min(json_extract(body,'$.event.sequence')),"
+            "max(json_extract(body,'$.event.sequence')),count(DISTINCT json_extract(body,'$.event.sequence')),"
+            "sum(CASE WHEN json_type(body,'$.event.sequence')='integer' THEN 0 ELSE 1 END) "
+            "FROM rows WHERE json_extract(body,'$.kind')='event'", (stream,)
+        ).fetchone()
+        if count and (first != 0 or last != count-1 or distinct != count or wrong_type):
+            raise _integrity("Benchmark task event sequence is not contiguous.", stream=stream)
+        excluded = ["operation_span", "timing", "population_observed", "progress"]
+        if not include_evaluations:
+            excluded.append("evaluation")
+        marks = ",".join("?" for _ in excluded)
+        cursor = self._connection.execute(
+            "SELECT e.sequence,e.sha256,e.role,o.payload,r.role FROM entries e "
+            "LEFT JOIN objects o ON o.sha256=e.sha256 "
+            "LEFT JOIN object_roles r ON r.sha256=e.sha256 AND r.role=e.role "
+            "WHERE e.stream=? AND CASE WHEN o.payload IS NULL OR NOT json_valid(o.payload) THEN 1 "
+            "WHEN json_extract(o.payload,'$.kind')='measurement' THEN 0 "
+            "WHEN json_extract(o.payload,'$.kind')='event' THEN "
+            f"coalesce(json_extract(o.payload,'$.event.kind') NOT IN ({marks}),1) ELSE 1 END "
+            "ORDER BY e.sequence", (stream, *excluded))
+        for sequence, digest, role, payload, registered_role in cursor:
+            if payload is None or registered_role is None:
+                raise _integrity("Task stream references missing object bytes or role.", sequence=sequence)
+            payload = bytes(payload)
+            reference = _reference(digest, role, len(payload))
+            if hashlib.sha256(payload).hexdigest() != digest:
+                raise _integrity("Task stream object bytes do not match their content reference.", reference=reference)
+            if self._reuse_verified:
+                self._verified_objects[(digest, role, len(payload))] = payload
+            yield sequence, reference, payload
 
     def _ref(self, digest: str, role: str) -> dict[str, Any]:
         row = self._connection.execute("SELECT length(payload) FROM objects WHERE sha256=?", (digest,)).fetchone()
@@ -357,14 +557,44 @@ class Snapshot:
 
     def read_stream(self, stream: str) -> dict[str, Any]:
         row = self._connection.execute("SELECT revision FROM streams WHERE name=?", (stream,)).fetchone()
-        entries = [{"sequence": sequence, "kind": kind, "reference": self._ref(digest, role)}
-                   for sequence, kind, digest, role in self._connection.execute(
-                       "SELECT sequence,kind,sha256,role FROM entries WHERE stream=? ORDER BY sequence", (stream,))]
+        entries = []
+        for sequence, kind, digest, role, length in self._connection.execute(
+            "SELECT e.sequence,e.kind,e.sha256,e.role,length(o.payload) FROM entries e "
+            "LEFT JOIN objects o ON o.sha256=e.sha256 WHERE e.stream=? ORDER BY e.sequence", (stream,)
+        ):
+            if length is None:
+                raise _integrity("SQLite stream references missing bytes.", sha256=digest)
+            entries.append({"sequence": sequence, "kind": kind,
+                            "reference": _reference(digest, role, length)})
         return {"revision": 0 if row is None else row[0], "entries": entries}
 
     def read_pointer(self, name: str) -> dict[str, Any] | None:
         row = self._connection.execute("SELECT revision,sha256,role FROM pointers WHERE name=?", (name,)).fetchone()
         return None if row is None else {"revision": row[0], "reference": self._ref(row[1], row[2])}
+
+    def find_attempt_pointer(self, attempt_id: str) -> dict[str, Any] | None:
+        """Locate one exact attempt pointer without replaying task history."""
+        if not isinstance(attempt_id, str) or not attempt_id:
+            raise _integrity("Exact attempt identity is malformed.")
+        rows = self._connection.execute(
+            "SELECT name,sha256,role FROM pointers WHERE role='attempt' "
+            "AND substr(name,1,8)='attempt/' "
+            "AND substr(name,length(name)-length(?)+1)=? "
+            "AND substr(name,length(name)-length(?),1)='/'",
+            (attempt_id, attempt_id, attempt_id),
+        ).fetchall()
+        matches = []
+        for name, digest, role in rows:
+            parts = name.split("/")
+            if len(parts) == 3 and parts[0] == "attempt" and parts[2] == attempt_id:
+                matches.append((parts[1], digest, role))
+        if len(matches) > 1:
+            raise _integrity("Exact attempt identity resolves to multiple task pointers.",
+                             attempt_id=attempt_id, match_count=len(matches))
+        if not matches:
+            return None
+        task_id, digest, role = matches[0]
+        return {"task_id": task_id, "reference": self._ref(digest, role)}
 
     def transaction_status(self, transaction_id: str) -> dict[str, str]:
         row = self._connection.execute("SELECT 1 FROM transactions WHERE transaction_id=?", (transaction_id,)).fetchone()
@@ -373,7 +603,7 @@ class Snapshot:
     def _query(self, table: str, clauses: list[str], values: list[Any]) -> list[dict[str, Any]]:
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         rows = self._connection.execute(
-            f"SELECT sha256,role FROM {table}{where} ORDER BY start_ns,{ 'operation_id' if table == 'operations' else 'span_id'}", values)
+            f"SELECT sha256,role FROM {table}{where} ORDER BY start_ns,operation_id", values)
         result = []
         for digest, role in rows:
             reference = self._ref(digest, role)
@@ -395,17 +625,224 @@ class Snapshot:
                 values.append(value)
         return self._query("operations", clauses, values)
 
-    def query_spans(self, operation_ids: Sequence[str]) -> list[dict[str, Any]]:
-        if not operation_ids:
-            return []
-        return self._query("spans", ["operation_id IN (" + ",".join("?" for _ in operation_ids) + ")"], list(operation_ids))
+    @staticmethod
+    def _json_reference(value: Mapping[str, Any]) -> str:
+        return json.dumps(dict(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
+    @staticmethod
+    def _decoded_reference(value: str) -> dict[str, Any]:
+        result = json.loads(value)
+        if not isinstance(result, dict):
+            raise _integrity("Completion index contains a malformed object reference.")
+        return result
+
+    def read_generation_index(self, completion_sha: str, generation: int) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT block_ref,first_ordinal,row_count,summary_json FROM completion_generations "
+            "WHERE completion_sha=? AND generation=?", (completion_sha, generation)
+        ).fetchone()
+        if row is None:
+            return None
+        summary = json.loads(row[3])
+        if not isinstance(summary, dict):
+            raise _integrity("Generation index summary is malformed.", generation=generation)
+        return {"generation": generation, "block_ref": self._decoded_reference(row[0]),
+                "first_ordinal": row[1], "row_count": row[2], "summary_json": summary}
+
+    def completion_generation_count(self, completion_sha: str) -> int:
+        return self._connection.execute(
+            "SELECT count(*) FROM completion_generations WHERE completion_sha=?", (completion_sha,)
+        ).fetchone()[0]
+
+    def completion_candidate_count(self, completion_sha: str) -> int:
+        return self._connection.execute(
+            "SELECT count(*) FROM completion_candidates WHERE completion_sha=?", (completion_sha,)
+        ).fetchone()[0]
+
+    def read_candidate_index(self, completion_sha: str, ordinal: int) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT generation,row_offset,block_ref,value_ref,summary_json FROM completion_candidates "
+            "WHERE completion_sha=? AND ordinal=?", (completion_sha, ordinal)
+        ).fetchone()
+        if row is None:
+            return None
+        summary = json.loads(row[4])
+        if not isinstance(summary, dict):
+            raise _integrity("Candidate index summary is malformed.", ordinal=ordinal)
+        return {"ordinal": ordinal, "generation": row[0], "row_offset": row[1],
+                "block_ref": self._decoded_reference(row[2]),
+                "value_ref": self._decoded_reference(row[3]), "summary_json": summary}
+
+    def read_candidate_summaries(self, completion_sha: str) -> list[dict[str, Any]]:
+        rows = []
+        cursor = self._connection.execute(
+            "SELECT ordinal,generation,row_offset,summary_json FROM completion_candidates "
+            "WHERE completion_sha=? ORDER BY ordinal", (completion_sha,)
+        )
+        for ordinal, generation, row_offset, raw in cursor:
+            summary = json.loads(raw)
+            if not isinstance(summary, dict):
+                raise _integrity("Candidate index summary is malformed.", ordinal=ordinal)
+            rows.append(summary)
+        return rows
+
+    def read_candidate_indexes(self, completion_sha: str) -> list[dict[str, Any]]:
+        rows = []
+        cursor = self._connection.execute(
+            "SELECT ordinal,generation,row_offset,block_ref,value_ref,summary_json "
+            "FROM completion_candidates WHERE completion_sha=? ORDER BY ordinal", (completion_sha,)
+        )
+        for ordinal, generation, row_offset, block_ref, value_ref, raw in cursor:
+            summary = json.loads(raw)
+            if not isinstance(summary, dict):
+                raise _integrity("Candidate index summary is malformed.", ordinal=ordinal)
+            rows.append({"ordinal": ordinal, "generation": generation, "row_offset": row_offset,
+                         "block_ref": self._decoded_reference(block_ref),
+                         "value_ref": self._decoded_reference(value_ref), "summary_json": summary})
+        return rows
+
+    def sensitivity_block_count(self, completion_sha: str) -> int:
+        return self._connection.execute(
+            "SELECT count(*) FROM sensitivity_blocks WHERE completion_sha=?", (completion_sha,)
+        ).fetchone()[0]
+
+    def read_sensitivity_block_index(self, completion_sha: str, ordinal: int) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT block_id,kind,block_ref,quantity_id,output_slice_json,parameter_slice_json,"
+            "primal_blocks_json,primal_status,derivative_status,summary_json "
+            "FROM sensitivity_blocks "
+            "WHERE completion_sha=? AND ordinal=?", (completion_sha, ordinal)
+        ).fetchone()
+        if row is None:
+            return None
+        output_slice = None if row[4] is None else json.loads(row[4])
+        parameter_slice = None if row[5] is None else json.loads(row[5])
+        primal_blocks = json.loads(row[6])
+        summary = json.loads(row[9])
+        if ((output_slice is not None and not isinstance(output_slice, dict))
+                or (parameter_slice is not None and not isinstance(parameter_slice, dict))
+                or not isinstance(primal_blocks, list)
+                or not isinstance(summary, dict)):
+            raise _integrity("Sensitivity block index metadata is malformed.", ordinal=ordinal)
+        return {
+            "ordinal": ordinal, "block_id": row[0], "kind": row[1],
+            "block_ref": self._decoded_reference(row[2]), "quantity_id": row[3],
+            "output_slice": output_slice, "parameter_slice": parameter_slice,
+            "primal_blocks": primal_blocks,
+            "primal_status": row[7], "derivative_status": row[8], "summary_json": summary,
+        }
+
+    def read_sensitivity_block_indexes(self, completion_sha: str) -> list[dict[str, Any]]:
+        rows = []
+        cursor = self._connection.execute(
+            "SELECT ordinal,block_id,kind,block_ref,quantity_id,output_slice_json,parameter_slice_json,"
+            "primal_blocks_json,primal_status,derivative_status,summary_json "
+            "FROM sensitivity_blocks "
+            "WHERE completion_sha=? ORDER BY ordinal", (completion_sha,)
+        )
+        for (ordinal, block_id, kind, block_ref, quantity_id, output_raw, parameter_raw,
+             primal_raw, primal, derivative, summary_raw) in cursor:
+            output_slice = None if output_raw is None else json.loads(output_raw)
+            parameter_slice = None if parameter_raw is None else json.loads(parameter_raw)
+            primal_blocks = json.loads(primal_raw)
+            summary = json.loads(summary_raw)
+            if ((output_slice is not None and not isinstance(output_slice, dict))
+                    or (parameter_slice is not None and not isinstance(parameter_slice, dict))
+                    or not isinstance(primal_blocks, list)
+                    or not isinstance(summary, dict)):
+                raise _integrity("Sensitivity block index metadata is malformed.", ordinal=ordinal)
+            rows.append({
+                "ordinal": ordinal, "block_id": block_id, "kind": kind,
+                "block_ref": self._decoded_reference(block_ref), "quantity_id": quantity_id,
+                "output_slice": output_slice, "parameter_slice": parameter_slice,
+                "primal_blocks": primal_blocks,
+                "primal_status": primal, "derivative_status": derivative, "summary_json": summary,
+            })
+        return rows
+
+    def optimization_stage_count(self, completion_sha: str) -> int:
+        return self._connection.execute(
+            "SELECT count(*) FROM optimization_stage_indexes WHERE completion_sha=?",
+            (completion_sha,),
+        ).fetchone()[0]
+
+    def read_optimization_stage_indexes(self, completion_sha: str) -> list[dict[str, Any]]:
+        rows = []
+        cursor = self._connection.execute(
+            "SELECT stage_ordinal,stage_id,model_identity_json,summary_ref,history_ref "
+            "FROM optimization_stage_indexes WHERE completion_sha=? ORDER BY stage_ordinal",
+            (completion_sha,),
+        )
+        for ordinal, stage_id, model_raw, summary_ref, history_ref in cursor:
+            model_identity = record_document(model_raw.encode("utf-8"))
+            if not isinstance(model_identity, dict):
+                raise _integrity("Optimization model identity index is malformed.", stage_id=stage_id)
+            rows.append({
+                "stage_ordinal": ordinal, "stage_id": stage_id,
+                "model_identity": model_identity,
+                "summary_ref": self._decoded_reference(summary_ref),
+                "history_ref": self._decoded_reference(history_ref),
+            })
+        return rows
+
+    def read_optimization_history(self, completion_sha: str, stage_id: str) -> list[dict[str, Any]]:
+        rows = []
+        cursor = self._connection.execute(
+            "SELECT ordinal,model_identity_json,candidate_ref,summary_json "
+            "FROM optimization_history_rows WHERE completion_sha=? AND stage_id=? ORDER BY ordinal",
+            (completion_sha, stage_id),
+        )
+        for ordinal, model_raw, candidate_ref, summary_raw in cursor:
+            model_identity = record_document(model_raw.encode("utf-8"))
+            summary = json.loads(summary_raw)
+            if not isinstance(model_identity, dict) or not isinstance(summary, dict):
+                raise _integrity("Optimization history index is malformed.", stage_id=stage_id, ordinal=ordinal)
+            rows.append({
+                "ordinal": ordinal, "model_identity": model_identity,
+                "candidate_ref": self._decoded_reference(candidate_ref),
+                "summary_json": summary,
+            })
+        return rows
+
+    def read_optimization_history_row(self, completion_sha: str, stage_id: str,
+                                      ordinal: int) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT model_identity_json,candidate_ref,summary_json FROM optimization_history_rows "
+            "WHERE completion_sha=? AND stage_id=? AND ordinal=?",
+            (completion_sha, stage_id, ordinal),
+        ).fetchone()
+        if row is None:
+            return None
+        model_identity = record_document(row[0].encode("utf-8"))
+        summary = json.loads(row[2])
+        if not isinstance(model_identity, dict) or not isinstance(summary, dict):
+            raise _integrity("Optimization history index is malformed.",
+                             stage_id=stage_id, ordinal=ordinal)
+        return {"ordinal": ordinal, "model_identity": model_identity,
+                "candidate_ref": self._decoded_reference(row[1]), "summary_json": summary}
+
+    def read_optimization_transitions(self, completion_sha: str) -> list[dict[str, Any]]:
+        rows = []
+        cursor = self._connection.execute(
+            "SELECT ordinal,transition_id,transition_ref FROM optimization_transition_rows "
+            "WHERE completion_sha=? ORDER BY ordinal", (completion_sha,),
+        )
+        for ordinal, transition_id, transition_ref in cursor:
+            rows.append({
+                "ordinal": ordinal, "transition_id": transition_id,
+                "transition_ref": self._decoded_reference(transition_ref),
+            })
+        return rows
 
 class StoreTransaction(Snapshot):
     """Mutation mechanics inside one store-owned SQL transaction."""
 
     def __init__(self, connection: sqlite3.Connection, transaction_id: str):
         super().__init__(connection)
+        # Transaction writes compare each body at insertion and do not retain
+        # verified payload bytes for the lifetime of a generation publication.
+        # Pointer writes perform their ordinary single-object read/verification.
+        self._reuse_verified = False
         self.counts = {"put_object_calls": 0, "logical_object_bytes": 0,
                        "inserted_objects": 0, "appended_rows": 0}
         self.outcome: dict[str, Any] = {"status": "not_committed", "transaction_id": transaction_id}
@@ -414,15 +851,20 @@ class StoreTransaction(Snapshot):
         digest = hashlib.sha256(payload).hexdigest()
         self.counts["put_object_calls"] += 1
         self.counts["logical_object_bytes"] += len(payload)
+        reference = _reference(digest, role, len(payload))
         cursor = self._connection.execute("INSERT INTO objects VALUES (?,?) ON CONFLICT DO NOTHING", (digest, payload))
         self.counts["inserted_objects"] += cursor.rowcount
-        existing = self._connection.execute("SELECT payload FROM objects WHERE sha256=?", (digest,)).fetchone()[0]
-        if existing != payload:
+        stored = self._connection.execute(
+            "SELECT payload FROM objects WHERE sha256=?", (digest,)
+        ).fetchone()
+        if (stored is None or stored[0] != payload
+                or len(stored[0]) != len(payload)
+                or hashlib.sha256(stored[0]).hexdigest() != digest):
             raise _integrity("Object digest identifies different stored bytes.", sha256=digest)
         self._connection.execute("INSERT INTO object_roles VALUES (?,?) ON CONFLICT DO NOTHING", (digest, role))
-        return _reference(digest, role, len(payload))
+        return reference
 
-    def append(self, stream: str, kind: str, payload: bytes) -> int:
+    def append_with_ref(self, stream: str, kind: str, payload: bytes) -> tuple[int, dict[str, Any]]:
         reference = self.put_object(payload, role=kind)
         self._connection.execute("INSERT INTO streams VALUES (?,0) ON CONFLICT DO NOTHING", (stream,))
         self._connection.execute("UPDATE streams SET revision=revision+1 WHERE name=?", (stream,))
@@ -430,7 +872,10 @@ class StoreTransaction(Snapshot):
         self._connection.execute("INSERT INTO entries VALUES (?,?,?,?,?)",
                                  (stream, sequence, kind, reference["sha256"], reference["role"]))
         self.counts["appended_rows"] += 1
-        return sequence
+        return sequence, reference
+
+    def append(self, stream: str, kind: str, payload: bytes) -> int:
+        return self.append_with_ref(stream, kind, payload)[0]
 
     def set_pointer(self, name: str, object_ref: Mapping[str, Any]) -> None:
         self.get_object(object_ref)
@@ -458,14 +903,67 @@ class StoreTransaction(Snapshot):
             (operation_id, object_ref["sha256"], object_ref["role"], method, backend, precision,
              status, start_ns, end_ns, clock_id))
 
-    def index_span(self, span_id: str, object_ref: Mapping[str, Any], *, operation_id: str,
-                   parent_span_id: str | None, kind: str | None, start_ns: int | None,
-                   end_ns: int | None, clock_id: str | None) -> None:
-        self.get_object(object_ref)
-        self._connection.execute(
-            "INSERT INTO spans VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(span_id) DO UPDATE SET "
-            "sha256=excluded.sha256,role=excluded.role,operation_id=excluded.operation_id,"
-            "parent_span_id=excluded.parent_span_id,kind=excluded.kind,start_ns=excluded.start_ns,"
-            "end_ns=excluded.end_ns,clock_id=excluded.clock_id",
-            (span_id, object_ref["sha256"], object_ref["role"], operation_id, parent_span_id,
-             kind, start_ns, end_ns, clock_id))
+    def index_completion(self, completion_sha: str, generations: Sequence[Mapping[str, Any]],
+                         candidates: Sequence[Mapping[str, Any]]) -> None:
+        """Publish query locators atomically with their sealed completion objects."""
+        for row in generations:
+            summary = canonical_json_bytes(row["summary_json"]).decode("utf-8")
+            self._connection.execute(
+                "INSERT INTO completion_generations VALUES (?,?,?,?,?,?)",
+                (completion_sha, row["generation"], self._json_reference(row["block_ref"]),
+                 row["first_ordinal"], row["row_count"], summary),
+            )
+        for row in candidates:
+            summary = canonical_json_bytes(row["summary_json"]).decode("utf-8")
+            self._connection.execute(
+                "INSERT INTO completion_candidates VALUES (?,?,?,?,?,?,?)",
+                (completion_sha, row["ordinal"], row["generation"], row["row_offset"],
+                 self._json_reference(row["block_ref"]), self._json_reference(row["value_ref"]), summary),
+            )
+
+    def index_sensitivity_blocks(self, completion_sha: str,
+                                 blocks: Sequence[Mapping[str, Any]]) -> None:
+        """Publish fixed Sensitivity block locators in the terminal transaction."""
+        for ordinal, row in enumerate(blocks):
+            summary = canonical_json_bytes(row["summary_json"]).decode("utf-8")
+            self._connection.execute(
+                "INSERT INTO sensitivity_blocks VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (completion_sha, ordinal, row["block_id"], row["kind"],
+                 self._json_reference(row["block_ref"]), row["quantity_id"],
+                 (None if row["output_slice"] is None else canonical_json_bytes(row["output_slice"]).decode("utf-8")),
+                 (None if row["parameter_slice"] is None else canonical_json_bytes(row["parameter_slice"]).decode("utf-8")),
+                 canonical_json_bytes(row["primal_blocks"]).decode("utf-8"),
+                 row["primal_status"], row["derivative_status"], summary),
+            )
+
+    def index_optimization(self, completion_sha: str,
+                           stages: Sequence[Mapping[str, Any]],
+                           transitions: Sequence[Mapping[str, Any]]) -> None:
+        """Publish compact stage/history locators with the terminal seal."""
+        for stage_ordinal, stage in enumerate(stages):
+            # Model identity includes actual point discretization measurements;
+            # store them with the shared exact binary64 record codec.
+            model_identity = record_bytes(dict(stage["model_identity"])).decode("utf-8")
+            self._connection.execute(
+                "INSERT INTO optimization_stage_indexes VALUES (?,?,?,?,?,?)",
+                (completion_sha, stage_ordinal, stage["stage_id"], model_identity,
+                 self._json_reference(stage["summary_ref"]),
+                 self._json_reference(stage["history_ref"])),
+            )
+            for ordinal, row in enumerate(stage["rows"]):
+                if row["stage_id"] != stage["stage_id"] or row["model_identity"] != stage["model_identity"]:
+                    raise _integrity("Optimization history row differs from its stage identity.",
+                                     stage_id=stage["stage_id"], ordinal=ordinal)
+                self._connection.execute(
+                    "INSERT INTO optimization_history_rows VALUES (?,?,?,?,?,?)",
+                    (completion_sha, stage["stage_id"], ordinal, model_identity,
+                     self._json_reference(row["candidate_ref"]),
+                     canonical_json_bytes(row["summary_json"]).decode("utf-8")),
+                )
+        for ordinal, transition in enumerate(transitions):
+            self._connection.execute(
+                "INSERT INTO optimization_transition_rows VALUES (?,?,?,?)",
+                (completion_sha, ordinal, transition["transition_id"],
+                 self._json_reference(transition["transition_ref"])),
+            )
+

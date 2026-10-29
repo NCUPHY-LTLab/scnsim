@@ -1,0 +1,26 @@
+## 第 4 課 — 選讀 C/L 參數空間 {#lesson-ch2-optional-spaces}
+
+**先備條件：**請在整章 Notebook 中執行第 1–3 課。
+
+此選讀延伸重用相同的 Plan、Run、View 與 root 請求。3 × 2 笛卡兒網格會評估每個宣告的 C/L 組合；列舉空間只評估兩組明確配對，不會變成網格。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_04-optional-spaces.qmd/block-001.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_04-optional-spaces.qmd/block-002.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_04-optional-spaces.qmd/block-003.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-02/_04-optional-spaces.qmd/block-004.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include ../figures/02-optional-spaces.md >}}
+
+![完整三乘二 C/L 網格上的負載頻率。](../figures/02-optional-grid.svg){#fig-engineer-ch2-optional-grid .lightbox fig-alt="六格熱圖呈現三種電容與兩種電感組合的負載根頻率；另列的兩組參數維持表格形式，不進行插值。"}
+
+[開啟選讀網格 SVG](../figures/02-optional-grid.svg) ·
+[下載網格與列舉參數點紀錄](../figures/02-optional-spaces.csv).
+
+:::
+
+笛卡兒網格與列舉空間保留不同順序與身分。若有點失敗，具型別失敗會留在原位置，不會被靜默替換、插值或回報為零。

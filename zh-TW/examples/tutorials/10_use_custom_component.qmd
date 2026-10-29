@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 使用自訂元件"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+父層組裝請參閱[第 5 章 — 從邊界重用](../engineer/chapter-05/03-reuse.qmd)，可重用邊界請參閱[第 5 章 — 公開實例](../engineer/chapter-05/02-instance.qmd)。精確建立行為以英文[元件建立契約](../../docs/component-authoring.qmd)為準。
+
+本短頁保留舊網址。已取代的可執行內容、Notebook 與檢查點圖仍可在 Git 歷史中找到。

@@ -1,0 +1,267 @@
+---
+title: "Roots, Notches, and Branch Selection"
+subtitle: "Choose the physical quantity, declare the search, and interpret one local branch"
+toc-depth: 2
+execute:
+  enabled: false
+---
+
+A response plot, a complex root and an optimizer's best point answer different
+questions. This guide connects the current public API to the shared physical
+program and explains what Hint, explicit discovery, tracking and local derivatives
+mean. The implementation remains `CONVERGING`; this page does not establish
+strict Example regression coverage, independent accuracy or a stable release.
+The [Runtime Contract](../v1-runtime-contract.qmd#typed-direct-quantity-catalog)
+owns the detailed quantity and failure definitions.
+
+## Decide which quantity you need
+
+A minimum of $|S_{ij}(\omega)|$ or $|Z_{ij}(\omega)|$ sampled at real frequencies
+is a magnitude notch. It need not be an exact zero at a real frequency. A
+transfer zero is a root of the declared **complex** S, Y or Z entry under its
+selected View and loading. A pole or resonance solves another equation and
+must not be substituted for that zero merely because its frequency is close.
+
+| Declaration | Question |
+|---|---|
+| `DirectSolveSpec` or `ResponseElementSpec` | What is the response at the requested real frequencies? |
+| `DiagonalRootSpec` / `OperatorElementRootSpec` | Where does the selected Schur-operator entry vanish? |
+| `HybridizedPoleSpec` | Where does the selected coupled pole equation close? |
+| `TransferZeroSpec` | Where does this ordered S/Y/Z transfer numerator vanish while its denominator remains admissible? |
+| `ResidueNormalizedCouplingSpec` | What local coupling follows from the declared certified branch roots and slopes? |
+
+Coordinates and direction matter: `output_coordinate` is the row and
+`input_coordinate` the column. The same physical Plan can yield different
+selected quantities after different loads, compensation, coordinate transforms
+or retained boundaries. Retaining an unported node does not make it a Port or
+silently remove its load. Start with [simulation conventions](../concepts/simulation-conventions.qmd)
+and [Views](../concepts/compilation-coordinates-and-network-views.qmd).
+
+## Frequency units and the selected equation
+
+Public Hint/anchor inputs are frequency Quantities. The numerical equation uses
+angular frequency $\omega=2\pi f$ in rad/s and the $\exp(-i\omega t)$ convention.
+The complex `zero` or `root` and the public Hz `frequency` field are distinct
+projections; a display-unit conversion must not silently add or remove $2\pi$.
+With this time convention, an actually decaying pole has
+$\operatorname{Im}\omega<0$. Current JAX hybrid-pole closure admits
+$\operatorname{Im}\omega\le0$, including a lossless real-axis root. This is not
+an automatic extra passivity filter on all scalar or transfer zeros.
+
+For an admitted fixed linear nodal model, put $s=-i\omega$. The loaded operator
+and selected intrinsic Schur operator have the form
+
+$$
+Q=K+sG+s^2C,\qquad
+F=Q_{RR}-Q_{RE}Q_{EE}^{-1}Q_{ER},\qquad
+Y=\frac{F}{-i\omega}.
+$$
+
+The actual model also preserves its declared series branches, loads, View weights
+and corresponding frequency jets. The eliminated solve and its derivative are
+part of the same selected-state producer, not independent assemblies. Port
+Views use their actual source/load incidence and reference normalization; an
+intrinsic formula is not a substitute for a Port response.
+
+For nonzero $\omega$ and invertible selected $F$,
+
+$$
+Z_{ij}=(-i\omega)\frac{\operatorname{cof}_{ji}(F)}{\det F}.
+$$
+
+The cofactor indices are transposed. Only for a two-coordinate off-diagonal
+projection does this simplify to $Z_{21}=i\omega F_{21}/\det F$. A pole spectrum
+of $F$ alone is not a catalogue of transmission zeros. See the
+[quantity realization](../implementation/direct-poles-zeros-and-operators.qmd)
+for the complete loading, Schur and family conventions.
+
+## A Hint is a seed, not a search instruction
+
+With `search=None`, Hint/anchor initializes one local analytic corrector. Newton
+updates do not inspect every root below the Hint, select the nearest physical
+root, or discover a desired RF notch by definition. A root can lie in another
+basin, a candidate can fail its numerical certificate, or the required root can
+remain unfound. None of these observations proves that no such root exists.
+
+The current Z-transfer update uses the scaled RF cofactor of the same family
+state, $r=\operatorname{cof}_{ji}(F_{\mathrm{eff}})$ with
+$F_{\mathrm{eff}}=(-i\omega)Y$. Intrinsic Views reuse their checked $F/F'$;
+Port Views use $F'_{\mathrm{eff}}=-iY+(-i\omega)Y'$. This removes an explicit DC
+factor from the iteration residual. It does not guarantee the desired positive
+frequency basin or change the success definition.
+
+Success still uses the original family/cofactor(Y), full transfer value/slope,
+denominator, local simplicity/rank and correction/closure certificates. Y and S
+updates retain their own family-entry equations. Existing update limits and
+bit-stagnation behavior remain in force. A small correction certificate is not
+a forward error bound on the root location; an update count is not a count of
+all factors or callbacks. The [root procedure](../implementation/diagonal-root-numerical-procedure.qmd)
+and [Runtime Contract](../v1-runtime-contract.qmd) retain those exact rules.
+
+## Declare discovery separately
+
+`RootSearchSpec` is optional on existing root Specs. It requires a method and
+exact-tie choice. The caller supplies a real-frequency interval or a positive
+factor of the **original authored** Hint. An optional imaginary interval adds
+an explicit selection restriction; omission does not invent one.
+
+For authored Hint $h$ and caller factor $k$, the relative positive-RF upper
+bound is $kh$. A later baseline/tracked anchor $a$ never replaces $h$ or expands
+that region. There is no inferred $h/k$ lower cutoff or automatic sampled grid.
+`tie="unavailable"` preserves ambiguity; `tie="source_order"` makes exact ties
+follow the declared source order.
+
+| Method | Candidate source and capability |
+|---|---|
+| `polynomial_transfer_zero` | Qualified intrinsic/non-Port Z with fixed realized mesh, declared pure-inductive sections and frequency-independent K/C/G plus actual loads/View; no caller seeds |
+| `finite_seeds` | Caller-supplied ordered nonempty complex-frequency seeds, passed to the original corrector |
+
+Unsupported polynomial capability fails explicitly. A variable resistive section
+that happens to evaluate to zero is not automatically a declared pure-inductive
+section. There is no hidden method fallback. For the qualified polynomial model,
+the provider constructs a dense $2n+1$ SISO Rosenbrock transmission-zero pencil
+from the same coefficients and actual input/output. Generalized eig proposals
+are not certified roots: defined in-region proposals each pass the original
+corrector and certificates in source order before selection.
+
+Selection is nearest-Hint complex-frequency Euclidean distance **among eligible
+certified candidates from that declared discovery**. It is not a guarantee of
+all continuum roots or the globally nearest physical root. Outside-region
+certified candidates retain their outcome and outside-selection fact; failure
+to select is reported as not found from the declared trials, not nonexistence.
+
+The caller must author adequate resolution for the intended analysis. Recording
+search extent and mesh strategy does not rewrite a sealed Plan or automatically
+remesh it. Public `evaluate` has no Optimization fixed-stage mesh override.
+Its realized mesh follows the caller's Plan policy; a separate fixed-stage
+witness can describe a different discrete problem. See
+[electrical resolution](../concepts/electrical-resolution.qmd).
+
+## Use the existing Plan and View
+
+The following function consumes caller-owned declarations and parameters; it
+does not author a demonstration circuit or supply an answer seed. A
+`NetworkViewRef` belongs to its Run. Pass the existing `ReductionPipeline`
+declaration to bind the same View within this new Run, rather than reusing a
+foreign Run's reference.
+
+```python
+from scnsim import CircuitRun, RootSearchSpec, TransferZeroSpec
+
+
+def evaluate_notch(*, plan, view_pipeline, input_coordinate,
+                   output_coordinate, authored_hint, point):
+    spec = TransferZeroSpec(
+        anchor=authored_hint,
+        family="Z",
+        input_coordinate=input_coordinate,
+        output_coordinate=output_coordinate,
+        search=RootSearchSpec(
+            method="polynomial_transfer_zero",
+            hint_frequency_factor=10,
+            tie="unavailable",
+        ),
+    )
+    run = CircuitRun(plan=plan, storage="memory", precision="float64")
+    try:
+        view = run.original.reduce(view_pipeline)
+        result = run.evaluate(view, spec, parameters=point)
+    finally:
+        run.close()
+    return result
+```
+
+The factor is an explicit request choice, not a default. It creates a new request
+identity relative to a no-search Spec. Read `result.status`, `result.failure`,
+`result.context`, `result.discretization` and `result.benchmark`; when
+`result.succeeded`, `result.frequency` is the Hz projection and `result.zero`
+is complex angular frequency. Typed numerical failure remains visible;
+unexpected transport/native errors propagate. The returned memory Result is
+detached and remains readable after close without a saved attempt or `resolve`.
+
+## Track a branch and differentiate locally
+
+Initial discovery establishes anchors. A declared Sweep keeps its original
+Plan baseline and point order; explicit single-point search initializes at
+that requested point. Optimization establishes original-point anchors under
+each declared stage model. Later points use the selected branch and existing
+baseline-anchored continuation, not a fresh global search at every parameter.
+Completion order does not silently update anchors.
+
+Continuation has its existing failure eligibility and parameter semantics;
+not every formation error authorizes a retry. Structured RLGC replacements are
+not automatically interpolated by scalar continuation. Every candidate uses
+its own checked packet and actual checked Error, not a previous point's Error.
+
+For a locally available simple root equation $g(\theta,\omega)=0$,
+
+$$
+\mathrm d\omega=-\frac{g_\theta[\mathrm d\theta]}{g_\omega}.
+$$
+
+This derivative belongs to the selected physical branch. It does not differentiate
+candidate sorting or the finite Newton history. Actual View/material coefficient
+dependence and root-induced frequency dependence remain traced in admitted
+second/mixed directions. Frequency-root availability and vector/gauge or
+coupling availability can differ; an unavailable derivative is not replaced by
+zero or a finite-difference fallback.
+
+`spec.frequency.on(view)` can enter a caller-authored `SensitivitySpec`; its
+wrt, JVP direction or VJP weights retain their units and order. The
+[Sensitivity guide](sensitivity.qmd) explains partial blocks and normalization.
+Raw `PreparedFunction` callables expose local array-only work and status, not
+high-level discrete discovery or certified Results. External JAX input/transform
+precision is the caller's responsibility; high-level calls own scoped precision.
+
+## Compensation is arithmetic, not branch selection
+
+The represented high/low sparse equation and its fixed correction address
+finite-arithmetic residuals under the existing numerical policy. Sparse factors
+are callback-local and released before their callback returns; Run caches store
+static programs/executables, not factors. First/frequency jets may share ready
+RHS work, while tangent, mixed or adjoint equations retain their own actual
+performed/status/certificate responsibility.
+
+Compensation cannot choose a Newton basin or create a missing certified root.
+If high-channel factorization fails, the correction cannot repair that seed;
+this alone does not prove that the total represented operator is singular.
+There is no all-device or universally single-factor derivative claim.
+
+## Understand cost and the scope of a fix
+
+| Work | What can happen |
+|---|---|
+| Compile-only warmup | Compile known candidate/value/linearization signatures; no eig, root correction, factors or successful Result |
+| Initial discovery | Acquire coefficients, allocate a dense pencil, run eig and correct each eligible proposal |
+| Later branch tracking | Evaluate current coefficients and local correction/eligible continuation, then requested jets |
+| Objective/derivative | Apply the same physical quantities and loss, plus the requested local derivative equations |
+| Typed API / saved read | Bind/projection/evidence/lifecycle work, or readonly fixed saved-result hydration |
+
+Dense pencil storage grows with matrix dimension; discovery is not a constant-cost
+replacement for one sparse local solve. Denominator verification, terminal
+certificates, derivative equations, compilation and result construction can also
+contribute. Cold preparation, warmup, warm numerical work, complete typed API and
+saved lookup are different clocks. Inclusive phase sums are not exclusive costs
+and must not be added as if independent. [Benchmark](benchmark.qmd) reports
+actual available clocks without executing another calculation.
+
+Reusing a compiled signature does not cache a root catalogue or a native factor.
+Consumers that need an actual completed packet/Error or producer Partial tree
+remain lazy when that tree is unavailable during warmup. A raw aggregate compile
+does not prove a checked consumer hit.
+
+Implementation corrections can address a residual representation, packet/Error
+association, admitted higher-order dependence, structural ordinal binding or
+precision/callback transport. Those are different from proving a physical model,
+a different root's existence, the original whole application workflow, or a
+performance target. A source correction is not its own numerical observation;
+private collector/setup failures are not automatically solver failures.
+
+For Optimization, CMA-ES can progress past recorded failed candidates. Genuine
+L-BFGS-B still needs its actual value/gradient contract. Projected L-BFGS is a
+separate value-first reject-aware method: with an accepted real gradient it can
+record a failed/unavailable trial and try a smaller feasible step; it cannot
+invent an initial direction when that gradient is unavailable. Hybrid stages
+retain their explicit strategies, meshes, transitions and comparisons. A lower
+cost, or a successfully selected notch, does not establish global optimality,
+all targets or an independent physical validation.

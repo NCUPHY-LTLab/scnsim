@@ -1,8 +1,8 @@
-"""Authoring display projection, separate from exact source numerical evidence.
+"""Project exact source values to labels and parse visible display text.
 
 Visible authoring values round the captured binary scalar to six significant
-decimal digits. Observations parse literal ink without rounding it again. The
-legacy exact physical parser remains available for compiled scientific evidence.
+decimal digits. Observations parse the displayed decimal and unit as written,
+without rounding the observed ink again.
 """
 
 from __future__ import annotations
@@ -13,9 +13,8 @@ from decimal import (
     Context, Decimal, DecimalException, DivisionByZero, Inexact,
     InvalidOperation, Overflow, Rounded, Underflow, ROUND_HALF_EVEN, localcontext,
 )
-from typing import cast
 
-from ...canonical import float64_from_hex, quantity_envelope
+from ...canonical import float64_from_hex
 from ...errors import SCNSimValidationError
 from ...units import registry
 
@@ -46,28 +45,6 @@ def _split_visible_scalar(text: str) -> tuple[str, str]:
     except ValueError as exc:
         raise _fail("visible scalar magnitude is not a finite decimal token", label=text) from exc
     return magnitude, unit.strip()
-
-
-def parse_visible_scalar(text: str, *, si_unit: str) -> Mapping[str, object]:
-    """Decode a literal visible scalar into canonical physical evidence.
-
-    The returned record deliberately retains the actual displayed unit token so
-    audits can report it, while correspondence compares the decoded quantity
-    and dimensionality rather than a preferred engineering prefix spelling.
-    """
-
-    _, displayed_unit = _split_visible_scalar(text)
-    try:
-        decoded = quantity_envelope(
-            registry.Quantity(text), si_unit=si_unit, registry=registry
-        )
-    except Exception as exc:
-        raise _fail("visible scalar is not a complete physical quantity", label=text) from exc
-    return {
-        "quantity": cast(Mapping[str, object], decoded),
-        "displayed_unit": displayed_unit,
-        "displayed_text": text,
-    }
 
 
 _PREFIXES = ((-18, "a"), (-15, "f"), (-12, "p"), (-9, "n"),
@@ -173,4 +150,4 @@ def format_envelope(value: Mapping[str, object]) -> str:
 
 
 __all__ = ["display_projection", "format_envelope", "format_visible_scalar",
-           "parse_display_scalar", "parse_visible_scalar"]
+           "parse_display_scalar"]

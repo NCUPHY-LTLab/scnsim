@@ -1,0 +1,17 @@
+---
+title: "第 3 章 — CPW 饋線與讀出 S21"
+subtitle: "工程課程 · 繁體中文"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 第 3 章 — CPW 饋線與讀出 S21
+
+本章在乾淨核心中獨立執行。三個網頁課程是依序排列來源片段的閱讀版本，不是獨立 Notebook。QMD 是可編輯權威來源，`chapter.ipynb` 是產生的零輸出傳遞檔。
+
+本章建立雙埠 CPW 饋線與接地讀出電路，檢視明確配置，並請求具名 S21 響應。
+{{< include _01-build.qmd >}}
+{{< include _02-diagram.qmd >}}
+{{< include _03-s21.qmd >}}

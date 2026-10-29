@@ -1,7 +1,7 @@
 """Canonical prepared-request and parameter-source envelopes.
 
 This encoder consumes finalized declarations and preserves the operation-level
-algorithm identity; it does not select Views or resolve authoring parameters."""
+algorithm identity, including JAX quantity dependencies of CMA. It does not select Views or resolve parameters."""
 
 from __future__ import annotations
 
@@ -15,29 +15,26 @@ from ..authoring.identity import (
 from ..canonical import _nfc, _sha256, _validation, canonical_value
 
 
-_DIRECT_ALGORITHMS = {
-    "solve_direct": "scnsim.direct_response.v1",
-    "solve_hb": "scnsim.hb_response.josephsoncircuits.v1",
-    "optimize_direct": "scnsim.direct_cmaes.cmaes_jl_0_2_6_state_replay.v9",
-}
-
-
 _JAX_ALGORITHMS = {
-    "solve_direct": "scnsim.jax.direct_response.v1",
-    "diagonal_root": "scnsim.jax.diagonal_root.newton32.v1",
-    "response_element": "scnsim.jax.response_element.v1",
-    "optimize_direct": "scnsim.jax.direct_cmaes.cmaes_0_13_1.v1",
-}
-
-
-_EVALUATION_ALGORITHMS = {
-    "diagonal_root": "scnsim.diagonal_root.newton32.v2",
-    "operator_element_root": "scnsim.operator_element_root.newton32.v1",
-    "hybridized_pole": "scnsim.hybridized_pole.newton32.v1",
-    "transfer_zero": "scnsim.transfer_zero.newton32.v4",
-    "residue_normalized_coupling": "scnsim.residue_normalized_coupling.v2",
-    "response_element": "scnsim.response_element.v1",
-    "operator": "scnsim.direct_operator.v1",
+    # Canonical request identity is one physical-program authority per
+    # operation. The quantity-type aliases below serve existing internal
+    # dispatch sites that select an algorithm before PreparedAnalysis sees
+    # the coarse operation name; they deliberately resolve to that same
+    # operation identity rather than preserving the superseded per-quantity
+    # identities.
+    "solve_direct": "scnsim.jax.native_physical.direct.stage_bundle.v1",
+    "evaluate_direct": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "diagonal_root": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "response_element": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "operator_element_root": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "hybridized_pole": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "transfer_zero": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "residue_normalized_coupling": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "operator": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "static_capacitance": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "static_capacitance_element": "scnsim.jax.native_physical.evaluate.stage_bundle.v1",
+    "optimize_direct": "scnsim.jax.native_physical.optimize.stage_bundle.v1",
+    "sensitivity": "scnsim.jax.native_physical.sensitivity.stage_bundle.v1",
 }
 
 
@@ -120,18 +117,13 @@ def canonical_request_document(
     runtime = dict(runtime_semantic)
     spec_type = spec.get("type")
     expected_algorithm = (
-        _EVALUATION_ALGORITHMS.get(str(spec_type))
-        if selected_operation == "evaluate_direct"
-        else _DIRECT_ALGORITHMS.get(selected_operation)
+        _JAX_ALGORITHMS.get(selected_operation)
+        if runtime.get("backend") == "jax" else None
     )
-    if runtime.get("backend") == "jax":
-        expected_algorithm = _JAX_ALGORITHMS.get(
-            str(spec_type) if selected_operation == "evaluate_direct" else selected_operation
-        )
     expected_spec = {
         "solve_direct": "direct_solve",
-        "solve_hb": "hb_solve",
         "optimize_direct": "optimization",
+        "sensitivity": "sensitivity",
     }.get(selected_operation)
     if expected_algorithm is None:
         raise _validation("operation or Spec is outside the runtime", operation=selected_operation, spec_type=spec_type)

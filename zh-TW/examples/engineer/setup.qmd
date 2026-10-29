@@ -1,0 +1,56 @@
+---
+title: "工程課程環境設定"
+subtitle: "安裝已發布套件並選擇性準備 Jupyter 環境"
+lang: zh-TW
+---
+
+## 安裝已發布套件
+
+請從 [GitHub Releases](https://github.com/NCUPHY-LTLab/scnsim/releases/tag/v1.0.0a3) 安裝 CPython 3.12 預建套件（wheel），並在空資料夾中初始化專案：
+
+{{< include ../../_generated/canonical-code/examples/engineer/setup.qmd/block-001.qmd >}}
+
+依作業系統與架構選擇對應命令：
+
+<details>
+<summary>Windows x86_64（AMD64）</summary>
+
+{{< include ../../_generated/canonical-code/examples/engineer/setup.qmd/block-002.qmd >}}
+
+</details>
+
+<details>
+<summary>macOS arm64</summary>
+
+{{< include ../../_generated/canonical-code/examples/engineer/setup.qmd/block-003.qmd >}}
+
+</details>
+
+<details>
+<summary>Linux x86_64</summary>
+
+{{< include ../../_generated/canonical-code/examples/engineer/setup.qmd/block-004.qmd >}}
+
+</details>
+
+| Python | 作業系統與架構 | 預建套件 |
+|---|---|---|
+| CPython 3.12 | Windows x86_64（AMD64） | [Release 預建套件](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-win_amd64.whl) |
+| CPython 3.12 | macOS arm64（Apple Silicon） | [Release 預建套件](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-macosx_12_0_arm64.whl) |
+| CPython 3.12 | Linux x86_64 | [Release 預建套件](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl) |
+
+這些預建套件不需要 C++ 編譯器。其他 Python 版本或平台請依[貢獻指南的來源建置說明](../../docs/contribute.qmd#build-from-source)操作。
+
+## 選用 Jupyter 環境
+
+若要執行 Notebook，才將 Jupyter 加入專案：
+
+{{< include ../../_generated/canonical-code/examples/engineer/setup.qmd/block-005.qmd >}}
+
+請從包含 `examples.engineer.diagram_layouts` 輔助程式的完整來源檢出使用課程 Notebook。檢出與建置方式請參閱[貢獻指南](../../docs/contribute.qmd)。
+
+## 接續閱讀
+
+- [工程課程總覽](../../docs/index.qmd)
+- [第 1 章：建立電路](chapter-01/01-build.qmd)
+- [模擬慣例](../../docs/concepts/simulation-conventions.qmd)

@@ -1,0 +1,17 @@
+---
+title: "第 6 章 · 第 1 課 — 明確配置"
+subtitle: "電路圖自訂工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="本章執行方式" appearance="simple"}
+請先參閱[工程課程環境設定](../setup.qmd)。本頁供閱讀；若要執行，請在乾淨核心中使用[完整本章 Notebook（英文）](/en/examples/engineer/chapter-06/chapter.ipynb)。
+:::
+
+{{< include _01-default.qmd >}}
+
+[下一課：第 2 課 — Port 姿態](02-port-poses.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-06/chapter.ipynb)

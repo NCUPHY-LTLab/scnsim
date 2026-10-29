@@ -1,0 +1,17 @@
+---
+title: "第 1 章 · 第 1 課 — 建立電路"
+subtitle: "耦合接地 LC 工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="本章執行方式" appearance="simple"}
+本網頁課程供閱讀。若要執行，請下載[完整本章 Notebook（英文）](/en/examples/engineer/chapter-01/chapter.ipynb)，在乾淨核心中依序執行全部五課。
+:::
+
+{{< include _01-build.qmd >}}
+
+[下一課：第 2 課 — 檢視電路圖](02-diagram.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-01/chapter.ipynb)

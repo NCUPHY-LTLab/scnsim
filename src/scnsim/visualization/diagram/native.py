@@ -246,7 +246,7 @@ def native_block(
     drawing = schemdraw.Drawing(show=False)
     drawing.config(unit=metrics.unit_length, fontsize=10, color=color)
     element = (
-        _symbol_element(kind, color=color).at((start.x, start.y)).to((end.x, end.y))
+        _symbol_element(kind, color=color).scale(metrics.unit_length / 2.2).at((start.x, start.y)).to((end.x, end.y))
     )
     element.label(
         label_text,
@@ -408,6 +408,7 @@ def native_block(
 def _cpw_box(
     *, origin: Point, title: str, conductor: str, length: str | None,
     section_text: str, section_role: str, minimum_axis: float, orientation: int,
+    exact_axis: bool, transverse_size: float | None,
     metrics: DiagramMetrics, correlation_key: str | None,
 ) -> ElectricalBox:
     """One-conductor line with upright measured facts and two physical leads."""
@@ -429,6 +430,16 @@ def _cpw_box(
                      max(row_widths) + 2 * padding)
     body_height = max(metrics.native_span if horizontal else minimum_axis,
                       sum(high - low for low, high in row_limits) + 3 * padding)
+    if exact_axis:
+        if horizontal:
+            body_width = minimum_axis
+        else:
+            body_height = minimum_axis
+    if transverse_size is not None:
+        if horizontal:
+            body_height = transverse_size
+        else:
+            body_width = transverse_size
     dx, dy = {0: (1, 0), 90: (0, 1), 180: (-1, 0), 270: (0, -1)}[orientation]
     center = origin.translated(dx * body_width / 2, dy * body_height / 2)
     body = Bounds(center.x - body_width / 2, center.y - body_height / 2,
@@ -455,7 +466,8 @@ def _cpw_box(
         "CPW", orientation, placed["line-title"], placed["line-kind"],
         placed.get("line-length"), (), (), None,
         ((f"head.{conductor}", head), (f"tail.{conductor}", tail)),
-        outline, paths, _bounds(body, *(path.bounds for path in paths)),
+        outline, paths, _bounds(body, *(path.bounds for path in paths),
+                               *(run.bounds for run in placed.values())),
         correlation_key, section_label=placed[section_role],
     )
 
@@ -471,6 +483,8 @@ def electrical_box(
     n_sections: int | None = None,
     resolution: Mapping[str, object] | None = None,
     width: float | None = None,
+    contact_span: float | None = None,
+    box=None,
     orientation: Literal[0, 90, 180, 270] = 0,
     metrics: DiagramMetrics = DEFAULT_METRICS,
     correlation_key: str | None = None,
@@ -491,6 +505,13 @@ def electrical_box(
     if any(_literal(item) != item for item in conductors):
         raise AssertionError("unreachable")
     minimum_axis = 2 * metrics.native_span if width is None else float(width)
+    if box is not None and box.width is not None:
+        minimum_axis = box.width
+    if contact_span is not None:
+        # The caller's span includes both actual terminal stubs. Text bounds
+        # may extend outside the body, but cannot move its contact planes.
+        minimum_axis = float(contact_span) - 2 * metrics.terminal_stub
+
     if not isfinite(minimum_axis) or minimum_axis <= 0:
         raise ValueError("electrical box width must be positive")
     if (n_sections is None) == (resolution is None):
@@ -506,6 +527,8 @@ def electrical_box(
                         section_text=section_text, section_role="line-policy" if policy_text is not None else "line-sections",
                         minimum_axis=minimum_axis,
                         orientation=orientation, metrics=metrics,
+                        exact_axis=contact_span is not None or box is not None and box.width is not None,
+                        transverse_size=None if box is None else box.height,
                         correlation_key=correlation_key)
 
     padding = metrics.label_clearance
@@ -606,13 +629,20 @@ def electrical_box(
                 head_measures, row_measures, tail_measures, strict=True
             )
         )
+        # Text packing must also leave neighboring physical lead rays outside
+        # the existing obstacle clearance. Reuse these gaps in body and anchor
+        # placement, so their measurements describe the same scene.
+        row_gaps = tuple(
+            max(gap, metrics.obstacle_clearance - (first + second) / 2)
+            for first, second in zip(row_heights, row_heights[1:])
+        )
         body_width = max(minimum_axis, header_width, footer_width, *row_widths)
         content_height = (
             2 * padding
             + header_height
             + gap
             + sum(row_heights)
-            + gap * (len(row_heights) - 1)
+            + sum(row_gaps)
             + (gap + footer_height if footer_height else 0.0)
         )
         body_height = max(metrics.native_span, content_height)
@@ -627,6 +657,10 @@ def electrical_box(
                 head_measures, row_measures, tail_measures, strict=True
             )
         )
+        column_gaps = tuple(
+            max(gap, metrics.obstacle_clearance - (first + second) / 2)
+            for first, second in zip(column_widths, column_widths[1:])
+        )
         endpoint_height = max(
             *(_extent(item, horizontal=False) for item in head_measures),
             *(_extent(item, horizontal=False) for item in tail_measures),
@@ -636,7 +670,7 @@ def electrical_box(
             metrics.native_span,
             header_width,
             footer_width,
-            2 * padding + sum(column_widths) + gap * (len(column_widths) - 1),
+            2 * padding + sum(column_widths) + sum(column_gaps),
         )
         content_height = (
             2 * padding
@@ -647,6 +681,12 @@ def electrical_box(
             + gap * (4 if footer_height else 3)
         )
         body_height = max(minimum_axis, content_height)
+
+    if contact_span is not None:
+        if horizontal:
+            body_width = minimum_axis
+        else:
+            body_height = minimum_axis
 
     if orientation == 0:
         left, right = origin.x, origin.x + body_width
@@ -722,24 +762,21 @@ def electrical_box(
             if policy_run is not None or reference_run is not None
             else bottom + padding
         )
-        row_heights = tuple(
-            max(
-                _extent(head, horizontal=False),
-                _extent(row, horizontal=False),
-                _extent(tail, horizontal=False),
-            )
-            for head, row, tail in zip(
-                head_measures, row_measures, tail_measures, strict=True
-            )
-        )
-        packed_height = sum(row_heights) + gap * (len(row_heights) - 1)
+        packed_height = sum(row_heights) + sum(row_gaps)
         cursor = (available_top + available_bottom + packed_height) / 2
-        row_centers: list[float] = []
-        for row_height_value in row_heights:
-            row_centers.append(cursor - row_height_value / 2)
-            cursor -= row_height_value + gap
-        if orientation == 180:
-            row_centers.reverse()
+        row_centers = [0.0] * len(row_heights)
+        row_order = (
+            range(len(row_heights))
+            if orientation == 0
+            else reversed(range(len(row_heights)))
+        )
+        ordered_gaps = row_gaps if orientation == 0 else row_gaps[::-1]
+        for position, index in enumerate(row_order):
+            row_height_value = row_heights[index]
+            row_centers[index] = cursor - row_height_value / 2
+            cursor -= row_height_value
+            if position < len(ordered_gaps):
+                cursor -= ordered_gaps[position]
         direction = 1.0 if orientation == 0 else -1.0
         head_border_x = origin.x
         tail_border_x = origin.x + direction * body_width
@@ -792,17 +829,7 @@ def electrical_box(
                 )
             )
     else:
-        column_widths = tuple(
-            max(
-                _extent(head, horizontal=True),
-                _extent(row, horizontal=True),
-                _extent(tail, horizontal=True),
-            )
-            for head, row, tail in zip(
-                head_measures, row_measures, tail_measures, strict=True
-            )
-        )
-        packed_width = sum(column_widths) + gap * (len(column_widths) - 1)
+        packed_width = sum(column_widths) + sum(column_gaps)
         cursor = (left + right - packed_width) / 2
         column_centers = [0.0] * len(column_widths)
         column_order = (
@@ -810,10 +837,13 @@ def electrical_box(
             if orientation == 90
             else reversed(range(len(column_widths)))
         )
-        for index in column_order:
+        ordered_gaps = column_gaps if orientation == 90 else column_gaps[::-1]
+        for position, index in enumerate(column_order):
             column_width = column_widths[index]
             column_centers[index] = cursor + column_width / 2
-            cursor += column_width + gap
+            cursor += column_width
+            if position < len(ordered_gaps):
+                cursor += ordered_gaps[position]
 
         footer_top = (
             (policy_run or reference_run).bounds.ymax if policy_run is not None or reference_run is not None else bottom + padding
@@ -830,10 +860,13 @@ def electrical_box(
         low_y = footer_top + gap + low_height / 2
         high_y = header_y - header_height / 2 - gap - high_height / 2
         conductor_y = (low_y + low_height / 2 + high_y - high_height / 2) / 2
-        if conductor_y - conductor_height / 2 < low_y + low_height / 2 + gap:
-            raise RuntimeError("measured vertical line-box rows do not fit")
-        if conductor_y + conductor_height / 2 > high_y - high_height / 2 - gap:
-            raise RuntimeError("measured vertical line-box rows do not fit")
+        if contact_span is None:
+            # Default native sizing owns its text-fit invariant. An explicit
+            # contact span owns the anchors; upright text overlap is aesthetic.
+            if conductor_y - conductor_height / 2 < low_y + low_height / 2 + gap:
+                raise RuntimeError("measured vertical line-box rows do not fit")
+            if conductor_y + conductor_height / 2 > high_y - high_height / 2 - gap:
+                raise RuntimeError("measured vertical line-box rows do not fit")
 
         head_y, tail_y = (low_y, high_y) if orientation == 90 else (high_y, low_y)
         head_border_y = origin.y
@@ -954,15 +987,23 @@ def junction_mark(
     return NodeMark(at, None, (outline,), True, correlation_key)
 
 
-def winding_dot(at: Point, other: Point, bounds: Bounds) -> tuple[Point, Path]:
+def winding_dot(at: Point, other: Point, bounds: Bounds, *, orientation: int = 0, metrics: DiagramMetrics = DEFAULT_METRICS) -> tuple[Point, Path]:
     """Place a nonconductive winding dot beside one geometric terminal lead.
 
     Unlike an electrical junction dot, its center is off the wire. A dotted
     mutual leader terminates at this mark, not at a conductive graph node.
     """
-    radius = DEFAULT_METRICS.port_circle_radius * 0.5
-    inset = DEFAULT_METRICS.terminal_stub / 2
-    gap = DEFAULT_METRICS.label_clearance + radius
+    if orientation not in (0, 90, 180, 270):
+        raise ValueError("winding-dot orientation must be cardinal")
+    if orientation:
+        inverse = (-orientation) % 360
+        canonical_bounds = Bounds.around(Point(x,y).rotated(inverse)
+            for x in (bounds.xmin,bounds.xmax) for y in (bounds.ymin,bounds.ymax))
+        center, outline = winding_dot(at.rotated(inverse),other.rotated(inverse),canonical_bounds, metrics=metrics)
+        return center.rotated(orientation), outline.rotated(orientation)
+    radius = metrics.port_circle_radius * 0.5
+    inset = metrics.terminal_stub / 2
+    gap = metrics.label_clearance + radius
     if abs(at.y - other.y) <= COORDINATE_TOLERANCE:
         center = Point(at.x + (inset if other.x > at.x else -inset), bounds.ymin - gap)
     else:
@@ -1277,3 +1318,336 @@ def port_block(
         occupied,
         correlation_key,
     )
+
+
+# Explicit authoring shares the native templates above with compiled diagrams.
+# These helpers move immutable measured facts; they never pack bodies or route.
+def transform_fragment(scene, *, origin: Point, rotation: int = 0):
+    """Rigidly adopt the same glyph/stroke geometry in a parent coordinate frame."""
+    from dataclasses import fields, is_dataclass, replace
+    from .scene import NeutralScene
+
+    if rotation not in (0, 90, 180, 270):
+        raise ValueError("fragment rotation must be cardinal")
+
+    def move(value):
+        if isinstance(value, Point):
+            return value.rotated(rotation).translated(origin.x, origin.y)
+        if isinstance(value, Bounds):
+            return Bounds.around(move(Point(x, y))
+                                for x in (value.xmin, value.xmax)
+                                for y in (value.ymin, value.ymax))
+        if isinstance(value, tuple):
+            return tuple(move(item) for item in value)
+        if is_dataclass(value):
+            changes = {field.name: move(getattr(value, field.name))
+                       for field in fields(value) if field.init}
+            if isinstance(value, (NativeSymbol, ElectricalBox, TextRun)):
+                changes["orientation"] = (value.orientation + rotation) % 360
+            return replace(value, **changes)
+        return value
+
+    if not isinstance(scene, NeutralScene):
+        raise TypeError("fragment adoption requires an immutable NeutralScene")
+    return move(scene)
+
+
+def fragment_text(scene):
+    """Return stable structural paths to native text, without copied glyph data."""
+    from dataclasses import fields, is_dataclass
+    from types import MappingProxyType
+
+    result = {}
+
+    def visit(value, path):
+        if isinstance(value, TextRun):
+            result[path] = value
+        elif isinstance(value, tuple):
+            for index, item in enumerate(value):
+                visit(item, (*path, index))
+        elif is_dataclass(value):
+            for field in fields(value):
+                visit(getattr(value, field.name), (*path, field.name))
+
+    visit(scene, ())
+    return MappingProxyType(result)
+
+
+def fragment_scene(*, symbols=(), boxes=(), ports=(), conductive=(), jumps=(),
+                   guides=(), text=(), regions=(), boundary_sites=(), node_marks=()):
+    """Enclose measured ink locally; this envelope is not a Drawing certificate."""
+    from .scene import NeutralScene, SubsystemRegion
+
+    bounds = [symbol.occupied_bounds for symbol in symbols]
+    bounds += [box.bounds for box in boxes]
+    bounds += [port.occupied_bounds for port in ports]
+    bounds += [wire.bounds for wire in conductive]
+    bounds += [jump.path.bounds for jump in jumps]
+    bounds += [guide.bounds for guide in guides]
+    bounds += [run.bounds for run in text]
+    bounds += [region.bounds for region in regions]
+    bounds += [site.visible_label.bounds for site in boundary_sites
+               if site.visible_label is not None]
+    bounds += [Bounds.around((site.point,)) for site in boundary_sites]
+    bounds += [path.bounds for mark in node_marks for path in mark.paths]
+    bounds += [mark.label.bounds for mark in node_marks if mark.label is not None]
+    envelope = _bounds(*bounds) if bounds else Bounds(0.0, 0.0, 0.0, 0.0)
+    root = SubsystemRegion(envelope, Path((Point(envelope.xmin, envelope.ymin),
+        Point(envelope.xmax, envelope.ymin), Point(envelope.xmax, envelope.ymax),
+        Point(envelope.xmin, envelope.ymax), Point(envelope.xmin, envelope.ymin)),
+        "region", True), None, Point(envelope.xmin, envelope.ymax), "root")
+    return NeutralScene(symbols=tuple(symbols), boxes=tuple(boxes), ports=tuple(ports),
+        conductive=tuple(conductive), jumps=tuple(jumps), guides=tuple(guides),
+        text=tuple(text), regions=(*tuple(regions), root),
+        boundary_sites=tuple(boundary_sites), node_marks=tuple(node_marks))
+
+
+def emit_native(measurement, *, pose, captions):
+    """Translate the selected cardinal variant and apply explicit caption anchors.
+
+    Caption keys are the stable paths returned by fragment_text; anchors are
+    in the receiving scope. The selected variant already includes rotation.
+    """
+    from dataclasses import fields, is_dataclass, replace
+    from .scene import NeutralScene
+
+    if pose.rotation != measurement.orientation:
+        raise ValueError("native pose must select its measured cardinal variant")
+    scene = transform_fragment(measurement.scene, origin=Point(*pose.origin))
+    known = fragment_text(scene)
+    extra = set(captions) - set(known)
+    if extra:
+        raise ValueError(f"native caption sources are unknown: {extra!r}")
+
+    def relocate(value, path):
+        if isinstance(value, TextRun):
+            if path not in captions:
+                return value
+            at = captions[path]
+            delta = Point(at.x - value.origin.x, at.y - value.origin.y)
+            # Translation preserves the measured glyphs and exact literal text.
+            return transform_text(value, origin=delta)
+        if isinstance(value, tuple):
+            return tuple(relocate(item, (*path, index)) for index, item in enumerate(value))
+        if is_dataclass(value):
+            changes = {field.name: relocate(getattr(value, field.name), (*path, field.name))
+                       for field in fields(value) if field.init}
+            if isinstance(value, NativeSymbol):
+                runs = [changes[name] for name in ("visible_name", "value", "branch_label")
+                        if changes[name] is not None]
+                changes["occupied_bounds"] = _bounds(value.symbol_bounds, *(run.bounds for run in runs))
+            elif isinstance(value, ElectricalBox):
+                runs = [changes[name] for name in ("title", "kind_label", "length_label",
+                        "section_label", "reference_label") if changes[name] is not None]
+                runs += [*changes["anchor_labels"], *changes["conductor_rows"]]
+                changes["bounds"] = _bounds(value.outline.bounds,
+                    *(stroke.bounds for stroke in value.paths), *(run.bounds for run in runs))
+            elif isinstance(value, PortBlock):
+                changes["occupied_bounds"] = _bounds(value.circle.bounds,
+                    *(stroke.bounds for stroke in value.paths),
+                    *(stroke.bounds for stroke in value.ground_glyph),
+                    changes["reference_load"].occupied_bounds,
+                    *(run.bounds for run in changes["labels"]))
+            return replace(value, **changes)
+        return value
+
+    # Rebuild only the temporary envelope after moving text. Native body/stroke
+    # coordinates are untouched; the enclosing scope supplies its final frame.
+    payload = {field.name: relocate(getattr(scene, field.name), (field.name,))
+               for field in fields(NeutralScene) if field.name not in
+               {"regions", "bounds", "provenance_band"}}
+    payload["regions"] = tuple(region for region in scene.regions if region.kind != "root")
+    return fragment_scene(**payload)
+
+
+def transform_text(run: TextRun, *, origin: Point):
+    """Translate already shaped text without changing its font/metrics authority."""
+    from dataclasses import replace
+    return replace(run, origin=run.origin.translated(origin.x, origin.y),
+        bounds=run.bounds.translated(origin.x, origin.y),
+        glyphs=tuple(replace(glyph,
+            vertices=tuple(point.translated(origin.x, origin.y) for point in glyph.vertices),
+            bounds=glyph.bounds.translated(origin.x, origin.y)) for glyph in run.glyphs))
+
+
+def measure_native(point, occurrence_ref, *, orientation, show_values, metrics, span=None, box=None):
+    """Measure one captured physical target, without placement or routing.
+
+    Cardinal variants select the native primitive before its upright labels are
+    shaped. Contacts and incident-ink access are intrinsic to that same scene;
+    the parent only translates this selected variant.
+    """
+    import json
+    from ..schematic import DiagramRef, MeasuredFragment
+    from ...authoring.physical_values import quantity_record
+
+    if orientation not in (0, 90, 180, 270):
+        raise ValueError("native orientation must be cardinal")
+    source = json.loads(occurrence_ref.key)
+    path = tuple(source["path"])
+    direction = ("right", "top", "left", "bottom")[orientation // 90]
+    origin = Point(0.0, 0.0)
+    symbols, boxes, ports, guides, wires, node_marks = [], [], [], [], [], []
+    anchors = {}
+    identity = source
+    markers = {}
+    if occurrence_ref.kind == "occurrence":
+        leaf = next(row for row in point.snapshot.semantic_record["physical_leaves"]
+                    if tuple(row["path"]) == path)
+        identity = leaf
+        fields = {row["id"]: row for row in leaf["fields"]}
+        if box is not None and (leaf["model"] != "transmission_line"
+                                or len(point.resolved_fields[path, "rlgc"].conductors) != 1):
+            from ...errors import SCNSimValidationError
+            raise SCNSimValidationError("box sizing applies only to one-conductor CPW bodies",
+                                       stage="schematic_layout", evidence={"target": occurrence_ref.key})
+
+        def field_text(name):
+            if not show_values:
+                return None
+            field = fields[name]
+            return format_envelope(quantity_record(point.resolved_fields[path, name], field["unit"]))
+
+        if leaf["model"] == "transmission_line":
+            rlgc = point.resolved_fields[path, "rlgc"]
+            metadata = leaf["model_metadata"]
+            box = electrical_box(kind="CPW" if len(rlgc.conductors) == 1 else "MTL",
+                origin=origin, orientation=orientation, title=path[-1],
+                conductors=tuple(rlgc.conductors), reference=rlgc.reference_conductor,
+                length=field_text("length"), n_sections=metadata.get("n_sections"),
+                resolution=metadata.get("discretization"), metrics=metrics, contact_span=span, box=box, correlation_key=occurrence_ref.key)
+            boxes.append(box)
+            anchors.update(box.anchors)
+        else:
+            if span is not None:
+                from dataclasses import replace
+                metrics = replace(metrics, body_span=span)
+            kind, field = {"resistor": ("R", "resistance"),
+                "capacitor": ("C", "capacitance"),
+                "inductor": ("L", "inductance"),
+                "josephson_junction": ("JJ", "josephson_inductance")}[leaf["model"]]
+            end = Point(metrics.native_span, 0.0).rotated(orientation)
+            symbol = native_block(kind, start=origin, end=end, name=path[-1],
+                                  value=field_text(field), metrics=metrics, correlation_key=occurrence_ref.key)
+            symbols.append(symbol)
+            anchors.update(symbol.anchors)
+            if leaf["model"] in {"inductor", "josephson_junction"}:
+                for branch in leaf["oriented_branches"]:
+                    if branch["value_field"] not in {"inductance", "josephson_inductance"}:
+                        continue
+                    sides = {}
+                    for sign,pin,other in (("positive",branch["positive_pin"],branch["negative_pin"]),
+                                           ("negative",branch["negative_pin"],branch["positive_pin"])):
+                        center,stroke = winding_dot(anchors[pin],anchors[other],symbol.symbol_bounds,
+                                                    orientation=symbol.orientation, metrics=metrics)
+                        sides[sign] = {"point":center,"path":stroke}
+                    markers[branch["id"]] = sides
+            if leaf["model"] == "josephson_junction" and "junction_capacitance" in fields:
+                offset = Point(0.0, -2 * metrics.native_span).rotated(orientation)
+                first, last = offset, end.translated(offset.x, offset.y)
+                symbols.append(native_block("C", start=first, end=last,
+                    name=path[-1], value=field_text("junction_capacitance"),
+                    branch_label="Cj", metrics=metrics, correlation_key=occurrence_ref.key))
+                wires.extend((ConductivePolyline((origin, first)), ConductivePolyline((end, last))))
+                # The emitted parallel branch creates real three-ray terminal
+                # junctions when external wires meet these same physical pins.
+                node_marks.extend(junction_mark(at, metrics=metrics,
+                                                correlation_key=occurrence_ref.key)
+                                  for at in (origin, end))
+        contact_rows = [(pin, anchor, "left" if pin.startswith("head.") or pin == "terminal_1" else "right")
+                        for pin, anchor in anchors.items()]
+        contact_rows = [(pin, anchor, ("right", "top", "left", "bottom")[(
+            ("right", "top", "left", "bottom").index(side) + orientation // 90) % 4])
+                        for pin, anchor, side in contact_rows]
+        refs = [(DiagramRef._create(occurrence_ref.preparation_sha256,
+            json.dumps({"kind": "contact", "path": list(path), "contact_kind": "pin", "id": pin},
+                       sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+            "contact", occurrence_ref.scope_path), anchor, side)
+                for pin, anchor, side in contact_rows]
+    elif occurrence_ref.kind == "port":
+        row = next(row for row in point.snapshot.semantic_record["connectivity"]["ports"]
+                   if row["id"] == source["id"])
+        identity = row
+        port = port_block(port_id=row["id"], role=row["role"],
+            reference_impedance=format_envelope(row["reference_impedance"]),
+            boundary_anchor=origin, side=direction,
+            load_side=("bottom", "right", "top", "left")[orientation // 90], metrics=metrics,
+            correlation_key=occurrence_ref.key)
+        ports.append(port)
+        # The Port primitive owns this three-ray electrical T. Its filled dot
+        # travels with the body, rather than requiring an authored hidden node.
+        node_marks.append(junction_mark(port.circuit_anchor,metrics=metrics))
+        refs = [(occurrence_ref, port.external_anchor,
+                 ("left", "bottom", "right", "top")[orientation // 90])]
+    elif occurrence_ref.kind == "ground":
+        # Rotation selects a ground glyph extending along its declared side.
+        guides.append(ground_mark(origin, side=direction, metrics=metrics, correlation_key=occurrence_ref.key))
+        refs = [(occurrence_ref, origin, ("left", "bottom", "right", "top")[orientation // 90])]
+    else:
+        raise ValueError("native measurement requires occurrence, port, or ground ref")
+    scene = fragment_scene(symbols=symbols, boxes=boxes, ports=ports,
+                           guides=guides, conductive=wires, node_marks=node_marks)
+    obstacles, access = measured_obstacles(scene, owner=occurrence_ref,
+        scope=occurrence_ref.scope_path, contacts=refs, metrics=metrics)
+    contacts = {ref: {"point": anchor, "side": side, "source": ref.key}
+                for ref, anchor, side in refs}
+    bodies = tuple(row.bounds for row in obstacles if row.kind != "text")
+    texts = {key: run.bounds for key, run in fragment_text(scene).items()}
+    return MeasuredFragment(occurrence_ref, identity, orientation,
+        _bounds(*bodies), scene.bounds, texts, contacts, obstacles, access, markers, scene)
+
+
+def measured_obstacles(scene, *, owner, scope, contacts, metrics):
+    """Inventory actual ink and only its declared incident terminal sources."""
+    from .composition_obstacles import OwnedObstacle, terminal_access
+
+    rows, incident = [], {ref: [] for ref, _, _ in contacts}
+
+    def add(key, bounds, kind, endpoints=()):
+        source = (owner.key, *key)
+        rows.append(OwnedObstacle((owner.key,), scope, kind, source, bounds))
+        for ref, anchor, _ in contacts:
+            if anchor in endpoints:
+                incident[ref].append((source, bounds))
+
+    for index, symbol in enumerate(scene.symbols):
+        add(("symbols", index, "body"), symbol.symbol_bounds, "symbol_body",
+            tuple(anchor for _, anchor in symbol.anchors))
+        if symbol.reference_polarity is not None:
+            add(("symbols", index, "polarity"), symbol.reference_polarity.bounds, "glyph")
+    for index, box in enumerate(scene.boxes):
+        add(("boxes", index, "outline"), box.outline.bounds, "box_body")
+        for item, stroke in enumerate(box.paths):
+            add(("boxes", index, "paths", item), stroke.bounds, "conductive",
+                (stroke.points[0], stroke.points[-1]))
+    for index, port in enumerate(scene.ports):
+        add(("ports", index, "circle"), port.circle.bounds, "port_body")
+        add(("ports", index, "load"), port.reference_load.symbol_bounds, "symbol_body")
+        for item, stroke in enumerate(port.paths):
+            add(("ports", index, "paths", item), stroke.bounds, "conductive",
+                (stroke.points[0], stroke.points[-1]))
+        for item, stroke in enumerate(port.ground_glyph):
+            add(("ports", index, "ground", item), stroke.bounds, "glyph")
+    for index, guide in enumerate(scene.guides):
+        # A Ground's bars share its declared contact access: their clearance
+        # envelopes can reach the lawful approach ray without touching ink.
+        # The access consumer still clips permission to that terminal ray.
+        ground_terminals = guide.terminals if owner.kind == "ground" and guide.kind == "ground" else ()
+        for item, stroke in enumerate(guide.paths):
+            add(("guides", index, "paths", item), stroke.bounds, "glyph",
+                (stroke.points[0], stroke.points[-1], *ground_terminals))
+    for index, wire in enumerate(scene.conductive):
+        add(("conductive", index), wire.bounds, "conductive", (wire.points[0], wire.points[-1]))
+    for index, mark in enumerate(scene.node_marks):
+        for item, stroke in enumerate(mark.paths):
+            add(("node_marks", index, "paths", item), stroke.bounds, "conductive")
+    for key, run in fragment_text(scene).items():
+        add(key, run.bounds, "text")
+    access = []
+    for ref, anchor, side in contacts:
+        physical = incident[ref]
+        body = _bounds(*(bounds for _, bounds in physical)) if physical else Bounds.around((anchor,))
+        access.append(terminal_access(owner=(owner.key,), source=(ref.key,), side=side,
+            point=anchor, body_bounds=body, obstacle_sources=tuple(key for key, _ in physical),
+            stub=metrics.terminal_stub, clearance=metrics.obstacle_clearance))
+    return tuple(rows), tuple(access)

@@ -12,6 +12,7 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
+from types import MappingProxyType
 import numpy as np
 from .. import units
 from ..canonical import (
@@ -28,10 +29,15 @@ from ..specs import (
     DiagonalRootSpec,
     OperatorElementRootSpec,
     DirectSolveSpec,
-    HBSolveSpec,
     HybridizedPoleSpec,
     OperatorSpec,
+    StaticCapacitanceSpec,
+    StaticCapacitanceElementSpec,
     OptimizationSpec,
+    CMAESSpec,
+    LBFGSBSpec,
+    ProjectedLBFGSSpec,
+    HybridSpec,
     QuantityAbsolute,
     QuantityDifference,
     QuantitySelector,
@@ -138,11 +144,60 @@ class BoundOptimization:
 
 
 @dataclass(frozen=True, slots=True)
+class SelectorBinding:
+    """Detached public-alias ownership for readonly materialized selection.
+
+    The integer owner identity and immutable canonical tables mirror the saved
+    decoder boundary. No Plan, Run, reader, numerical program or closure is
+    retained; scalar selector encoding remains the existing pure authority.
+    """
+
+    plan_owner_id: int
+    coordinate_lookup: Mapping[str, str | None]
+    view_bytes: bytes
+    derived_coordinates: frozenset[str]
+
+    def coordinate_id(self, value) -> str:
+        if isinstance(value, str) and value in self.derived_coordinates:
+            return value
+        if isinstance(value, ElectricNodeRef) and id(value.plan) != self.plan_owner_id:
+            raise ValueError("coordinate belongs to another Plan")
+        if isinstance(value, CoordinateRef) and id(value.scope.root) != self.plan_owner_id:
+            raise ValueError("coordinate belongs to another Plan")
+        key = _coordinate_binding_key(value)[1]
+        resolved = self.coordinate_lookup.get(key)
+        if resolved is None:
+            raise ValueError("coordinate is not a public alias in this Plan")
+        return resolved
+
+    def encode_selector(self, selector) -> bytes:
+        if not isinstance(selector, QuantitySelector):
+            raise TypeError("quantity must be a QuantitySelector")
+        return canonical_json_bytes(_encode_scalar_expression(
+            selector,
+            coordinate_bindings={_coordinate_binding_key(coordinate): self.coordinate_id(coordinate)
+                                 for coordinate in _quantity_coordinates(selector.spec)},
+        ))
+
+
+def capture_selector_binding(*, plan_owner_id: int,
+                             coordinate_lookup: Mapping[str, str | None],
+                             view: Mapping[str, object]) -> SelectorBinding:
+    """Detach the same captured alias table and exact prepared View namespace."""
+    derived = frozenset(coordinate for transform in view.get("transforms", ())
+                        for coordinate in transform.get("output_coordinates", ())
+                        if isinstance(coordinate, str))
+    return SelectorBinding(plan_owner_id, MappingProxyType(dict(coordinate_lookup)),
+                           canonical_json_bytes(view), derived)
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedAnalysis:
     """Final immutable request declaration with non-executable source evidence."""
 
     request_bytes: bytes
     source_unit_bytes: tuple[bytes, ...]
+    parameter_authorization_bytes: tuple[bytes, ...] = ()
 
     @classmethod
     def create(
@@ -155,17 +210,26 @@ class PreparedAnalysis:
         parameter_source: Mapping[str, object],
         runtime_semantic: Mapping[str, object],
         source_units: Sequence[Mapping[str, object]],
+        parameter_authorizations: Sequence[Mapping[str, object]] = (),
     ) -> PreparedAnalysis:
         if runtime_semantic.get("backend") == "jax" and operation == "optimize_direct":
             # Backend identity and transform naming share one canonical owner;
             # the existing host mapping math is unchanged.
-            optimizer = dict(spec["optimizer"])
-            optimizer["box_transform_id"] = (
-                "scnsim-python-cmaes-0.13.1-native-domains.v1"
-                if optimizer["box_transform_id"].endswith("native-domains.v1")
-                else "scnsim-python-cmaes-0.13.1-linquad-unit-box.v1"
-            )
-            spec = {**spec, "optimizer": optimizer}
+            def jax_controls(record):
+                optimizer = dict(record)
+                if optimizer["type"] == "cma_es":
+                    optimizer["box_transform_id"] = (
+                        "scnsim-python-cmaes-0.13.1-native-domains.v1"
+                        if optimizer["box_transform_id"].endswith("native-domains.v1")
+                        else "scnsim-python-cmaes-0.13.1-linquad-unit-box.v1"
+                    )
+                elif optimizer["type"] == "hybrid":
+                    optimizer["stages"] = [
+                        {**stage, "optimizer": jax_controls(stage["optimizer"])}
+                        for stage in optimizer["stages"]
+                    ]
+                return optimizer
+            spec = {**spec, "optimizer": jax_controls(spec["optimizer"])}
         request = canonical_request_document(
             plan_sha256=plan_sha256,
             operation=operation,
@@ -179,10 +243,28 @@ class PreparedAnalysis:
             source_unit_bytes=tuple(
                 canonical_json_bytes(record) for record in source_units
             ),
+            parameter_authorization_bytes=tuple(canonical_json_bytes(ref)
+                                                for ref in parameter_authorizations),
         )
 
     def request(self) -> dict[str, object]:
         return json.loads(self.request_bytes)
+
+    def effective_point(self) -> dict[str, object]:
+        """Detach the encoded single effective point without resolving it again.
+
+        Optimization/single-point consumers borrow this canonical declaration;
+        grids and point sequences remain the ordinary source-expansion owner's
+        responsibility, not an implicit baseline or first-point selection.
+        """
+        source = self.request()['parameter_source']
+        if source['kind'] != 'point':
+            raise TypeError('effective_point requires a single-point parameter source')
+        return source['parameters']
+
+    def parameter_authorizations(self) -> tuple[dict[str, object], ...]:
+        """Actual caller authorization before optimization's baseline union."""
+        return tuple(json.loads(ref) for ref in self.parameter_authorization_bytes)
 
     def source_units(self) -> tuple[dict[str, object], ...]:
         return tuple(json.loads(record) for record in self.source_unit_bytes)
@@ -229,6 +311,10 @@ def _quantity_coordinates(
         )
     if isinstance(spec, ResponseElementSpec):
         return spec.input_coordinate, spec.output_coordinate
+    if isinstance(spec, StaticCapacitanceElementSpec):
+        return spec.row, spec.column
+    if isinstance(spec, StaticCapacitanceSpec):
+        return ()
     if isinstance(spec, OperatorSpec):
         return ()
     raise TypeError("unsupported Direct quantity Spec")
@@ -272,6 +358,26 @@ def _frequency_anchor_envelope(value: object) -> dict[str, str]:
     return encoder(value, si_unit="hertz", registry=units.registry)
 
 
+def _encoded_root_search(spec) -> dict[str, object]:
+    search = spec.search
+    if search is None:
+        return {}
+    region = ({"real_frequency_interval": [quantity_envelope(value, si_unit="hertz", registry=units.registry)
+                                           for value in search.real_frequency_interval]}
+              if search.hint_frequency_factor is None else
+              {"hint_frequency_factor_f64": float64_hex(search.hint_frequency_factor)})
+    if search.imag_frequency_interval is not None:
+        region["imag_frequency_interval"] = [quantity_envelope(value, si_unit="hertz", registry=units.registry)
+                                             for value in search.imag_frequency_interval]
+    record = {"method": search.method, "region": region,
+              "selection": {"kind": "nearest_hint", "metric": "complex_frequency_euclidean", "tie": search.tie},
+              "tracking": {"kind": "baseline_anchor"}}
+    if search.method == "finite_seeds":
+        record["seeds"] = [complex_quantity_envelope(value, si_unit="hertz", registry=units.registry)
+                           for value in search.seeds]
+    return {"search": record}
+
+
 def _encode_root(
     spec: DiagonalRootSpec,
     *,
@@ -280,9 +386,8 @@ def _encode_root(
     return {
         "type": "diagonal_root",
         "coordinate": _bound_coordinate_id(spec.coordinate, coordinate_bindings),
-        "root_hint": quantity_envelope(
-            spec.root_hint, si_unit="hertz", registry=units.registry
-        ),
+        "root_hint": _frequency_anchor_envelope(spec.root_hint),
+        **_encoded_root_search(spec),
     }
 
 
@@ -296,6 +401,7 @@ def _encode_element_root(
         "row": _bound_coordinate_id(spec.row, coordinate_bindings),
         "column": _bound_coordinate_id(spec.column, coordinate_bindings),
         "root_hint": quantity_envelope(spec.root_hint, si_unit="hertz", registry=units.registry),
+        **_encoded_root_search(spec),
     }
 
 
@@ -353,7 +459,9 @@ def _encode_direct_quantity(
     | TransferZeroSpec
     | ResidueNormalizedCouplingSpec
     | ResponseElementSpec
-    | OperatorSpec,
+    | OperatorSpec
+    | StaticCapacitanceSpec
+    | StaticCapacitanceElementSpec,
     *,
     coordinate_bindings: Mapping[tuple[str, str], str],
 ) -> dict[str, object]:
@@ -369,6 +477,7 @@ def _encode_direct_quantity(
                 for value in spec.coordinates
             ],
             "anchor": _frequency_anchor_envelope(spec.anchor),
+            **_encoded_root_search(spec),
         }
     if isinstance(spec, TransferZeroSpec):
         return {
@@ -381,6 +490,7 @@ def _encode_direct_quantity(
             "output_coordinate": _bound_coordinate_id(
                 spec.output_coordinate, coordinate_bindings
             ),
+            **_encoded_root_search(spec),
         }
     if isinstance(spec, ResidueNormalizedCouplingSpec):
         return {
@@ -413,120 +523,23 @@ def _encode_direct_quantity(
                 spec.frequency, si_unit="hertz", registry=units.registry
             ),
         }
+    if isinstance(spec, (StaticCapacitanceSpec, StaticCapacitanceElementSpec)):
+        record = {"type": "static_capacitance"}
+        if isinstance(spec, StaticCapacitanceElementSpec):
+            record.update(type="static_capacitance_element",
+                          row=_bound_coordinate_id(spec.row, coordinate_bindings),
+                          column=_bound_coordinate_id(spec.column, coordinate_bindings))
+        return record
     if isinstance(spec, OperatorSpec):
         return {"type": "operator", "frequencies": _frequency_grid(spec.frequencies)}
     raise TypeError("unsupported Direct quantity Spec")
 
 
-def _encode_spec(
-    spec: DirectSolveSpec
-    | HBSolveSpec
-    | DiagonalRootSpec
-    | OperatorElementRootSpec
-    | HybridizedPoleSpec
-    | TransferZeroSpec
-    | ResidueNormalizedCouplingSpec
-    | ResponseElementSpec
-    | OperatorSpec
-    | OptimizationSpec,
-    parameters: ParameterSet,
-    *,
-    coordinate_bindings: Mapping[tuple[str, str], str],
-    trace_channels: Mapping[str, str],
-    optimization_quantities: Sequence[Mapping[str, object]] | None = None,
-) -> dict[str, object]:
-    def trace_record(trace: SParameterTrace) -> dict[str, object]:
-        record = dict(trace._canonical_record())
-        try:
-            record["input_port"] = trace_channels[trace.input_port]
-            record["output_port"] = trace_channels[trace.output_port]
-        except KeyError as error:
-            raise CompilerInvariantError(
-                "prepared trace-channel binding is incomplete",
-                stage="request_encode",
-            ) from error
-        return record
-
-    if isinstance(spec, DirectSolveSpec):
-        return {
-            "type": "direct_solve",
-            "frequencies": _frequency_grid(spec.frequencies),
-            "traces": [trace_record(trace) for trace in spec.traces],
-        }
-    if isinstance(spec, HBSolveSpec):
-        return {
-            "type": "hb_solve",
-            "pump_axes": [
-                {
-                    "id": axis.id,
-                    "frequency": quantity_envelope(
-                        axis.frequency, si_unit="hertz", registry=units.registry
-                    ),
-                }
-                for axis in spec.pump_axes
-            ],
-            "drives": [
-                {
-                    "id": drive.id,
-                    "port_id": drive.at.id,
-                    "mode": list(drive.mode),
-                    "orientation": "port_node_to_reference",
-                }
-                for drive in spec.drives
-            ],
-            "frequencies": _frequency_grid(spec.frequencies),
-            "cases": [
-                {
-                    "id": case.id,
-                    "currents": [
-                        {
-                            "drive_id": drive.id,
-                            "coefficient": complex_quantity_envelope(
-                                case.currents[drive],
-                                si_unit="ampere",
-                                registry=units.registry,
-                            ),
-                            "coefficient_convention": "exp_minus_i_m_dot_omega_t_fourier_coefficient",
-                        }
-                        for drive in spec.drives
-                        if drive in case.currents
-                    ],
-                }
-                for case in spec.cases
-            ],
-            "truncation": {
-                "pump_harmonics": list(spec.truncation.pump_harmonics),
-                "modulation_harmonics": list(spec.truncation.modulation_harmonics),
-                "max_intermodulation_order": spec.truncation.max_intermodulation_order,
-                "three_wave_mixing": spec.truncation.three_wave_mixing,
-                "four_wave_mixing": spec.truncation.four_wave_mixing,
-            },
-            "traces": [trace_record(trace) for trace in spec.traces],
-            "allow_driven_ptc": spec.allow_driven_ptc,
-        }
-    if isinstance(
-        spec,
-        (
-            DiagonalRootSpec,
-            OperatorElementRootSpec,
-            HybridizedPoleSpec,
-            TransferZeroSpec,
-            ResidueNormalizedCouplingSpec,
-            ResponseElementSpec,
-            OperatorSpec,
-        ),
-    ):
-        return _encode_direct_quantity(spec, coordinate_bindings=coordinate_bindings)
-    if optimization_quantities is None or len(optimization_quantities) != len(
-        spec.objectives
-    ):
-        raise CompilerInvariantError(
-            "optimization quantity normalization is incomplete",
-            stage="request_encode",
-        )
+def _optimization_variables(declared_variables, parameters):
+    """Resolve the existing physical variable/domain declaration at a seed."""
     variables: list[dict[str, object]] = []
     baseline_optimizer_coordinates: list[str] = []
-    for variable in spec.variables:
+    for variable in declared_variables:
         parameter = variable.parameter
         if isinstance(parameter.spec, RLGCParameterSpec):
             raise InvalidOptimizationSpec(
@@ -613,14 +626,133 @@ def _encode_spec(
                 "transform": variable.transform,
             }
         )
-    n = len(variables)
-    population = spec.optimizer.population_size or (4 + math.floor(3 * math.log(n)))
-    generations = (spec.optimizer.max_evaluations - 1) // population
-    if generations < 1:
-        raise ValueError(
-            "CMA-ES budget must fit the baseline and one complete generation"
+    return variables, baseline_optimizer_coordinates
+
+
+def _optimizer_controls(optimizer, declared_variables, parameters, *, discretization, baseline_coordinates):
+    """Encode explicit controller controls; compilation owns realized meshes."""
+    if isinstance(optimizer, CMAESSpec):
+        population = optimizer.population_size or (4 + math.floor(3 * math.log(len(declared_variables))))
+        generations = (optimizer.max_evaluations - 1) // population
+        if generations < 1:
+            raise ValueError("CMA-ES budget must fit the baseline and one complete generation")
+        unused = optimizer.max_evaluations - (1 + generations * population)
+        return {
+            "type": "cma_es", "seed": optimizer.seed,
+            "max_evaluations": optimizer.max_evaluations,
+            "population_size": optimizer.population_size,
+            "resolved_population_size": population,
+            "initial_sigma_f64": float64_hex(optimizer.initial_sigma),
+            "baseline_optimizer_coordinates_f64": baseline_coordinates,
+            "box_transform_id": ("cmaes-jl-0.2.6-native-domains.v1"
+                                 if any(v.domain is not None for v in declared_variables)
+                                 else "cmaes-jl-0.2.6-linquad-unit-box.v1"),
+            "complete_generations": generations, "unused_evaluations": unused,
+            "hidden_stops": "disabled",
+        }
+    if isinstance(optimizer, (LBFGSBSpec, ProjectedLBFGSSpec)):
+        scales = optimizer.coordinate_scales
+        scale_rows = None
+        if scales is not None:
+            declared_keys = {(v.parameter.definitions_id, v.parameter.id) for v in declared_variables}
+            supplied_keys = {(p.definitions_id, p.id) for p in scales}
+            if declared_keys != supplied_keys:
+                raise InvalidOptimizationSpec("coordinate_scales must bind every local optimization variable", stage="request_encode")
+            by_key = {(p.definitions_id, p.id): value for p, value in scales.items()}
+            scale_rows = [{"parameter": v.parameter._key_record(),
+                           "value": quantity_envelope(by_key[(v.parameter.definitions_id, v.parameter.id)],
+                                                      si_unit=v.parameter.spec.si_unit,
+                                                      registry=units.registry)}
+                          for v in declared_variables]
+        return {"type": "projected_lbfgs" if isinstance(optimizer, ProjectedLBFGSSpec) else "lbfgsb",
+                "max_evaluations": optimizer.max_evaluations,
+                "max_iterations": optimizer.max_iterations,
+                "ftol_f64": float64_hex(optimizer.ftol), "gtol_f64": float64_hex(optimizer.gtol),
+                "max_line_search": optimizer.max_line_search,
+                "commit_every_iterations": optimizer.commit_every_iterations,
+                "coordinate_scales": scale_rows}
+    if isinstance(optimizer, HybridSpec):
+        stages = []
+        for ordinal, stage in enumerate(optimizer.stages):
+            seed_values = dict(parameters.values)
+            if stage.seed is not None:
+                captured = {(p.definitions_id, p.id): p for p in seed_values}
+                for parameter, value in stage.seed.values.items():
+                    seed_values[captured[(parameter.definitions_id, parameter.id)]] = value
+            seed = ParameterSet(seed_values, allow_extrapolation=parameters.allow_extrapolation)
+            _, stage_coordinates = _optimization_variables(declared_variables, seed)
+            if ordinal > 0 and stage.seed is None:
+                stage_coordinates = None  # Actual selected point is sealed at transition.
+            mesh = stage.discretization if stage.discretization is not None else discretization
+            stages.append({"id": stage.id,
+                           "optimizer": _optimizer_controls(stage.optimizer, declared_variables, seed, discretization=mesh, baseline_coordinates=stage_coordinates),
+                           "discretization": None if mesh is None else mesh._canonical_record(),
+                           "seed": None if stage.seed is None else seed._record()})
+        return {"type": "hybrid", "stages": stages,
+                "comparison_stage_id": optimizer.comparison_stage_id}
+    raise TypeError("optimizer must be CMAESSpec, LBFGSBSpec, ProjectedLBFGSSpec or HybridSpec")
+
+
+def _encode_spec(
+    spec: DirectSolveSpec
+
+    | DiagonalRootSpec
+    | OperatorElementRootSpec
+    | HybridizedPoleSpec
+    | TransferZeroSpec
+    | ResidueNormalizedCouplingSpec
+    | ResponseElementSpec
+    | OperatorSpec
+    | StaticCapacitanceSpec
+    | StaticCapacitanceElementSpec
+    | OptimizationSpec,
+    parameters: ParameterSet,
+    *,
+    coordinate_bindings: Mapping[tuple[str, str], str],
+    trace_channels: Mapping[str, str],
+    optimization_quantities: Sequence[Mapping[str, object]] | None = None,
+) -> dict[str, object]:
+    def trace_record(trace: SParameterTrace) -> dict[str, object]:
+        record = dict(trace._canonical_record())
+        try:
+            record["input_port"] = trace_channels[trace.input_port]
+            record["output_port"] = trace_channels[trace.output_port]
+        except KeyError as error:
+            raise CompilerInvariantError(
+                "prepared trace-channel binding is incomplete",
+                stage="request_encode",
+            ) from error
+        return record
+
+    if isinstance(spec, DirectSolveSpec):
+        return {
+            "type": "direct_solve",
+            "frequencies": _frequency_grid(spec.frequencies),
+            "traces": [trace_record(trace) for trace in spec.traces],
+        }
+    if isinstance(
+        spec,
+        (
+            DiagonalRootSpec,
+            OperatorElementRootSpec,
+            HybridizedPoleSpec,
+            TransferZeroSpec,
+            ResidueNormalizedCouplingSpec,
+            ResponseElementSpec,
+            OperatorSpec,
+            StaticCapacitanceSpec,
+            StaticCapacitanceElementSpec,
+        ),
+    ):
+        return _encode_direct_quantity(spec, coordinate_bindings=coordinate_bindings)
+    if optimization_quantities is None or len(optimization_quantities) != len(
+        spec.objectives
+    ):
+        raise CompilerInvariantError(
+            "optimization quantity normalization is incomplete",
+            stage="request_encode",
         )
-    unused = spec.optimizer.max_evaluations - (1 + generations * population)
+    variables, baseline_optimizer_coordinates = _optimization_variables(spec.variables, parameters)
     objectives: list[dict[str, object]] = []
     for objective, quantity in zip(spec.objectives, optimization_quantities):
         objective_unit = _expression_unit(objective.quantity)
@@ -672,20 +804,10 @@ def _encode_spec(
         "type": "optimization",
         "variables": variables,
         "objectives": objectives,
-        "optimizer": {
-            "type": "cma_es",
-            "seed": spec.optimizer.seed,
-            "max_evaluations": spec.optimizer.max_evaluations,
-            "population_size": spec.optimizer.population_size,
-            "resolved_population_size": population,
-            "initial_sigma_f64": float64_hex(spec.optimizer.initial_sigma),
-            "baseline_optimizer_coordinates_f64": baseline_optimizer_coordinates,
-            "box_transform_id": ("cmaes-jl-0.2.6-native-domains.v1" if any(v.domain is not None for v in spec.variables)
-                                 else "cmaes-jl-0.2.6-linquad-unit-box.v1"),
-            "complete_generations": generations,
-            "unused_evaluations": unused,
-            "hidden_stops": "disabled",
-        },
+        "optimizer": _optimizer_controls(spec.optimizer, spec.variables, parameters,
+                                          discretization=spec.discretization, baseline_coordinates=baseline_optimizer_coordinates),
+        **({"discretization": None if spec.discretization is None else spec.discretization._canonical_record()}
+           if spec.discretization is not None or not isinstance(spec.optimizer, CMAESSpec) else {}),
         "allow_extrapolation": [
             parameter._key_record() for parameter in spec.allow_extrapolation
         ],

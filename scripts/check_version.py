@@ -8,10 +8,10 @@ from pathlib import Path
 
 VERSION_PATTERN = re.compile(
     r"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
-    r"(?:(?P<dev>\.dev\d+)|(?P<alpha>a\d+)|(?P<rc>rc\d+))?$"
+    r"(?:(?P<dev>\.dev\d+)|(?P<alpha>a\d+)|(?P<beta>b\d+)|(?P<rc>rc\d+))?$"
 )
 
-RESEARCH_MAIN_VERSION = "1.0.0a2"
+APPROVED_MAIN_PRERELEASES = frozenset({"1.0.0a2", "1.0.0a3"})
 
 
 def _quoted_value(section: str, key: str) -> str:
@@ -44,19 +44,21 @@ def version_kind(version: str) -> str:
         return "development"
     if match.group("alpha"):
         return "alpha"
+    if match.group("beta"):
+        return "beta"
     if match.group("rc"):
         return "release-candidate"
     return "stable"
 
 
 def validate_line(version: str, line: str) -> None:
-    """Validate a repository line, including the exact Alpha research exception."""
+    """Validate a repository line, allowing only approved main prereleases."""
 
     kind = version_kind(version)
     if line == "develop" and kind == "stable":
-        raise ValueError("develop must use a development, alpha, or release-candidate version")
-    if line == "main" and kind != "stable" and version != RESEARCH_MAIN_VERSION:
-        raise ValueError("main must use a stable version")
+        raise ValueError("develop must use a development, alpha, beta, or release-candidate version")
+    if line == "main" and kind != "stable" and version not in APPROVED_MAIN_PRERELEASES:
+        raise ValueError("main must use a stable version or an explicitly approved prerelease")
 
 
 def repository_version(root: Path) -> str:

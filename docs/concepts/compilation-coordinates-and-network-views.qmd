@@ -13,6 +13,9 @@ the Parameter System Contract. Exact transforms, capabilities, and failures
 belong to the linked Runtime Contract.
 :::
 
+Read [Simulation conventions](simulation-conventions.qmd) for phasor signs,
+Port current direction, matrix axes, wave references, and load boundaries.
+
 ## One circuit can support several questions
 
 Consider a floating circuit with physical terminals `floating_plus` and
@@ -67,7 +70,33 @@ reduction. A later pipeline can derive another immutable Ref:
    physical plus/minus terminals to common/differential coordinates.
 3. `retain()` selects the boundary kept for a particular calculation.
 
-The order matters and remains visible in the Ref lineage. Direct and HB must
+The View chooses the retained coordinate boundary; the Spec chooses the
+physical equation evaluated on that View. The static-C mapping below is the
+CONVERGING dev36 extension; it does not change the existing dynamic equations:
+
+| Declaration | Owns | Static-capacitance behavior |
+|---|---|---|
+| `ReductionPipeline().retain(...)`, applied with `run.original.reduce(...)` | Ordered retained coordinates and their complement | Selects the retained matrix axes. The finite complement, including internal finite-pi nodes, receives the static zero-charge reduction. |
+| `StaticCapacitanceSpec()` | Static-capacitance equation and output selector | Evaluates the full transformed finite C when the View has no retain, or C on the retained View. It has no `zero_charge` input. |
+| PTC in a View lineage | Existing port-load compensation selection | A valid PTC lineage remains usable. Its resistive/reference load mask does not change C or transform weights, and static C does not apply RF port eligibility or normalization. |
+
+For static C, `retain()` induces the C-only boundary $q_e=0$. Existing dynamic
+Direct response, operator, root, and residue-coupling equations continue to
+use their full dynamic Schur behavior on the same retained View. See the
+[static-capacitance contract](../contracts/static-capacitance.qmd) and
+[guide](../guides/static-capacitance.qmd) for the static equation and API.
+
+To retain coordinates, declare `ReductionPipeline().retain(coordinate_a,
+coordinate_b)` and apply it with `run.original.reduce(...)`. These are existing
+public coordinate handles of the same captured Plan; the order declares the
+retained axes. A public Pin, Port name and coordinate are not interchangeable.
+Retaining a coordinate neither adds a logical Port nor changes the Plan's
+connections. Full finite static-matrix axis IDs may select static entries, but
+do not become new public retain handles. See the
+[assembly boundary](../contracts/circuit-plan-assembly.qmd#public-boundaries)
+for deliberate coordinate exposure.
+
+The order matters and remains visible in the Ref lineage. Direct must
 either realize that same final View faithfully or fail closed.
 
 Engineer [Chapter 3](../../examples/engineer/chapter-03/01-build.qmd) first
@@ -91,7 +120,7 @@ ordered collection of points. Every point reassembles parameter-dependent
 native values, transforms, matrices, and reductions; the Plan topology and the
 View lineage do not become mutable batch state.
 
-Frequency grids, matrix indices, HB cases, and modes remain Result dimensions,
+Frequency grids and matrix indices remain Result dimensions,
 not parameter axes. A scalar sweep at a fixed transmission-line RLGC value may
 track an accepted root branch. This target does not track that same root across
 changing complete RLGC matrices; an unsupported request fails rather than
@@ -99,8 +128,9 @@ substituting independent root selection.
 
 ## The diagram remains a Plan projection
 
-Automatic Semantic Circuit Diagram Layout System (ASCDLS) diagrams explain the
-authored Plan or its deterministic compiler expansion. A parameterized diagram
+Caller-declared circuit diagrams explain the authored Plan. Deterministic
+compiler expansion belongs to numerical inspection, not a current automatic
+diagram producer. A parameterized diagram
 may project one explicit `ParameterSet`, but it does not render a selected
 `NetworkViewRef`, PTC-effective topology, solver state, sweep, or Result.
 Rendering cannot create or mutate a View.
@@ -131,5 +161,5 @@ port lists.
 - [Selective Port-Termination Compensation](../v1-runtime-contract.qmd#selective-port-termination-compensation-ptc-is-a-shared-topology-step)
 - [Automatic paired-node coordinates](../v1-runtime-contract.qmd#automatic-paired-node-coordinates-are-a-shared-view-step)
 - [Retain an arbitrary node-coordinate view](../v1-runtime-contract.qmd#retain-an-arbitrary-node-coordinate-view)
-- [Authoring and compiled schematics](../v1-runtime-contract.qmd#authoring-and-compiled-schematics)
+- [Caller-declared schematics](../v1-runtime-contract.qmd#authoring-and-compiled-schematics)
 - [Parameter System contract](../contracts/parameter-system.qmd)

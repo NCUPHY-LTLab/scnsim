@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 調整實體參數"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+既有目標函數、界限、固定種子與預算、回傳候選解及獨立讀回流程，請參閱[第 2 章 — 最佳化](../engineer/chapter-02/03-optimize.qmd)。最佳化器的精確綁定方式以英文[參數系統契約](/en/docs/contracts/parameter-system.html)為準。
+
+本簡短頁面保留舊網址。已取代的可執行內容、Notebook 與候選解圖可在 Git 歷史中找到。

@@ -673,7 +673,7 @@ need not preserve Plan or semantic identities. The batch or tuple order of
 `ground_pins()` does not change physical ground membership or diagram digests.
 
 Numerical and diagram lowering consume that one snapshot. Pure
-`SchematicComposition`, `SchematicLayout`, Theme, and final geometry remain
+`SchematicLayout`, its readonly preparation refs, Theme, and final geometry remain
 outside Plan/request identity. By contrast, declared ownership, order, branch roles, and exposures
 are semantic structure. Rewriting a flat circuit into a hierarchy may preserve
 electrical values/connectivity while changing Plan and semantic identities.
@@ -703,7 +703,7 @@ CircuitPlan convenience methods delegate without changing that authority.
 Runtime consumes its frozen snapshot directly. Diagram imports and public
 reexports are lazy without changing public names. A diagram request, layout,
 or failure never changes a Plan, numerical request, or parameter definition.
-Compiled diagrams are one-way evidence consumers, not numerical prerequisites.
+Manual diagrams are one-way Plan projections, not numerical prerequisites. Retired compiled diagram producers do not remove mathematical compiler consumers or historical evidence.
 
 The [Parameter System](parameter-system.qmd) owns definition/value semantics;
 the [Runtime contract](../v1-runtime-contract.qmd) owns Calculation and Result

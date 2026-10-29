@@ -4,24 +4,95 @@ subtitle: "How does each typed Direct quantity bind one selected network and clo
 toc-depth: 3
 ---
 
-**Status:** the first-complete-certificate TransferZero stopping behavior is
+**Status:** the TransferZero final-refinement behavior is
 `CONVERGING`; other existing pole, coupling, and operator meanings remain
 `STABILIZED`. Selected-View element roots are `CONVERGING` and specified in
 the [root procedure](diagonal-root-numerical-procedure.qmd).
 
+The current JAX route supplies `OperatorElementRootSpec`, `HybridizedPoleSpec`,
+S/Y/Z `TransferZeroSpec`, `ResidueNormalizedCouplingSpec` and `OperatorSpec` to
+public `evaluate`, declared parameter sweeps and scalar Optimization selectors.
+Operators remain matrix outputs, not scalar objectives. Functionality and
+performance conclusions remain bound to exact installed-source observations,
+not an implied full Example regression or Human acceptance. HB is outside 1.0.
+For the reader-facing distinction between Hint, a plotted notch, explicit
+search and a tracked branch, start with the
+[root and branch-selection guide](../guides/roots-and-branch-selection.qmd).
+
 This page realizes the previously accepted Direct quantity catalog. It does not change
 the definitions in the
 [Runtime Contract](../v1-runtime-contract.qmd#typed-direct-quantity-catalog),
-and it does not infer a pole or zero from a sampled response. The fixed
+and it does not infer a pole or zero from a sampled response. The existing
 machine-resolution policy is the Human-approved Runtime Contract value
 
 $$
 \tau(q)=256(q+1)\epsilon_{\mathrm{Float64}}.
 $$
 
-Every square solve uses the normalized backward residual and exact `0/0`
-convention already specified for Direct S/Y/Z. This page introduces no second
-tolerance, conditioning threshold, root window, or public numerical control.
+The displayed Float64 convention uses binary64 epsilon. The prescribed JAX
+procedures use the selected real arithmetic dtype:
+Float32/Complex64 or Float64/Complex128, including epsilon, analytic Newton
+updates, reductions, correction, bitwise stagnation and certificate arithmetic.
+Host coherent-SI declarations and CMA/RNG state remain binary64; widening a
+stored presentation scalar does not change the recorded kernel precision.
+Certified root, slope and null-vector bodies retain that dtype through the shared
+record codec and sealed baseline anchors. Residue coupling consumes the two
+already-certified branch outcomes; it does not repeat Newton polishing. Public
+`DirectQuantityResult.evidence` supplements existing scalar fields with ordered
+coordinate/channel bindings, null vectors and branch certificates. Nested Pint
+wrappers are detached on access over immutable arrays and mappings.
+The shared `root_frequency_linewidth` projection derives public frequency and
+linewidth in Hz from the actual certified complex omega; it does not locate
+another root. `DirectQuantityResult.evidence` defaults to an empty mapping. Its
+ordered terminal/element/channel bindings and certificates supplement, rather
+than override, existing scalar fields. Hybridized evidence exposes the actual
+dtype-preserved dimensionless null-vector Quantity. Coupling evidence exposes
+ordered a/b branch bindings and their already-certified roots, slopes, optional
+vectors, residues and certificates. Each read recursively detaches nested Pint
+wrappers over immutable array backing, mappings and tuples.
+
+Candidate terms and coupling branch dependencies refer to canonical numerical
+bodies instead of duplicating their evidence. Ordered occurrences retain their
+own task-local context and reference the supplied body. The current Workspace
+operation store uses revision 8; readonly selected access hydrates exact immutable
+references within a short verified snapshot, without a latest-result selector,
+legacy fallback or numerical recomputation. Memory Results retain detached
+actual bodies without inventing a saved receipt. The decoder projects supplied
+values and evidence; it is not another numerical evaluator.
+
+No new threshold is introduced by this dtype distinction.
+
+Every square solve uses the aggregate ratio-of-maxima backward error
+
+$$
+\eta=\frac{\max_{i,j}|(AX-B)_{ij}|}
+{\max_{i,j}(|A||X|+|B|)_{ij}}.
+$$
+
+The existing $\eta\le\tau(n)$ gate and exact `0/0 = 0` convention stay unchanged.
+This aggregate is not a componentwise Oettli–Prager error.
+
+Internal maintainer `*_with_diagnostics` calls additionally return
+$\max_i |(AX-B)_{ij}|/(|A||X|+|B|)_{ij}$ for each RHS $j$, computed from the
+same postverification arrays without another solve. Zero denominator with
+nonzero residual and nonfinite diagnostic operands produce infinity. These
+transient diagnostics are returned only by maintainer calls. Ordinary
+`CircuitRun` Results and stored certificate fields remain unchanged. For
+compensated solves, the scale uses $|A_{hi}+A_{lo}|$, preserving the represented
+matrix.
+
+`jax_core.residual_with_diagnostics` observes a supplied approximate solution;
+`jax_core.solve_with_diagnostics`, `sparse_solve.host_solve_with_diagnostics`, and
+`sparse_solve.host_pair_solve_with_diagnostics` observe their actual solve.
+Their `SolveWithDiagnostics` return keeps the original `outcome` separate from
+`diagnostics.per_rhs`. An equation that returns before postverification reports
+`performed=False` with an unavailable reason and no numeric diagnostic. These
+internal maintainer calls introduce no automatic differentiation or compiled
+callback capability beyond the original solve routes.
+
+For $A=I$, $B=(1,10^{-20})^T$ and approximate $X=(1,0)^T$, the aggregate is
+$5\times10^{-21}$ while the single-RHS componentwise diagnostic is $1$.
+The diagnostic does not introduce another tolerance or gate.
 
 ## Bind the exact selected operator first
 
@@ -72,12 +143,48 @@ $$
 =Q'_{RR}-Q'_{RE}X-Q_{RE}X'.
 $$
 
-No implementation forms an inverse. Empty $E$ is a no-op. Every nonempty
+Solves do not materialize a global inverse. Empty $E$ is a no-op. The JAX
+compiler, transformed operator and eliminated blocks remain sparse through
+assembly and CPU CSC SuperLU. Dense local conductor, selected Schur, actual
+RHS, numerator/cofactor and requested output blocks are permitted; there is no
+dense global fallback. $D_{\mathrm{circ}}$ here includes any realized series-RL
+section contributions and their analytic derivatives, as in the
+[root procedure](diagonal-root-numerical-procedure.qmd); they are not replaced
+by frequency-independent K/C/G stamps in general. For a realized section resistance exactly $R=0$
+at nonzero $\omega$, the same local contribution reduces to
+$(-i\omega)(R-i\omega L)^{-1}=L^{-1}$. The dev20 CONVERGING candidate
+tests the realized binary64 section resistance after section scaling and
+before the backend dtype cast. It prepares that inverse once in the actual
+selected arithmetic dtype and uses zero frequency derivative, with unchanged ordinary-transpose incidence
+congruence. Width one evaluates the direct reciprocal. Width two evaluates
+entrywise mantissa/exponent products and a shared aligned determinant, then
+forms each adjugate ratio with exponent-aware scaling in the actual dtype.
+This avoids global maximum normalization of the input matrix.
+Both off-diagonal entries use the same determinant; actual input entries are
+not projected or averaged. Wider local blocks retain LU, and existing
+actual-dtype residual/status/tolerance conditions remain unchanged. Nonzero-$R$ sections and the existing zero-frequency path are
+unchanged. No physical quantity, Newton condition or certification threshold
+is replaced by this algebraic evaluation. Every nonempty
 solve must satisfy its backward-residual certificate; failure is
 `EliminatedBlockSolveFailure`. The exact Ref lineage, coordinate maps, PTC
 mask, retained/eliminated order, ParameterSet, $C/G/K$, solve evidence, and
 operator identity are inputs to the quantity dependency node. A cache entry
 with any different input is ineligible.
+
+The dev20 CONVERGING compensation candidate is restricted to retained,
+non-port-realizable Z transfer-zero. Assembly and selected Schur formation
+retain high and low components in the selected base dtype, with one fixed
+low-aware correction using the same high-part factorization. Its
+corrected-equation certificate uses the pair-valued numerical authority;
+F/Fp are formed consistently before projection to declared-dtype Y/Yp.
+The current Z cofactor/denominator calculation consumes that projection,
+without a claim that it retains the expansion. H/Hp are not formed when this
+Z branch does not consume them. Other Quantity scopes are unchanged.
+The effective arithmetic coverage is explicit metadata, not a new precision
+selector or a claim of 128-bit accuracy. The strict TransferZero conditions,
+tau, 0.01 Hz condition and typed failure remain current; no mean return or
+fallback is selected. This candidate is not yet an affected-case success
+claim.
 
 Response quantities use the same physical Ref but a different, deliberate
 boundary. All backend source resistors are first de-embedded. Omitted logical
@@ -97,15 +204,53 @@ $$
 Y'_{\mathrm{circ}}(\omega)=-iC-\frac{i}{\omega^2}K.
 $$
 
-The selected public $Y_{\mathrm{net}}$ follows the exact omitted-load,
-selected-source-boundary, and de-embedding order in the Runtime Contract;
-$Z_{\mathrm{net}}$ and matrix-reference power-wave $S$ are formed from that
-same $Y_{\mathrm{net}}$. An S-family quantity therefore requires a completely
-Port-realizable terminal view and its real-SPD $R_k$. A Y/Z-family quantity may
-use an ordered retained power-conjugate voltage/current coordinate without
-inventing a wave reference. In all families, `input_coordinate` is the matrix
-column and `output_coordinate` is the matrix row. Both must occur exactly once
-in the final selected order.
+The public DUT admittance excludes selected source resistors. With the
+actual transformed logical-Port incidence $B_0$, omitted-load conductance
+$G_o$, and selected map $P$, define
+
+$$
+H=Y_{\mathrm{circ,node}}+B_0G_oB_0^T,\qquad B=B_0P^T.
+$$
+
+The native route solves one checked sparse voltage-constraint system,
+
+$$
+\begin{bmatrix}H&-B\\B^T&0\end{bmatrix}
+\begin{bmatrix}V\\I\end{bmatrix}
+=\begin{bmatrix}0\\\mathbb{1}\end{bmatrix},
+\qquad Y_{\mathrm{net}}=I.
+$$
+
+Here each RHS applies one unit terminal voltage. Actual DUT loss and omitted
+matched loads remain in $H$, including the recorded PTC load mask. The selected
+source shunt $BR_k^{-1}B^T$ is absent. This avoids subtracting a source
+conductance from a nearly equal computed admittance to recover weak DUT loss.
+It also avoids requiring $H$ itself to be invertible. For full-column-rank $B$,
+the constrained system is nonsingular exactly when $N^THN$ is nonsingular,
+where the columns of $N$ span $\ker B^T$; no numerical nullspace is constructed.
+
+$Z_{\mathrm{net}}$ and matrix-reference power-wave $S$ use this same
+$Y_{\mathrm{net}}$. The existing S source-reconciliation solve remains after
+the S solve and includes the real selected source shunt. Operator and pole
+procedures keep their loaded $Q$ boundary; they do not use this source-free
+DUT equation.
+
+Direct matrix S/Y/Z and S-family scalars require a Port-realizable terminal
+View and its real-SPD $R_k$. Scalar Y/Z may instead use ordered retained
+power-conjugate voltage/current coordinates without a wave reference. That
+coordinate route uses the loaded selected Schur operator divided by $-i\omega$;
+Z uses its checked inverse solve. In every family, `input_coordinate` is the
+matrix column and `output_coordinate` is the matrix row. Both must occur
+exactly once in the final selected order.
+
+Parameter derivatives differentiate the same actual $H$ and $B$, including
+transformation, incidence, selection and omitted-load weights. If $U=(V,I)^T$,
+the tangent RHS is $(-dH\,V+dB\,I,-dB^TV)^T$. The analytic frequency jet uses
+$(-H'V,0)^T$ because $B$ is frequency independent. These are checked solves
+with the same constrained coefficient matrix, rather than finite differences.
+The primal certificate role is `dut_voltage_constraint`; its existing generic
+certificate fields record the actual saddle equation. No source-admittance
+certificate is fabricated for a subtraction that is no longer performed.
 
 All declared ordinary frequencies are finite positive frequency Quantities.
 SCNSim converts them once by $\omega=2\pi f$. A real root-like anchor $f_a$
@@ -146,28 +291,17 @@ S is dimensionless, Y is in siemens, and Z is in ohms.
 ### `OperatorSpec`
 
 `OperatorSpec` evaluates the complete $Q_R^{E\downarrow}(\omega)$ at every
-frequency in the same nonempty, finite, positive, strictly increasing,
-duplicate-free grid contract used by Direct. The Result shape is `[F, N, N]`
+frequency in the same nonempty, finite, positive grid contract used by Direct.
+Declared frequency occurrences, including repeats and reverse order, are retained. The Result shape is `[F, N, N]`
 in terminal coordinate order. It includes every uncompensated Port load in
 $M$ and is not the source-resistor-de-embedded public Y matrix. Its canonical
 unit is `siemens / second`, equivalent to inverse henry under this convention.
 
-The `OperatorResult` has exactly two array-catalog entries:
-
-| ID | Path | Datasets | dtype and shape | Axes and unit |
-|---|---|---|---|---|
-| `frequencies` | `artifacts/frequencies.zarr` | `values` | `<f8`, `[F]` | `frequency`; `hertz` |
-| `operator` | `artifacts/operator.zarr` | `real`, `imag` | paired `<f8`, `[F,N,N]` | `frequency`, `row_coordinate`, `column_coordinate`; `siemens / second` |
-
-The external manifests are respectively
-`artifacts/frequencies.manifest.json` and
-`artifacts/operator.manifest.json`. Both are canonical Zarr V2 artifacts under
-the shared no-codec/no-extra-file rules. With $c(F)=\min(F,1024)$, chunks are
-`[c(F)]` and `[c(F),N,N]`: no coordinate matrix at one frequency is split
-between chunks. C order, paired real/imag storage, ordered coordinate IDs, PTC
-load labels, and exact dataset metadata belong to the artifact manifest and
-runtime identity. An operator matrix is inspectable output and cannot itself
-be one scalar objective.
+Operator values retain their actual requested dtype, terminal coordinate order
+and units. Workspace stores them with evidence-v3 binary columns and fixed
+manifest references; Memory retains detached arrays. The public readonly
+same-call evidence is available after close and through saved resolution.
+An operator matrix is inspectable output and cannot itself be one scalar objective.
 
 ## Locate one hybridized pole
 
@@ -175,10 +309,17 @@ Every determinant/cofactor certificate on this page uses one fixed mechanical
 rule. For each row $a$ of its unscaled evidence matrix $A$, let
 $m_a=\max_b|A_{ab}|$ and choose $s_a=1$ when $m_a=0$, otherwise
 $s_a=2^{-\lfloor\log_2m_a\rfloor}$. The diagonal $S=\operatorname{diag}(s_a)$
-is applied to both $A$ and $A'$ for that one value/derivative evaluation. LU
+is applied to both $A$ and $A'$ for that one value/derivative evaluation. The existing Julia determinant implementation
 uses partial row pivoting by largest absolute value in the active column, with
 ties resolved by the smallest current row index, and includes permutation
-parity. Determinant ratios use scaled mantissa/exponent arithmetic so products
+parity. For the dev14 JAX sparse path, the Human-authorized denominator
+amendment uses the actual native SuperLU factor and its row/column permutation
+parity for a nonsingular sparse denominator. Its determinant and analytic
+derivative preserve the stated mathematical identities and coherent scaling;
+replaying Julia pivot choices or its bit patterns is not required. Singular
+local numerator and retained matrices retain analytic cofactor derivatives and
+unscaled SVD/null-vector certificates. This changes the JAX algorithm identity,
+not the stopping conditions or failure ownership. Determinant ratios use scaled mantissa/exponent arithmetic so products
 cannot silently underflow or overflow. This scaling is determinant/cofactor
 evidence only; SVD, null vectors, and residuals always use the unscaled matrix.
 
@@ -212,7 +353,7 @@ $$
 $$
 
 for at most 32 updates. The initial anchor is checked before update one. If a
-proposed update leaves both Float64 real/imaginary bit patterns unchanged, the
+proposed update leaves both selected-dtype real/imaginary bit patterns unchanged, the
 complete certificate is checked immediately; failure is
 `NumericalResolutionUnresolved`. Every finite analytic $h/h'$ pair is checked
 inside the identified algorithm execution but is not persisted as raw
@@ -289,14 +430,11 @@ evaluation at the continued candidate supplies the returned root, slope, and
 null vector together. The public frequency, linewidth, and root evidence use
 that returned root; no second certificate evaluation supplies another field.
 
-The hybridized-pole `DirectQuantityResult` envelope owns one required complex
-artifact: ID `null_vector`,
-path `artifacts/null_vector.zarr`, and manifest
-`artifacts/null_vector.manifest.json`. Its `real`/`imag` datasets are paired
-little-endian Float64 in C order with shape and one complete chunk `[q]`, axis
-the exact retained coordinate sequence $C$, unit `dimensionless`, and the
-canonical phase fixed above. Its required `coordinate_ids` and the inline
-`retained_coordinate` axis contain exactly that same sequence.
+The hybridized-pole Result retains the actual dtype-preserved dimensionless
+null-vector Quantity and exact ordered coordinate bindings in its readonly
+evidence. Workspace serializes those actual values through the v3 storage codec;
+Memory retains their immutable backing. The canonical phase remains the one
+specified above.
 
 This is machine-resolution and local-simple-pole evidence. It is not a
 validated enclosure, a global pole count, or proof that another starting basin
@@ -305,22 +443,44 @@ cannot converge elsewhere.
 ## Locate one transfer zero
 
 `TransferZeroSpec` binds one ordered scalar $T_{ij}$ from the selected S/Y/Z
-family. It solves the analytic equation $T_{ij}(\omega)=0$ with
+family. The dev26 checked local derivative for the Y family records
+`reduced_Y_entry_local_implicit`: it differentiates the selected reduced Y entry
+on the same View, loading, fixed mesh and requested dtype. At its certified
+primal root, $d\omega_*/d\theta=-(\partial_\theta T_{ij})/(\partial_\omega T_{ij})$
+requires a nonzero denominator. The primal Newton procedure and certificates
+remain unchanged. This is a physical local root derivative, not differentiation
+of a finite Newton step, a bitwise algorithm trajectory or a forward-accuracy
+guarantee. Its actual derivative availability remains separately recorded;
+source implementation is not an executed AD observation.
+
+It solves the analytic equation $T_{ij}(\omega)=0$ with
 
 $$
 \omega_{k+1}=\omega_k-
 \frac{T_{ij}(\omega_k)}{T'_{ij}(\omega_k)}
 $$
 
-for at most 32 updates. The anchor candidate is checked before update one;
-the first candidate satisfying the complete certificate is returned, including
-the anchor or the candidate after update 32. A finite, evaluable candidate
-whose residual, slope/rank, or correction does not close may take another
-Newton update; a cheap correction check alone cannot authorize success.
-Bitwise stagnation or update-budget exhaustion checks the complete certificate
-of the current candidate for a typed failure diagnosis. Non-finite quantities,
-invalid scales, failed required solves, and undefined Newton steps remain
-failures rather than recoverable nonclosure. Finite analytic $T/T'$ pairs are
+for at most 32 updates. The anchor candidate is checked before update one.
+The first complete closure establishes an eligible candidate; refinement then
+continues with the same family Newton step until its magnitude is at most
+$\tau(q_N)|\omega|$, or the proposed next iterate has identical real and
+imaginary bits. Here $q_N$ is the existing family numerator order: one for Y,
+$q+1$ for S, and $\max(1,q-1)$ for Z. Z keeps its scaled RF-cofactor Newton
+step; S and Y keep their full family-entry step.
+
+On normal refinement termination, the Result uses the last eligible iterate
+and that iterate's own slope, denominator and certificate. A later finite
+candidate whose closure is false does not replace the eligible packet; it can
+select that prior packet only at the named machine-correction or same-bits
+termination. Before any eligible candidate exists, stagnation and budget
+exhaustion retain the original complete-closure failure diagnosis. After
+eligibility, exhaustion without named refinement termination returns
+`numerical_resolution_unresolved` at `transfer_correction`.
+
+Non-finite quantities, invalid scales, failed required solves and undefined
+Newton steps remain failures. A stored eligible packet never hides a later
+checked equation or native error. The original budget includes refinement;
+no extra updates are granted after update 32. Finite analytic $T/T'$ pairs are
 checked during execution but are not persisted. All Schur and
 family-formation derivatives come from the analytic solve rule
 
@@ -347,15 +507,16 @@ $$
 Let $H(\omega)$ be the complete source-resistor-de-embedded, PTC/transformed
 intrinsic node admittance after omitted matched loads but before the selected
 source boundary. This is the Runtime Contract quantity
-$Y_{\mathrm{circ,node}}+B_pG_{o,p}B_p^T$. The terminal identity
+$Y_{\mathrm{circ,node}}+B_pG_{o,p}B_p^T$. For a coordinate-selection boundary, the terminal identity is
 
 $$
 Y_{\mathrm{net}}=H_{RR}-H_{RE}H_{EE}^{-1}H_{ER}.
 $$
 
-is evaluated through the Runtime Contract's selected-source solve and
-de-embedding chain, with the same certificates; it is not a second boundary
-order.
+The constrained DUT solve evaluates the same boundary without adding and then
+subtracting selected source conductance. General power-conjugate terminal
+maps use the constrained system above; the displayed coordinate Schur formula
+does not assume that an arbitrary incidence map is a coordinate selector.
 
 The zero bundle carries an explicit analytic numerator/denominator identity:
 
@@ -414,23 +575,30 @@ For empty $E$, $\det H_{EE}=1$ and $B_F=B_{H,RR}$.
 For Z the denominator is the product of norms of the complete Y rows retained
 by its numerator minor, before the output column is deleted; the one-port
 empty cofactor retains constant one and zero derivative. Positive scales and
-ratios use binary64 mantissa/power-of-two exponent pairs, so product overflow
+ratios use mantissa/power-of-two exponent pairs in their declared arithmetic
+precision, so product overflow
 or underflow cannot be accepted as a zero certificate.
 Residual `0/0` is zero; nonzero-slope and rank-gap predicates reject a zero
 denominator. `numerator_slope` stores $\widehat N'$ and the coherently scaled
 denominator determinant stores $\widehat\Delta$; both are canonical
 dimensionless complex evidence. The conversion factor cancels in the slope
-ratio. The final correction obeys
+ratio. Every eligible iterate must satisfy
 $|T/T'|/(2\pi)\le 0.01\,\mathrm{Hz}$, using the full complex magnitude.
-基於計算誤差與工程實用性上的考量，我們直白地將 Newton Correction Threshold 設為 0.01 Hz。
+This remains a closure condition. The subsequent refinement uses the existing
+$\tau(q_N)|\omega|$ or same-bits condition above, so 0.01 Hz does not by
+itself stop the iteration.
 
 The denominator operator $A_D$ must remain finite and machine nonsingular: its
 factorization and full `A_D X = I` backward residual must pass at
-$\tau(q_D)$, where $q_D$ is its order. No condition number is computed or
+$\tau(q_D)$, where $q_D$ is its order. JAX may stream the actual identity RHS
+columns through the same sparse factor, but must aggregate the complete
+normalized residual over every column; a subset or per-block ratio is not a
+replacement for that certificate. The streamed solve never materializes a
+global inverse. No condition number is computed or
 published. Let $\widehat A_D$ be its recorded coherent-SI
 equation/unknown-scaled dimensionless form and
-$\widehat\Delta=\det(\widehat A_D)$, reconstructed through the same canonical
-cofactor/scaling rule; empty Y-complement uses $\widehat\Delta=1$. The Result
+$\widehat\Delta=\det(\widehat A_D)$, reconstructed through the corresponding recorded determinant/scaling rule
+(native SuperLU for a nonsingular sparse JAX denominator); empty Y-complement uses $\widehat\Delta=1$. The Result
 stores `denominator` with unit/dimensionality `dimensionless`. A singular or
 non-finite denominator is not a zero. A simultaneously unresolved numerator
 and denominator is a rejected pole-zero cancellation. Unlike a passive pole,
@@ -448,7 +616,7 @@ The anchor again identifies only the baseline Newton basin. The Result never
 substitutes a real-grid minimum, dip, peak, sign crossing, nearest zero, or
 globally unique zero.
 
-The Result stores the first completely certified complex `zero` $\omega_z$ in
+The Result stores the last eligible refined complex `zero` $\omega_z$ in
 `radian / second`, `frequency=\operatorname{Re}(\omega_z)/(2\pi)` in hertz,
 and no linewidth field. Its `numerator_slope` and `denominator` are the
 dimensionless complex evidence defined above.
@@ -540,8 +708,8 @@ Let $q$ be the common retained-space dimension, normalize both finite branch
 vectors to unit 2-norm, and write $V=[v_a\ v_b]$ with singular values
 $\gamma_1\ge\gamma_2$. SCNSim requires $q\ge2$ and
 $\gamma_2/\gamma_1>\tau(q)$; a zero denominator fails. At each bitwise-distinct
-point in $\{\widetilde\omega_a,\widetilde\omega_b,\omega_*\}$, the selected
-operator must also satisfy
+point in $\{\widetilde\omega_a,\widetilde\omega_b,\omega_*\}$, the existing native
+reciprocity certificate requires the selected operator to satisfy
 
 $$
 \eta_{\mathrm{sym}}=
@@ -552,7 +720,46 @@ $$
 with residual `0/0` equal to zero. A failed numerical check reports every
 matching branch-root/evaluation location, complex angular frequency, retained
 dimension, asymmetry numerator, scale, ratio, and the same threshold. It does
-not by itself establish physical nonreciprocity. For each branch,
+not by itself establish physical nonreciprocity.
+
+For the JAX selected-Schur path, the Human-authorized numerical reciprocity
+amendment accounts for cancellation and the residual of the existing eliminated
+solve. Write $A=Q_{EE}$, $B=Q_{ER}$, $C=Q_{RE}$, $D=Q_{RR}$, with the actual
+solve $X$, residual $R=B-AX$, and input skew $E=C-B^T$. The raw selected
+operator remains $F=D-CX$. Ordinary transpose gives the exact identity
+
+$$
+F-F^T=D-D^T+X^T(A-A^T)X-EX+X^TE^T+X^TR-R^TX.
+$$
+
+Only $T=X^TR-R^TX$ is credited as explained solve-residual skew. Input-origin
+asymmetry is neither credited as numerical error nor removed. After the existing
+eliminated-block symmetry and solve-residual checks, the coupling reciprocity
+certificate compares the corrected defect
+$H=\operatorname{fl}((F-F^T)-\operatorname{fl}(T))$ with the existing
+$\tau(q)$ times the raw selected scale, plus a componentwise arithmetic-rounding
+envelope. This envelope follows actual dtype unit roundoff, sparse row lengths
+and complex operation counts for residual and Schur formation, retained
+products, skew formation and subtraction. Bound arithmetic rounds outward in
+the actual real dtype, including subnormal error terms; it has no fitted
+multiplier.
+An unavailable or overflowed numerical budget cannot become an infinite success
+allowance: the existing reciprocity/`RootSlopeUnresolved` failure owner remains.
+
+Evidence retains the raw skew, scale and ratio, together with the residual
+contribution, corrected defect, rounding budget, dtype and input-skew
+interpretation. This certificate supports reciprocity within numerical
+uncertainty; it does not establish improved forward accuracy of $F$. The raw
+$F$ continues into all physical quantities. There is no symmetrization,
+additional solve or factorization, retry, fallback or mixed precision. No new
+$F'$ rejection is introduced. All other branch root, zero, residue, vector
+independence and derivative conditions remain unchanged. The implementation
+introduced a distinct aggregate v4 algorithm identity. The subsequent
+pure-inductive evaluation binds aggregate v6 without changing this reciprocity
+certificate; installed observations keep
+their own original source identities.
+
+For each branch,
 
 $$
 s_i=-v_i^TQ'(\widetilde\omega_i)v_i,
@@ -618,25 +825,46 @@ operator, matrix, arbitrary Python callable, or nested expression language. A
 dependency failure propagates to that optimization candidate with its original
 typed context; no partial sum or stale term is published.
 
-Scalar public outputs for `HybridizedPoleSpec`, `TransferZeroSpec`,
-`ResidueNormalizedCouplingSpec`, and `ResponseElementSpec` live canonically in
-the typed `scalar_catalog` of `result.json`; they do not create scalar Zarr
-artifacts. A `QuantitySum` stores only its aggregate value in the optimization
-candidate's objective evidence; the request owns the ordered selector terms,
-and individual term values are execution-local. Branch locators,
-null vectors, numerator/denominator identities, public analytic slopes, units,
-selected-network identity, and ParameterSet remain durable evidence. Raw
-continuation, solve-residual, condition, and complete-certificate diagnostics
-do not. `HybridizedPoleSpec` uses its one fixed null
-vector artifact; `OperatorSpec` uses the two fixed Zarr artifacts above.
+Scalar public outputs retain their existing typed units and selectors.
+Scientific bodies own their numerical evidence and dependencies; ordered
+occurrences reference those bodies. Public quantity evidence supplements the
+scalar fields with the recorded branch, vector, denominator, residue and
+coordinate bindings. An unrecorded transient diagnostic is not promised saved
+evidence. Workspace encoding uses evidence v3; it does not create Zarr files
+or a `result.json` scalar catalogue.
 
-The closed algorithm IDs are
-`scnsim.hybridized_pole.newton32.v1`,
-`scnsim.transfer_zero.newton32.v4`,
-`scnsim.residue_normalized_coupling.v2`,
-`scnsim.response_element.v1`, and `scnsim.direct_operator.v1`. Changing a
-formula, derivative, normalization, iteration/subdivision rule, artifact
-layout, or branch policy requires a new runtime algorithm identity.
+## JAX host and durable evidence ownership
+
+One quantity implementation supplies standalone evaluation, parameter sweeps
+and scalar Optimization dependencies. The host binds each exact View and
+effective ParameterSet, owns dependency declaration order and scalar projection,
+and continues each nonbaseline root independently from its sealed baseline.
+For JAX Optimization, worker anchor installation has a memory ACK, not a standalone baseline storage commit. Coupling
+branches retain separate baseline locators/vectors; midpoint
+mode uses the actual candidate roots. A baseline is not a CMA-resumable
+checkpoint. Candidate caches do not turn a preceding candidate into an anchor.
+
+Successful root/pole/zero/coupling records retain their actual complex state,
+analytic slopes, required vectors/denominator/residue evidence, coordinates,
+units and parameter/lineage identity. Numerical failures retain their existing
+kind/stage/context with no partial success value. Verified read-only decoding
+reconstructs the existing public Result types without running a solver.
+JAX algorithm and dependency identities bind the new implementation and prevent
+relabeling earlier requests or checkpoints. No new public Spec or selector is
+introduced.
+
+SQLite retains the default commit interval of ten completed post-tell
+generations. Baseline and anchors remain pending memory; the first completed
+group saves the required baseline body once. There is no generation-0 checkpoint
+or initial callback. Generation checkpoints add anchor restore state and the
+latest completed post-tell CMA/RNG state (generation >=1); off excludes
+restore-only state. Required group ACK precedes its callback; optional timing is
+separate. Exact same-version
+resume consumes committed completed-generation state. Quantity work does not
+change CMA/RNG, winner order, transaction uncertainty, interrupt or failure
+ownership. Only the existing legitimate candidate numerical failures become
+Optimization penalties; baseline, compiler, storage, callback, cancellation,
+resource and infrastructure failures retain their established owners.
 
 ## Failure ownership
 
@@ -649,9 +877,85 @@ layout, or branch policy requires a new runtime algorithm identity.
 | No machine certificate within 32 Newton updates or dyadic depth | `NumericalResolutionUnresolved` |
 | Non-finite/singular transfer denominator or unresolved cancellation | `NumericalResolutionUnresolved` with `transfer_denominator` or `pole_zero_cancellation` stage |
 | Sealed compiler topology/operator invariant is violated | `CompilerInvariantError`; never a bad quantity or optimizer penalty |
-| Julia envelope, artifact shape/order/unit, or receipt hash disagrees | `BackendProtocolError` or `EvidenceIntegrityError`; never a numerical root failure |
+| Saved reference, binary header, shape/order/unit or content hash disagrees | `EvidenceIntegrityError`; never a numerical root failure |
 
 No failure path returns a nearby pole/zero, pseudoinverse, partial operator,
 untyped `None`, or a previous successful value.
 
 [Next: Direct quantities and optimization](direct-quantities-and-optimization.qmd)
+
+## History: retired process, replay and file artifacts
+
+<details>
+<summary>Superseded pre-1.0 source record</summary>
+
+The native Julia `OperatorResult` envelope has exactly two array-catalog entries:
+
+</details>
+
+## History: native Operator artifact layout
+
+<details>
+<summary>Retired source record</summary>
+
+| ID | Path | Datasets | dtype and shape | Axes and unit |
+|---|---|---|---|---|
+| `frequencies` | `artifacts/frequencies.zarr` | `values` | `<f8`, `[F]` | `frequency`; `hertz` |
+| `operator` | `artifacts/operator.zarr` | `real`, `imag` | paired `<f8`, `[F,N,N]` | `frequency`, `row_coordinate`, `column_coordinate`; `siemens / second` |
+
+The external manifests are respectively
+`artifacts/frequencies.manifest.json` and
+`artifacts/operator.manifest.json`. Both are canonical Zarr V2 artifacts under
+the shared no-codec/no-extra-file rules. With $c(F)=\min(F,1024)$, chunks are
+`[c(F)]` and `[c(F),N,N]`: no coordinate matrix at one frequency is split
+between chunks. C order, paired real/imag storage, ordered coordinate IDs, PTC
+load labels, and exact dataset metadata belong to the artifact manifest and
+runtime identity. An operator matrix is inspectable output and cannot itself
+be one scalar objective. JAX publishes the same typed axes and units through
+its existing verified SQLite numerical-record codec: the actual output dtype
+is retained, without fabricating Julia Zarr artifacts or receipt identities.
+
+</details>
+
+## History: native hybridized-pole vector file
+
+<details>
+<summary>Retired source record</summary>
+
+The hybridized-pole `DirectQuantityResult` envelope owns one required complex
+artifact: ID `null_vector`,
+path `artifacts/null_vector.zarr`, and manifest
+`artifacts/null_vector.manifest.json`. Its `real`/`imag` datasets are paired
+little-endian Float64 in C order with shape and one complete chunk `[q]`, axis
+the exact retained coordinate sequence $C$, unit `dimensionless`, and the
+canonical phase fixed above. Its required `coordinate_ids` and the inline
+`retained_coordinate` axis contain exactly that same sequence.
+
+</details>
+
+## History: native scalar catalogue and algorithm identifiers
+
+<details>
+<summary>Retired source record</summary>
+
+Scalar public outputs for `HybridizedPoleSpec`, `TransferZeroSpec`,
+`ResidueNormalizedCouplingSpec`, and `ResponseElementSpec` live canonically in
+the typed `scalar_catalog` of `result.json`; they do not create scalar Zarr
+artifacts. A `QuantitySum` stores only its aggregate value in the optimization
+candidate's objective evidence; the request owns the ordered selector terms,
+and individual term values are execution-local. Branch locators,
+null vectors, numerator/denominator identities, public analytic slopes, units,
+selected-network identity, and ParameterSet remain durable evidence. Raw
+continuation, solve-residual, condition, and complete-certificate diagnostics
+do not. `HybridizedPoleSpec` uses its one fixed null
+vector artifact; `OperatorSpec` uses the two fixed Zarr artifacts above.
+
+The existing native Julia algorithm IDs are
+`scnsim.hybridized_pole.newton32.v1`,
+`scnsim.transfer_zero.newton32.v4`,
+`scnsim.residue_normalized_coupling.v2`,
+`scnsim.response_element.v1`, and `scnsim.direct_operator.v1`. Changing a
+formula, derivative, normalization, iteration/subdivision rule, artifact
+layout, or branch policy requires a new runtime algorithm identity.
+
+</details>

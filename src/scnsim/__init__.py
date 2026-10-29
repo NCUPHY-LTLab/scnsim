@@ -2,7 +2,8 @@
 
 Numerical execution remains separately accepted where documented.  Structured
 authoring, parameter closure, and semantic diagram capture are an actively
-converging V1 candidate.
+converging V1 candidate. The dev27 JAX-native physical-program and derivative boundary
+remain CONVERGING; public facades reexport one responsibility-owned implementation.
 
 Start with :class:`CircuitPlan` if you develop reusable circuit models.  Start
 with :class:`CircuitRun` plus a model package supplied by your team if you only
@@ -16,6 +17,8 @@ from typing import TYPE_CHECKING
 from . import units
 from .authoring import (
     RLGC,
+    RLGCScalarTerm,
+    ScalarRLGCMap,
     AffineMap,
     ElectricalResolution,
     CircuitPlan,
@@ -46,12 +49,10 @@ from .authoring import (
     components,
 )
 from .errors import (
-    BackendProtocolError,
     CompilerInvariantError,
     DirectResponseFormationError,
     EliminatedBlockSolveFailure,
     EvidenceIntegrityError,
-    HBCaseFailure,
     InvalidCandidatePhysicalParameter,
     InvalidDiagonalRootHint,
     InvalidOptimizationSpec,
@@ -78,24 +79,33 @@ from .errors import (
     WorkspaceVersioningDowngradeForbidden,
 )
 from .io import load_q2d_rlgc
+from .diagnostics.memory_operation import InMemoryBenchmarkResult
+from .results.memory_direct import InMemoryDirectSolveResult
+from .results.memory_analysis import (
+    InMemoryAnalysisResult, InMemoryParameterSweepResult,
+    InMemoryStaticCapacitanceResult, InMemoryStaticCapacitanceElementResult,
+)
+from .results.memory_sensitivity import InMemorySensitivityResult
+from .results.memory_optimization import (
+    InMemoryOptimizationResult, InMemoryOptimizationStage, InMemoryOptimizationTrial,
+)
 from .presentation import Theme
 from .results import (
     AnalysisResult,
     BiasState,
     DiagonalRootResult,
     OperatorElementRootResult,
+    SensitivityResult,
     DirectQuantityResult,
     DirectSolveResult,
     ExplanationResult,
-    HBBatchResult,
-    HBCaseOutcome,
-    HBScatteringMatrixResult,
-    InventoryResult,
     LineDiscretization,
     MatrixFamilyResult,
     MatrixView,
     OperatorPointResult,
     OperatorResult,
+    StaticCapacitanceResult,
+    StaticCapacitanceElementResult,
     OptimizationBest,
     OptimizationResult,
     ParameterField,
@@ -112,25 +122,37 @@ from .results import (
     ScatteringMatrixResult,
     TraceResult,
 )
+from .execution.policy import ExecutionPolicy
+from .execution.prepared_function import PreparedFunction
 from .execution.config import RuntimeConfiguration, configure_runtime
 from .runtime import CircuitRun, NetworkViewRef, ReductionPipeline
 from .specs import (
+    SensitivitySpec,
+    Jacobian,
+    JVP,
+    VJP,
+    OutputCoordinate,
+    SensitivityScales,
+    FixedMeshSpec,
+    LBFGSBSpec,
+    ProjectedLBFGSSpec,
+    OptimizationStage,
+    HybridSpec,
+    AcceptedIterateSelection,
     CMAESSpec,
     CostObjective,
-    CurrentDrive,
     DiagonalRootSpec,
+    RootSearchSpec,
     OperatorElementRootSpec,
     DirectSolveSpec,
-    HBCaseSpec,
-    HBSolveSpec,
-    HBTruncation,
     HybridizedPoleSpec,
     OperatorSpec,
+    StaticCapacitanceSpec,
+    StaticCapacitanceElementSpec,
     OptimizationSpec,
     OptimizationDomain,
     OptimizationProgress,
     OptimizationVariable,
-    PumpAxis,
     QuantityAbsolute,
     QuantityDifference,
     QuantitySum,
@@ -148,9 +170,10 @@ from .specs import (
 # documented package names visible to static ``py.typed`` consumers.
 if TYPE_CHECKING:
     from .visualization.diagram.spec import CircuitDiagramSpec
-    from .composition import SchematicComposition, SchematicCompositionSnapshot
     from .results import CircuitDiagramAudit, CircuitDiagramResult
-    from .schematic import DiagramAxis, SchematicLayout
+    from .schematic import (DiagramUnit, DiagramBoxSize, DiagramRef, DiagramPose, DiagramEndpoint, DiagramRoute, DiagramJunction,
+        DiagramJump, DiagramCaption, DiagramLeader, DiagramCoupling, SchematicScopeLayout, SchematicLayout,
+        SchematicPreparation, ScopeInventory, MeasuredFragment, ScopeMeasurement, GeometryRealization)
     from .specs import DiagramSide
 
 
@@ -159,10 +182,24 @@ _LAZY_DIAGRAM_EXPORTS = {
     "CircuitDiagramAudit": (".results", "CircuitDiagramAudit"),
     "CircuitDiagramResult": (".results", "CircuitDiagramResult"),
     "CircuitDiagramSpec": (".specs", "CircuitDiagramSpec"),
-    "DiagramAxis": (".schematic", "DiagramAxis"),
     "DiagramSide": (".specs", "DiagramSide"),
-    "SchematicComposition": (".composition", "SchematicComposition"),
-    "SchematicCompositionSnapshot": (".composition", "SchematicCompositionSnapshot"),
+    "DiagramUnit": (".schematic", "DiagramUnit"),
+    "DiagramBoxSize": (".schematic", "DiagramBoxSize"),
+    "DiagramRef": (".schematic", "DiagramRef"),
+    "DiagramPose": (".schematic", "DiagramPose"),
+    "DiagramEndpoint": (".schematic", "DiagramEndpoint"),
+    "DiagramRoute": (".schematic", "DiagramRoute"),
+    "DiagramJunction": (".schematic", "DiagramJunction"),
+    "DiagramJump": (".schematic", "DiagramJump"),
+    "DiagramCaption": (".schematic", "DiagramCaption"),
+    "DiagramLeader": (".schematic", "DiagramLeader"),
+    "DiagramCoupling": (".schematic", "DiagramCoupling"),
+    "SchematicScopeLayout": (".schematic", "SchematicScopeLayout"),
+    "SchematicPreparation": (".schematic", "SchematicPreparation"),
+    "ScopeInventory": (".schematic", "ScopeInventory"),
+    "MeasuredFragment": (".schematic", "MeasuredFragment"),
+    "ScopeMeasurement": (".schematic", "ScopeMeasurement"),
+    "GeometryRealization": (".schematic", "GeometryRealization"),
     "SchematicLayout": (".schematic", "SchematicLayout"),
 }
 
@@ -181,12 +218,27 @@ def __getattr__(name: str) -> object:
 __version__ = metadata_version("scnsim")
 
 __all__ = [
+    "ExecutionPolicy",
+    "PreparedFunction",
+    "RLGCScalarTerm",
+    "ScalarRLGCMap",
+    'SensitivitySpec',
+    'Jacobian',
+    'JVP',
+    'VJP',
+    'OutputCoordinate',
+    'SensitivityScales',
+    'FixedMeshSpec',
+    'LBFGSBSpec',
+    'ProjectedLBFGSSpec',
+    'OptimizationStage',
+    'HybridSpec',
+    'AcceptedIterateSelection',
     "BenchmarkResult",
     "RLGC",
     "AffineMap",
     "ElectricalResolution",
     "AnalysisResult",
-    "BackendProtocolError",
     "BiasState",
     "BranchRef",
     "BusRef",
@@ -204,14 +256,25 @@ __all__ = [
     "CoordinateRef",
     "CouplingRef",
     "CostObjective",
-    "CurrentDrive",
     "DiagonalRootResult",
     "DiagonalRootSpec",
+    "RootSearchSpec",
     "OperatorElementRootResult",
     "OperatorElementRootSpec",
+    "SensitivityResult",
     "DirectQuantityResult",
     "DirectResponseFormationError",
     "DirectSolveResult",
+    "InMemoryDirectSolveResult",
+    "InMemoryAnalysisResult",
+    "InMemoryStaticCapacitanceResult",
+    "InMemoryStaticCapacitanceElementResult",
+    "InMemoryParameterSweepResult",
+    "InMemorySensitivityResult",
+    "InMemoryOptimizationResult",
+    "InMemoryOptimizationStage",
+    "InMemoryOptimizationTrial",
+    "InMemoryBenchmarkResult",
     "DirectSolveSpec",
     "DiagramSide",
     "ElectricNodeRef",
@@ -219,20 +282,12 @@ __all__ = [
     "EvidenceIntegrityError",
     "ExplanationResult",
     "GroundRef",
-    "HBBatchResult",
-    "HBCaseFailure",
-    "HBCaseOutcome",
-    "HBCaseSpec",
-    "HBScatteringMatrixResult",
-    "HBSolveSpec",
-    "HBTruncation",
     "HybridizedPoleSpec",
     "InductiveBranchRef",
     "InvalidCandidatePhysicalParameter",
     "InvalidDiagonalRootHint",
     "InvalidOptimizationSpec",
     "OptimizationProgressCallbackError",
-    "InventoryResult",
     "LineDiscretization",
     "Library",
     "MatrixFamilyResult",
@@ -241,7 +296,11 @@ __all__ = [
     "NumericalResolutionUnresolved",
     "OperatorPointResult",
     "OperatorResult",
+    "StaticCapacitanceResult",
+    "StaticCapacitanceElementResult",
     "OperatorSpec",
+    "StaticCapacitanceSpec",
+    "StaticCapacitanceElementSpec",
     "OptimizationBest",
     "OptimizationResult",
     "OptimizationSpec",
@@ -264,7 +323,6 @@ __all__ = [
     "PlanSealedError",
     "PortRealizabilityError",
     "PortRef",
-    "PumpAxis",
     "PumpState",
     "QuantityAbsolute",
     "QuantityDifference",
@@ -289,10 +347,24 @@ __all__ = [
     "SCNSimStateError",
     "SCNSimValidationError",
     "SParameterTrace",
-    "DiagramAxis",
+    "DiagramUnit",
+    "DiagramBoxSize",
+    "DiagramRef",
+    "DiagramPose",
+    "DiagramEndpoint",
+    "DiagramRoute",
+    "DiagramJunction",
+    "DiagramJump",
+    "DiagramCaption",
+    "DiagramLeader",
+    "DiagramCoupling",
+    "SchematicScopeLayout",
+    "SchematicPreparation",
+    "ScopeInventory",
+    "MeasuredFragment",
+    "ScopeMeasurement",
+    "GeometryRealization",
     "SchematicLayout",
-    "SchematicComposition",
-    "SchematicCompositionSnapshot",
     "SeriesRef",
     "ScaffoldUnavailableError",
     "ScatteringMatrixResult",

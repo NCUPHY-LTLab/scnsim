@@ -1,0 +1,9 @@
+## 第 4 課 — 選讀：轉換浮接座標 {#lesson-ch4-transform}
+
+### 從同一原始 Plan 分支建立另一個 View
+
+此選讀路徑再次套用 PTC，將有序公開浮接節點對轉成 `floating.common` 與 `floating.differential`，再保留兩個饋線座標及差動座標。它不會改動主線 View，也不會建立另一個實體 Plan。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_04-optional-transform.qmd/block-001.qmd >}}
+
+此明確宣告的處理流程會選擇具有來源脈絡的分析基底，不會重新命名兩條實體浮接匯流排或改動電路圖。

@@ -1,0 +1,13 @@
+## 第 2 課 — 建立實例並檢視公開介面 {#lesson-ch5-instance}
+
+### 透過實體欄位綁定 C 與 L
+
+工廠會接收兩個獨立公開輸入；其基準值與前面接地 LC 章節相同。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-05/_02-instance.qmd/block-001.qmd >}}
+
+父層只會取得這五個控制代碼，無法存取工廠私有的電容、電感、匯流排或接地結構。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-05/_02-instance.qmd/block-002.qmd >}}
+
+`alternate_terminal` 刻意保持外部開路。已公開的開路邊界仍是元件介面的一部分，不需要虛構負載或僅供分析的 root 配線。

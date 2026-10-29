@@ -1,0 +1,96 @@
+---
+title: "第 7 章 · 第 5 課 — 位置與電氣解析度"
+subtitle: "獨立無損雙導體課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 第 5 課 — 位置與電氣解析度
+
+[上一課：第 4 課](04-parameter-points.qmd) ·
+[第 7 章](chapter.qmd) ·
+[工程課程](../../../docs/index.qmd) ·
+[電氣解析度概念（英文）](../../../docs/concepts/electrical-resolution.qmd) ·
+[下載獨立零輸出 Notebook（英文）](/en/examples/engineer/chapter-07/05-position-electrical-resolution.ipynb)。
+
+本獨立課程使用兩個雙導體線段本體，實體總長 8 mm，並在具名中間匯流排依導體連接。移動單一中間並聯支路只改變左、右*實體長度*（`x` 與 `8 mm − x`），不改變配線。明確宣告的 R 與 G 為零；四個外側 50 Ω Port 與 20 fF 並聯支路是不同電路元件。本範例不主張與 D3 等效。
+
+## 1. 拓撲與假設
+
+訊號導體依序為 `a` 與 `b`，`ground` 僅作為 RLGC 參考。中間並聯支路將 `middle_a` 接地；`middle_b` 是一般直通匯流排。兩個線段本體保留完整耦合矩陣：L = [[420, 75], [75, 395]] nH/m，C = [[175, −22], [−22, 168]] pF/m。每個外側訊號端點各有自己的 50 Ω 終端 Port。這是合成、頻率無關無損線路的有限 π 模型，不是場求解器萃取，也不主張具有特定可觀測準確度。
+
+| 實體階段 | 導體 a 路徑 | 導體 b 路徑 |
+|---|---|---|
+| 輸入 | `left_a` Port，50 Ω | `left_b` Port，50 Ω |
+| 左側耦合線段，長度 x | `left.head.a` → `left.tail.a` | `left.head.b` → `left.tail.b` |
+| 中間匯流排 | `middle_a` → 一個 20 fF 並聯支路 → ground | `middle_b` 直通 |
+| 右側耦合線段，長度 8 mm − x | `right.head.a` → `right.tail.a` | `right.head.b` → `right.tail.b` |
+| 輸出 | `right_a` Port，50 Ω | `right_b` Port，50 Ω |
+
+請沿任一欄由上往下閱讀。每一列配對的線路都是**一個耦合雙導體本體**，不是兩條獨立單導體線路。
+
+此表用於教學實體連通關係，並會與下方 Plan 核對，不是具證明的電路圖投影。先前自動電路圖嘗試對此四 Port 拓撲回報具型別 `schematic_layout` 衝突。那是歷史結果；本課不會宣告幾何，也不表示目前要求手動配置或成功繪圖。
+
+## 2. 選擇解析度
+
+執行 Notebook 前，請先在此變更 `sections_per_wavelength`。策略會使用最慢模態，因此 M 越大，節段越短；但整數向上取整的變化不一定平滑，M 加倍也不代表 N 必定加倍。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/05-position-electrical-resolution.qmd/block-001.qmd >}}
+
+對無損線路，電報方程為 V″ = −ω²LC V。令 L = AAᵀ（下三角 Cholesky 分解），則 B = AᵀCA 為對稱矩陣，且與 LC 相似。其正特徵值 λm 對應每公尺模態延遲 τm = √λm，速度 vm = 1/τm。策略計算 hmax = 1/(M fmax max τm)，再令 N = max(1, ⌈length/hmax⌉)，dx = length/N。對不高於 fmax 的實頻率，βm dx ≤ 2π/M 是相位增量解析度條件，不是 S 參數誤差界限。
+
+## 3. 建立位置控制的 Plan
+
+單一組裝輔助程式在 M=40 與 M=80 時維持相同配線。`x` 是左側線長；一個 `AffineMap` 為右側線段提供 `8 mm − x`。其定義域是圖示的 2–6 mm 範圍，因此兩個線段長度都嚴格為正。新的位置參數點只會改變長度。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/05-position-electrical-resolution.qmd/block-002.qmd >}}
+
+## 4. 求解三個位置的 ParameterSpace
+
+61 點實頻率網格含 1 至 10 GHz 的兩端。單一請求會評估 x = 2、4、6 mm；每個點都會先重新編譯，再配置內部站點，而 Port 名稱與配線維持不變。回傳的記憶體 Result 包含依序排列的參數點結果及其計算量值。請在目前程序中讀取這些結果；本課不會建立持久化批次檢查點。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/05-position-electrical-resolution.qmd/block-003.qmd >}}
+
+## 5. 檢視計算後的基準網格
+
+請從回傳的記憶體掃描結果中，讀取既有 4 mm + 4 mm 參數點實際生成的網格。Plan 仍以策略描述兩段實體線路。若該點失敗，請顯示其具型別失敗，不要改顯示其他點的網格。電路圖配置證明與電氣離散化彼此獨立。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/05-position-electrical-resolution.qmd/block-004.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include position-figures/07-position-baseline-grid.md >}}
+
+:::
+
+## 6. 讀取參數點結果與具名複數通道
+
+具名 `through_a` 通道是 `right_a ← left_a`。每個成功參數點都會保留複數取樣值，不只保留圖中振幅／相位。失敗點仍以具型別失敗呈現；表格不會拿相鄰點響應替代。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/05-position-electrical-resolution.qmd/block-005.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include position-figures/07-position-point-grids.md >}}
+
+{{< include position-figures/07-position-results.md >}}
+
+:::
+
+## 7. 分別提高解析度並比較精確複數取樣值
+
+M=80 會使用新的 Plan、Run 與控制代碼，並將 Result 保留在記憶體；它不會就地修改已封存的 M=40 Plan。在相同三個位置與 61 個頻率上，逐點相減複數 `through_a` 取樣值。此差異是此設定下*量得的解析度敏感度*，不是具證明的誤差或優勝門檻。原始實部與虛部仍可下載。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/05-position-electrical-resolution.qmd/block-006.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+{{< include position-figures/07-position-refinement.md >}}
+
+[下載精確複數取樣](position-figures/07-position-complex.csv).
+
+:::
+
+來源 Notebook 由此 QMD 產生。若要改變位置，請在相同 Run 建立新的 ParameterSpace。若要改變解析度，請重建 Plan、Run 與控制代碼，並使用各自的記憶體 Result；若要改配線，則重建模型。

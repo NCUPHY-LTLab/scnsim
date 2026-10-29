@@ -1,0 +1,25 @@
+## 第 2 課 — 檢視明確宣告的實體組成 {#lesson-ch4-capstone}
+
+目前的程式區塊使用完整、明確的配置，並綁定至新準備的狀態。已保存的圖與 Notebook 輸出維持原有執行身分；本次來源更新不會重新產生它們。
+
+### 呈現既有 Plan，不改變其內容
+
+課程輔助程式明確宣告每個實體元件，以及完整饋線、讀出與浮接子層場景。T 形接點、方位轉向、Port 和局部接地都是呈現選項，不會改動原始電氣 Plan。繪圖器不會自動選擇缺少的幾何。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_02-explicit-capstone.qmd/block-001.qmd >}}
+
+每個宣告群組都包含實際連接點。等效的浮接 Pin 透過子層真實的內部配線共用電壓；配置不會捷徑合併父層中不同的局部群組。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-04/_02-explicit-capstone.qmd/block-002.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![經認證的實體四埠 Plan 明確配置電路圖。](../figures/04-explicit-capstone.svg){#fig-ch4-explicit-capstone .lightbox fig-alt="四埠完整電路包含兩節饋線、接地讀出電路、浮接支路、三個耦合電容，以及右側分開的探測輸出。"}
+
+{{< askr-image-view target="fig-ch4-explicit-capstone" mode="inline" >}}
+
+[開啟 SVG 圖](../figures/04-explicit-capstone.svg).
+
+:::
+
+證明會綁定 Plan 與呈現配置，但不表示 PTC 或任何數值請求改變了電路圖。

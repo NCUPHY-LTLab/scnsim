@@ -20,30 +20,34 @@ import numpy as np
 from pint import Quantity
 
 from . import units
-from .canonical import _identifier
+from .canonical import _identifier, float64_hex
 from .value_storage import immutable_quantity, quantity_view
 from .construction import unavailable
 from .authoring import (
     CoordinateRef,
+    ElectricalResolution,
+    ParameterSpec,
+    ParameterSet,
     ElectricNodeRef,
     ParameterRef,
     PortRef,
 )
 from .errors import InvalidDiagonalRootHint, InvalidOptimizationSpec, SCNSimValidationError
 from .presentation import Theme, _require_theme
-from .results import (
-    AnalysisResult,
-    DirectQuantityResult,
-    DirectSolveResult,
-    HBBatchResult,
-    HtmlPresentation,
-    OperatorResult,
-    OptimizationResult,
-    ParameterSweepResult,
-    _is_verified_analysis_result,
-)
+
 
 if TYPE_CHECKING:
+    from .results import (
+        Result,
+        AnalysisResult,
+        DirectQuantityResult,
+        DirectSolveResult,
+        HtmlPresentation,
+        OperatorResult,
+        OptimizationResult,
+        ParameterSweepResult,
+        _is_verified_analysis_result,
+    )
     from .visualization.diagram.spec import CircuitDiagramSpec
     from .runtime import NetworkViewRef
 
@@ -178,7 +182,7 @@ def _quantity_magnitudes(quantity: Quantity) -> tuple[float, ...]:
     return values
 
 
-def _validate_frequency_grid(quantity: Quantity) -> None:
+def _validate_frequency_grid(quantity: Quantity, *, preserve_occurrences: bool = False) -> None:
     if not isinstance(quantity, Quantity) or quantity._REGISTRY is not units.registry:
         raise TypeError("frequencies must use the scnsim.units registry")
     try:
@@ -188,7 +192,7 @@ def _validate_frequency_grid(quantity: Quantity) -> None:
     values = _quantity_magnitudes(coherent)
     if any(value <= 0.0 for value in values):
         raise ValueError("frequencies must be strictly positive")
-    if any(right <= left for left, right in zip(values, values[1:])):
+    if not preserve_occurrences and any(right <= left for left, right in zip(values, values[1:])):
         raise ValueError("frequencies must be strictly increasing without duplicates")
 
 
@@ -230,37 +234,6 @@ def _nonnegative_int_tuple(value: tuple[int, ...], *, name: str) -> tuple[int, .
     return checked
 
 
-def _validate_complex_current(value: Quantity, *, name: str) -> None:
-    if not isinstance(value, Quantity) or value._REGISTRY is not units.registry:
-        raise TypeError(f"{name} must use the scnsim.units registry")
-    try:
-        magnitude = np.asarray(value.to("ampere").magnitude)
-    except Exception as exc:
-        raise TypeError(f"{name} must be a current Quantity") from exc
-    if magnitude.ndim != 0:
-        raise ValueError(f"{name} must be a finite scalar Quantity")
-    scalar = complex(magnitude.item())
-    if not isfinite(scalar.real) or not isfinite(scalar.imag):
-        raise ValueError(f"{name} must be finite")
-
-
-def _validate_hb_mode(
-    mode: tuple[int, ...],
-    *,
-    rank: int,
-    limits: tuple[int, ...],
-    truncation: HBTruncation,
-    name: str,
-) -> None:
-    if len(mode) != rank:
-        raise ValueError(f"{name} rank must equal pump-axis rank")
-    if any(abs(value) > limit for value, limit in zip(mode, limits)):
-        raise ValueError(f"{name} is outside the declared harmonic lattice")
-    crop = truncation.max_intermodulation_order
-    if crop is not None and sum(abs(value) for value in mode) > crop:
-        raise ValueError(f"{name} is outside max_intermodulation_order")
-
-
 def _family(value: str) -> Literal["S", "Y", "Z"]:
     if value not in {"S", "Y", "Z"}:
         raise ValueError("family must be 'S', 'Y', or 'Z'")
@@ -274,6 +247,8 @@ def _selector_unit(value: object) -> str | None:
         return "hertz"
     if value.type == "residue_coupling_projection":
         return "radian / second"
+    if value.type == "static_capacitance_element_projection":
+        return "farad"
     if value.type == "response_element_projection":
         family = getattr(value.spec, "family", None)
         return {"S": "dimensionless", "Y": "siemens", "Z": "ohm"}.get(family)
@@ -324,7 +299,7 @@ class DirectSolveSpec:
     traces: tuple[SParameterTrace, ...] = ()
 
     def __init__(self, *, frequencies: Quantity, traces: Sequence[SParameterTrace] = ()) -> None:
-        _validate_frequency_grid(frequencies)
+        _validate_frequency_grid(frequencies, preserve_occurrences=True)
         checked = tuple(traces)
         if any(not isinstance(trace, SParameterTrace) for trace in checked):
             raise TypeError("traces must contain SParameterTrace values")
@@ -332,6 +307,18 @@ class DirectSolveSpec:
             raise ValueError("trace IDs must be unique")
         object.__setattr__(self, "frequencies", _detached_quantity(frequencies))
         object.__setattr__(self, "traces", checked)
+
+    @property
+    def S(self) -> QuantitySelector:
+        return QuantitySelector(self, "S", "matrix_projection")
+
+    @property
+    def Y(self) -> QuantitySelector:
+        return QuantitySelector(self, "Y", "matrix_projection")
+
+    @property
+    def Z(self) -> QuantitySelector:
+        return QuantitySelector(self, "Z", "matrix_projection")
 
     def _canonical_record(self) -> Mapping[str, object]:
         return {"type": "direct_solve", "frequencies": self.frequencies, "traces": tuple(trace._canonical_record() for trace in self.traces)}
@@ -369,6 +356,107 @@ class QuantitySelector:
 
 
 @dataclass(frozen=True, slots=True)
+class RootSearchSpec:
+    """Explicit discovery method and caller region, separate from root Hint.
+
+    Relative bounds bind the original authored Hint, never a tracked root.
+    No imaginary restriction means no added imaginary selection cutoff.
+    """
+
+    method: Literal["polynomial_transfer_zero", "finite_seeds"]
+    _real_frequency_interval: tuple[Quantity, Quantity] | None
+    _imag_frequency_interval: tuple[Quantity, Quantity] | None
+    hint_frequency_factor: float | None
+    _seeds: tuple[Quantity, ...] | None
+    tie: Literal["unavailable", "source_order"]
+
+    def __init__(self, *, method: Literal["polynomial_transfer_zero", "finite_seeds"],
+                 tie: Literal["unavailable", "source_order"],
+                 real_frequency_interval: tuple[Quantity, Quantity] | None = None,
+                 hint_frequency_factor: float | None = None,
+                 imag_frequency_interval: tuple[Quantity, Quantity] | None = None,
+                 seeds: Sequence[Quantity] | None = None) -> None:
+        if method not in {"polynomial_transfer_zero", "finite_seeds"}:
+            raise ValueError("method must be polynomial_transfer_zero or finite_seeds")
+        if (real_frequency_interval is None) == (hint_frequency_factor is None):
+            raise ValueError("declare exactly one real_frequency_interval or hint_frequency_factor")
+        for name, interval in (("real_frequency_interval", real_frequency_interval),
+                               ("imag_frequency_interval", imag_frequency_interval)):
+            if interval is None:
+                object.__setattr__(self, "_" + name, None)
+                continue
+            values = tuple(interval)
+            if len(values) != 2:
+                raise ValueError(f"{name} requires two ordered frequency endpoints")
+            magnitudes = tuple(np.asarray(value.to("hertz").magnitude) for value in values)
+            if any(value.ndim != 0 or np.iscomplexobj(value) for value in magnitudes):
+                raise TypeError(f"{name} endpoints must be real scalar frequency Quantities")
+            if magnitudes[0].item() > magnitudes[1].item():
+                raise ValueError(f"{name} lower endpoint exceeds upper endpoint")
+            object.__setattr__(self, "_" + name, tuple(_detached_quantity(value) for value in values))
+        if hint_frequency_factor is not None:
+            if isinstance(hint_frequency_factor, bool):
+                raise TypeError("hint_frequency_factor must be a positive real number")
+            hint_frequency_factor = float(hint_frequency_factor)
+            float64_hex(hint_frequency_factor)
+            if hint_frequency_factor <= 0:
+                raise ValueError("hint_frequency_factor must be positive")
+        if method == "polynomial_transfer_zero":
+            if seeds is not None:
+                raise TypeError("polynomial_transfer_zero does not accept caller seeds")
+            checked = None
+        else:
+            if seeds is None:
+                raise TypeError("finite_seeds requires caller-declared seeds")
+            checked = tuple(seeds)
+            if not checked:
+                raise ValueError("finite_seeds requires nonempty ordered seeds")
+            for value in checked:
+                if np.asarray(value.to("hertz").magnitude).ndim != 0:
+                    raise TypeError("finite_seeds require scalar frequency Quantities")
+        if tie not in {"unavailable", "source_order"}:
+            raise ValueError("tie must be unavailable or source_order")
+        object.__setattr__(self, "method", method)
+        object.__setattr__(self, "hint_frequency_factor", hint_frequency_factor)
+        object.__setattr__(self, "_seeds", None if checked is None else tuple(_detached_quantity(value) for value in checked))
+        object.__setattr__(self, "tie", tie)
+
+    @property
+    def real_frequency_interval(self) -> tuple[Quantity, Quantity] | None:
+        return None if self._real_frequency_interval is None else tuple(quantity_view(value) for value in self._real_frequency_interval)
+
+    @property
+    def imag_frequency_interval(self) -> tuple[Quantity, Quantity] | None:
+        return None if self._imag_frequency_interval is None else tuple(quantity_view(value) for value in self._imag_frequency_interval)
+
+    @property
+    def seeds(self) -> tuple[Quantity, ...] | None:
+        return None if self._seeds is None else tuple(quantity_view(value) for value in self._seeds)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        region = ({"real_frequency_interval": self.real_frequency_interval}
+                  if self.hint_frequency_factor is None else
+                  {"hint_frequency_factor_f64": float64_hex(self.hint_frequency_factor)})
+        if self.imag_frequency_interval is not None:
+            region["imag_frequency_interval"] = self.imag_frequency_interval
+        record = {"method": self.method, "region": region,
+                  "selection": {"kind": "nearest_hint", "metric": "complex_frequency_euclidean", "tie": self.tie},
+                  "tracking": {"kind": "baseline_anchor"}}
+        if self.method == "finite_seeds":
+            record["seeds"] = self.seeds
+        return record
+
+
+def _root_search_record(search: RootSearchSpec | None) -> dict[str, object]:
+    return {} if search is None else {"search": search._canonical_record()}
+
+
+def _require_root_search(search: RootSearchSpec | None) -> None:
+    if search is not None and not isinstance(search, RootSearchSpec):
+        raise TypeError("search must be RootSearchSpec or None")
+
+
+@dataclass(frozen=True, slots=True)
 class DiagonalRootSpec:
     """Select one machine-resolved Newton root of a Direct-operator diagonal.
 
@@ -379,14 +467,20 @@ class DiagonalRootSpec:
 
     coordinate: Coordinate
     _root_hint: Quantity
+    search: RootSearchSpec | None
 
-    def __init__(self, *, coordinate: Coordinate, root_hint: Quantity) -> None:
+    def __init__(self, *, coordinate: Coordinate, root_hint: Quantity, search: RootSearchSpec | None = None) -> None:
+        _require_root_search(search)
+        object.__setattr__(self, "search", search)
         _coordinate_id(coordinate)
         try:
-            units.require_positive_quantity(root_hint, "hertz", name="root_hint")
+            if isinstance(root_hint, Quantity) and np.iscomplexobj(root_hint.magnitude):
+                _validate_frequency_anchor(root_hint, name="root_hint")
+            else:
+                units.require_positive_quantity(root_hint, "hertz", name="root_hint")
         except Exception as exc:
             raise InvalidDiagonalRootHint(
-                "root_hint must be a finite positive frequency Quantity",
+                "root_hint must be a finite frequency Quantity with a positive real part",
                 stage="spec_validation",
             ) from exc
         object.__setattr__(self, "coordinate", coordinate)
@@ -405,7 +499,7 @@ class DiagonalRootSpec:
         return QuantitySelector(self, "linewidth", "diagonal_root_projection")
 
     def _canonical_record(self) -> Mapping[str, object]:
-        return {"type": "diagonal_root", "coordinate": _coordinate_id(self.coordinate), "root_hint": self.root_hint}
+        return {"type": "diagonal_root", "coordinate": _coordinate_id(self.coordinate), "root_hint": self.root_hint, **_root_search_record(self.search)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,8 +509,11 @@ class OperatorElementRootSpec:
     row: Coordinate
     column: Coordinate
     _root_hint: Quantity
+    search: RootSearchSpec | None
 
-    def __init__(self, *, row: Coordinate, column: Coordinate, root_hint: Quantity) -> None:
+    def __init__(self, *, row: Coordinate, column: Coordinate, root_hint: Quantity, search: RootSearchSpec | None = None) -> None:
+        _require_root_search(search)
+        object.__setattr__(self, "search", search)
         _coordinate_id(row)
         _coordinate_id(column)
         try:
@@ -444,6 +541,7 @@ class OperatorElementRootSpec:
             "row": _coordinate_id(self.row),
             "column": _coordinate_id(self.column),
             "root_hint": self.root_hint,
+            **_root_search_record(self.search),
         }
 
 
@@ -456,8 +554,11 @@ class HybridizedPoleSpec:
 
     coordinates: tuple[Coordinate, ...]
     _anchor: Quantity
+    search: RootSearchSpec | None
 
-    def __init__(self, *, coordinates: Sequence[Coordinate], anchor: Quantity) -> None:
+    def __init__(self, *, coordinates: Sequence[Coordinate], anchor: Quantity, search: RootSearchSpec | None = None) -> None:
+        _require_root_search(search)
+        object.__setattr__(self, "search", search)
         checked = tuple(coordinates)
         identifiers = tuple(_coordinate_id(value) for value in checked)
         if len(identifiers) < 2 or len(set(identifiers)) != len(identifiers):
@@ -483,6 +584,7 @@ class HybridizedPoleSpec:
             "type": "hybridized_pole",
             "coordinates": tuple(_coordinate_id(value) for value in self.coordinates),
             "anchor": self.anchor,
+            **_root_search_record(self.search),
         }
 
 
@@ -494,11 +596,14 @@ class TransferZeroSpec:
     """
 
     _anchor: Quantity
+    search: RootSearchSpec | None
     family: Literal["S", "Y", "Z"]
     input_coordinate: Coordinate
     output_coordinate: Coordinate
 
-    def __init__(self, *, anchor: Quantity, family: Literal["S", "Y", "Z"], input_coordinate: Coordinate, output_coordinate: Coordinate) -> None:
+    def __init__(self, *, anchor: Quantity, family: Literal["S", "Y", "Z"], input_coordinate: Coordinate, output_coordinate: Coordinate, search: RootSearchSpec | None = None) -> None:
+        _require_root_search(search)
+        object.__setattr__(self, "search", search)
         _validate_frequency_anchor(anchor, name="anchor")
         _family(family)
         _coordinate_id(input_coordinate)
@@ -521,6 +626,7 @@ class TransferZeroSpec:
             "type": "transfer_zero", "anchor": self.anchor, "family": self.family,
             "input_coordinate": _coordinate_id(self.input_coordinate),
             "output_coordinate": _coordinate_id(self.output_coordinate),
+            **_root_search_record(self.search),
         }
 
 
@@ -623,11 +729,57 @@ class OperatorSpec:
     frequencies: Quantity
 
     def __init__(self, *, frequencies: Quantity) -> None:
-        _validate_frequency_grid(frequencies)
+        _validate_frequency_grid(frequencies, preserve_occurrences=True)
         object.__setattr__(self, "frequencies", _detached_quantity(frequencies))
+
+    @property
+    def matrix(self) -> QuantitySelector:
+        return QuantitySelector(self, "matrix", "operator_projection")
 
     def _canonical_record(self) -> Mapping[str, object]:
         return {"type": "operator", "frequencies": self.frequencies}
+
+
+@dataclass(frozen=True, slots=True)
+class StaticCapacitanceSpec:
+    """Static C on the View boundary; omitted-coordinate charge is zero.
+
+    The View alone declares ordered retention. Its lowered full finite basis
+    owns the eliminated complement, transform, and checked C-only Schur solve.
+    No frequency or RF normalization is implied by this declaration.
+    """
+
+    @property
+    def matrix(self) -> QuantitySelector:
+        return QuantitySelector(self, "matrix", "static_capacitance_projection")
+
+    def element(self, *, row: Coordinate, column: Coordinate) -> StaticCapacitanceElementSpec:
+        return StaticCapacitanceElementSpec(row=row, column=column)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "static_capacitance"}
+
+
+@dataclass(frozen=True, slots=True)
+class StaticCapacitanceElementSpec:
+    """One ordered entry after the View's static zero-charge reduction."""
+
+    row: Coordinate
+    column: Coordinate
+
+    def __init__(self, *, row: Coordinate, column: Coordinate) -> None:
+        _coordinate_id(row)
+        _coordinate_id(column)
+        object.__setattr__(self, "row", row)
+        object.__setattr__(self, "column", column)
+
+    @property
+    def value(self) -> QuantitySelector:
+        return QuantitySelector(self, "value", "static_capacitance_element_projection")
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "static_capacitance_element", "row": _coordinate_id(self.row),
+                "column": _coordinate_id(self.column)}
 
 
 class OptimizationDomain(str, Enum):
@@ -640,16 +792,29 @@ class OptimizationDomain(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class OptimizationProgress:
-    """Validated, non-durable observation of one optimization request."""
+    """One stage observation with explicit storage provenance.
 
-    phase: Literal["initial", "resume", "generation", "complete", "result_reuse"]
+    Generation counters apply to CMA stages and iteration counters to local
+    stages. An unavailable counter is None, never a fabricated generation.
+    Workspace durable callbacks follow an acknowledged commit. Memory events
+    describe observed/accepted RAM work, with zero durable committed counts.
+    """
+
+    phase: Literal["initial", "resume", "generation", "iteration", "stage_transition", "partial", "complete", "result_reuse"]
     reused: bool
-    completed_generations: int
-    total_generations: int
+    completed_generations: int | None
+    total_generations: int | None
     evaluated_count: int
     requested_budget: int
-    achievable_evaluations: int
-    best_cost: float
+    achievable_evaluations: int | None
+    best_cost: float | None
+    stage_id: str = "main"
+    strategy: Literal["cmaes", "lbfgsb", "projected_lbfgs"] = "cmaes"
+    committed_generations: int | None = None
+    completed_iterations: int | None = None
+    total_iterations: int | None = None
+    committed_iterations: int | None = None
+    persistence: Literal["workspace", "memory"] = "workspace"
 
 
 _OMITTED_TRANSFORM = object()
@@ -911,25 +1076,338 @@ class CMAESSpec:
         return {"type": "cma_es", "seed": self.seed, "max_evaluations": self.max_evaluations, "population_size": self.population_size, "initial_sigma": self.initial_sigma}
 
 
+def _sensitivity_physical_record(value: object) -> object:
+    """Lossless new declaration encoding; native request codecs stay unchanged."""
+    from .canonical import derived_quantity_envelope, float64_hex
+    if isinstance(value, Quantity):
+        magnitude = np.asarray(value.magnitude)
+        if magnitude.ndim == 0:
+            return derived_quantity_envelope(value, registry=units.registry)
+        return {"type": "quantity_array", "shape": tuple(magnitude.shape), "values": tuple(derived_quantity_envelope(units.registry.Quantity(item, value.units), registry=units.registry) for item in magnitude.flat)}
+    if isinstance(value, Mapping):
+        return {key: _sensitivity_physical_record(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return tuple(_sensitivity_physical_record(item) for item in value)
+    if isinstance(value, float):
+        return float64_hex(value)
+    return value
+
+
+def _sensitivity_quantity_record(quantity: object) -> Mapping[str, object]:
+    if isinstance(quantity, QuantitySelector):
+        view = quantity._view
+        if view is None:
+            raise TypeError("Sensitivity quantities require an explicitly bound View")
+        return {"type": quantity.type, "projection": quantity.projection,
+                "spec": _sensitivity_physical_record(quantity.spec._canonical_record()),
+                "view": _sensitivity_physical_record({"type": "network_view", "plan_sha256": view._run._plan_sha256, "ptc": view._lineage["ptc"], "transforms": view._lineage["transforms"], "retain": view._lineage["retain"]})}
+    if isinstance(quantity, QuantitySum):
+        return {"type": "quantity_sum", "terms": tuple(_sensitivity_quantity_record(term) for term in quantity.terms)}
+    if isinstance(quantity, QuantityDifference):
+        return {"type": "quantity_difference", "left": _sensitivity_quantity_record(quantity.left), "right": _sensitivity_quantity_record(quantity.right)}
+    if isinstance(quantity, QuantityAbsolute):
+        return {"type": "quantity_absolute", "operand": _sensitivity_quantity_record(quantity.operand)}
+    raise TypeError("Sensitivity quantity must be a bound physical expression")
+
+
+def _quantity_mapping(values: Mapping, *, key_type: type, name: str) -> Mapping:
+    if not isinstance(values, Mapping):
+        raise TypeError(f"{name} must be a mapping")
+    if any(not isinstance(key, key_type) for key in values):
+        raise TypeError(f"{name} keys must be {key_type.__name__}")
+    if any(not isinstance(value, Quantity) or value._REGISTRY is not units.registry for value in values.values()):
+        raise TypeError(f"{name} values must use scnsim.units")
+    return MappingProxyType({key: immutable_quantity(value) for key, value in values.items()})
+
+
+def _public_quantities(values: Mapping) -> Mapping:
+    return MappingProxyType({key: quantity_view(value) for key, value in values.items()})
+
+
+@dataclass(frozen=True, slots=True)
+class OutputCoordinate:
+    """One explicit real coordinate of an ordered physical output."""
+
+    quantity_label: str
+    component: Literal["real", "imag"] = "real"
+    index: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "quantity_label", _identifier(self.quantity_label, field="quantity label"))
+        if self.component not in ("real", "imag"):
+            raise ValueError("component must be real or imag")
+        object.__setattr__(self, "index", _nonnegative_int_tuple(tuple(self.index), name="output index"))
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"quantity_label": self.quantity_label, "component": self.component, "index": self.index}
+
+
+@dataclass(frozen=True, slots=True)
+class Jacobian:
+    """Request the stored full physical real-coordinate Jacobian."""
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "jacobian"}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class JVP:
+    _direction: Mapping[ParameterRef, Quantity]
+    _source_direction: Mapping[ParameterRef, Quantity]
+
+    def __init__(self, *, direction: Mapping[ParameterRef, Quantity]) -> None:
+        values = _quantity_mapping(direction, key_type=ParameterRef, name="direction")
+        object.__setattr__(self, "_source_direction", values)
+        object.__setattr__(self, "_direction", MappingProxyType({ref: immutable_quantity(value.to(ref.spec.si_unit)) for ref, value in values.items()}))
+
+    @property
+    def direction(self) -> Mapping[ParameterRef, Quantity]:
+        return _public_quantities(self._direction)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "jvp", "direction": tuple({"parameter": key._key_record(), "value": _sensitivity_physical_record(quantity_view(value))} for key, value in self._direction.items())}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class VJP:
+    _weights: Mapping[OutputCoordinate, Quantity]
+
+    def __init__(self, *, weights: Mapping[OutputCoordinate, Quantity]) -> None:
+        object.__setattr__(self, "_weights", _quantity_mapping(weights, key_type=OutputCoordinate, name="weights"))
+
+    @property
+    def weights(self) -> Mapping[OutputCoordinate, Quantity]:
+        return _public_quantities(self._weights)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "vjp", "weights": tuple({"output": key._canonical_record(), "value": _sensitivity_physical_record(quantity_view(value))} for key, value in self._weights.items())}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class SensitivityScales:
+    _inputs: Mapping[ParameterRef, Quantity]
+    _outputs: Mapping[OutputCoordinate, Quantity]
+
+    def __init__(self, *, inputs: Mapping[ParameterRef, Quantity], outputs: Mapping[OutputCoordinate, Quantity]) -> None:
+        object.__setattr__(self, "_inputs", _quantity_mapping(inputs, key_type=ParameterRef, name="inputs"))
+        object.__setattr__(self, "_outputs", _quantity_mapping(outputs, key_type=OutputCoordinate, name="outputs"))
+
+    @property
+    def inputs(self) -> Mapping[ParameterRef, Quantity]:
+        return _public_quantities(self._inputs)
+
+    @property
+    def outputs(self) -> Mapping[OutputCoordinate, Quantity]:
+        return _public_quantities(self._outputs)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"inputs": JVP(direction=self.inputs)._canonical_record()["direction"], "outputs": VJP(weights=self.outputs)._canonical_record()["weights"]}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class FixedMeshSpec:
+    """One planning declaration; resolved section counts are compilation-owned."""
+
+    resolution: ElectricalResolution | None
+    sections: Mapping[tuple[str, ...], int] | None
+
+    def __init__(self, *, resolution: ElectricalResolution | None = None, sections: Mapping[tuple[str, ...], int] | None = None) -> None:
+        if (resolution is None) == (sections is None):
+            raise ValueError("exactly one of resolution and sections is required")
+        if resolution is not None and not isinstance(resolution, ElectricalResolution):
+            raise TypeError("resolution must be ElectricalResolution")
+        counts = None
+        if sections is not None:
+            counts = {}
+            for path, count in sections.items():
+                if not isinstance(path, tuple) or not path or not all(isinstance(part, str) and part for part in path):
+                    raise TypeError("sections keys must be occurrence path tuples")
+                if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+                    raise ValueError("section counts must be positive integers")
+                counts[path] = count
+            counts = MappingProxyType(counts)
+        object.__setattr__(self, "resolution", resolution)
+        object.__setattr__(self, "sections", counts)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "fixed_mesh", "resolution": None if self.resolution is None else _sensitivity_physical_record(self.resolution._record()), "sections": None if self.sections is None else tuple({"path": path, "count": count} for path, count in sorted(self.sections.items()))}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class SensitivitySpec:
+    quantities: Mapping[str, object]
+    wrt: tuple[ParameterRef, ...]
+    derivative: Jacobian | JVP | VJP
+    discretization: FixedMeshSpec | None
+    scales: SensitivityScales | None
+
+    def __init__(self, *, quantities: Mapping[str, object], wrt: Sequence[ParameterRef], derivative: Jacobian | JVP | VJP, discretization: FixedMeshSpec | None = None, scales: SensitivityScales | None = None) -> None:
+        if not isinstance(quantities, Mapping) or not quantities:
+            raise TypeError("quantities must be a nonempty ordered mapping")
+        normalized_quantities = {}
+        for label, quantity in quantities.items():
+            label = _identifier(label, field="quantity label")
+            if label in normalized_quantities:
+                raise ValueError("quantity labels collide after normalization")
+            normalized_quantities[label] = quantity
+            if not isinstance(quantity, (QuantitySelector, QuantitySum, QuantityDifference, QuantityAbsolute)):
+                raise TypeError("quantities must contain bound physical quantity selectors")
+        parameters = tuple(wrt)
+        if not parameters or any(not isinstance(ref, ParameterRef) or not isinstance(ref.spec, ParameterSpec) for ref in parameters):
+            raise TypeError("wrt must contain scalar ParameterRefs")
+        if len({_parameter_key(ref) for ref in parameters}) != len(parameters):
+            raise ValueError("wrt parameters must be unique")
+        if not isinstance(derivative, (Jacobian, JVP, VJP)):
+            raise TypeError("derivative must be Jacobian, JVP or VJP")
+        if discretization is not None and not isinstance(discretization, FixedMeshSpec):
+            raise TypeError("discretization must be FixedMeshSpec")
+        if scales is not None and not isinstance(scales, SensitivityScales):
+            raise TypeError("scales must be SensitivityScales")
+        object.__setattr__(self, "quantities", MappingProxyType(normalized_quantities))
+        object.__setattr__(self, "wrt", parameters)
+        object.__setattr__(self, "derivative", derivative)
+        object.__setattr__(self, "discretization", discretization)
+        object.__setattr__(self, "scales", scales)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "sensitivity", "quantities": tuple({"id": label, "quantity": _sensitivity_quantity_record(quantity)} for label, quantity in self.quantities.items()), "wrt": tuple(ref._key_record() for ref in self.wrt), "derivative": self.derivative._canonical_record(), "discretization": None if self.discretization is None else self.discretization._canonical_record(), "scales": None if self.scales is None else self.scales._canonical_record()}
+
+
+def _validate_local_optimizer_controls(control) -> None:
+    for name in ("max_evaluations", "max_iterations", "max_line_search", "commit_every_iterations"):
+        value = getattr(control, name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise InvalidOptimizationSpec(f"{name} must be positive integer", stage="spec_validation")
+    for name in ("ftol", "gtol"):
+        if getattr(control, name) < 0:
+            raise InvalidOptimizationSpec(f"{name} must be nonnegative", stage="spec_validation")
+    if control.coordinate_scales is not None:
+        object.__setattr__(control, "coordinate_scales", _quantity_mapping(control.coordinate_scales, key_type=ParameterRef, name="coordinate_scales"))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LBFGSBSpec:
+    """Explicit local-controller controls, distinct from design acceptance."""
+
+    max_evaluations: int
+    max_iterations: int
+    ftol: float
+    gtol: float
+    max_line_search: int
+    commit_every_iterations: int
+    coordinate_scales: Mapping[ParameterRef, Quantity] | None = None
+
+    def __post_init__(self) -> None:
+        _validate_local_optimizer_controls(self)
+
+    def __getattribute__(self, name: str) -> object:
+        value = object.__getattribute__(self, name)
+        return _public_quantities(value) if name == "coordinate_scales" and value is not None else value
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "lbfgsb", "max_evaluations": self.max_evaluations, "max_iterations": self.max_iterations, "ftol": _sensitivity_physical_record(float(self.ftol)), "gtol": _sensitivity_physical_record(float(self.gtol)), "max_line_search": self.max_line_search, "commit_every_iterations": self.commit_every_iterations, "coordinate_scales": None if self.coordinate_scales is None else JVP(direction=self.coordinate_scales)._canonical_record()["direction"]}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectedLBFGSSpec:
+    """Projected L-BFGS controls for value-first rejection of failed trials."""
+
+    max_evaluations: int
+    max_iterations: int
+    ftol: float
+    gtol: float
+    max_line_search: int
+    commit_every_iterations: int
+    coordinate_scales: Mapping[ParameterRef, Quantity] | None = None
+
+    def __post_init__(self) -> None:
+        _validate_local_optimizer_controls(self)
+
+    def __getattribute__(self, name: str) -> object:
+        value = object.__getattribute__(self, name)
+        return _public_quantities(value) if name == "coordinate_scales" and value is not None else value
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "projected_lbfgs", "max_evaluations": self.max_evaluations, "max_iterations": self.max_iterations, "ftol": _sensitivity_physical_record(float(self.ftol)), "gtol": _sensitivity_physical_record(float(self.gtol)), "max_line_search": self.max_line_search, "commit_every_iterations": self.commit_every_iterations, "coordinate_scales": None if self.coordinate_scales is None else JVP(direction=self.coordinate_scales)._canonical_record()["direction"]}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OptimizationStage:
+    id: str
+    optimizer: CMAESSpec | LBFGSBSpec | ProjectedLBFGSSpec
+    discretization: FixedMeshSpec | None = None
+    seed: ParameterSet | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "id", _identifier(self.id, field="optimization stage id"))
+        if not isinstance(self.optimizer, (CMAESSpec, LBFGSBSpec, ProjectedLBFGSSpec)):
+            raise TypeError("stage optimizer must be CMAESSpec, LBFGSBSpec or ProjectedLBFGSSpec")
+        if self.discretization is not None and not isinstance(self.discretization, FixedMeshSpec):
+            raise TypeError("stage discretization must be FixedMeshSpec")
+        if self.seed is not None and not isinstance(self.seed, ParameterSet):
+            raise TypeError("stage seed must be ParameterSet")
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"id": self.id, "optimizer": self.optimizer._canonical_record(), "discretization": None if self.discretization is None else self.discretization._canonical_record(), "seed": None if self.seed is None else self.seed._record()}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class HybridSpec:
+    stages: tuple[OptimizationStage, ...]
+    comparison_stage_id: str
+
+    def __post_init__(self) -> None:
+        stages = tuple(self.stages)
+        if not stages or any(not isinstance(stage, OptimizationStage) for stage in stages):
+            raise TypeError("stages must contain OptimizationStage values")
+        object.__setattr__(self, "comparison_stage_id", _identifier(self.comparison_stage_id, field="comparison stage id"))
+        ids = tuple(stage.id for stage in stages)
+        if len(set(ids)) != len(ids) or self.comparison_stage_id not in ids:
+            raise ValueError("stage ids must be unique and bind comparison_stage_id")
+        object.__setattr__(self, "stages", stages)
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"type": "hybrid", "stages": tuple(stage._canonical_record() for stage in self.stages), "comparison_stage_id": self.comparison_stage_id}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AcceptedIterateSelection:
+    """Exact committed point for a fresh declared stage sequence, not resume."""
+
+    attempt_id: str
+    stage_id: str
+    accepted_iterate_id: str
+
+    def __post_init__(self) -> None:
+        for name in ("attempt_id", "stage_id", "accepted_iterate_id"):
+            if not isinstance(getattr(self, name), str) or not getattr(self, name):
+                raise TypeError(f"{name} must be a nonempty identity")
+
+    def _canonical_record(self) -> Mapping[str, object]:
+        return {"attempt_id": self.attempt_id, "stage_id": self.stage_id, "accepted_iterate_id": self.accepted_iterate_id}
+
+
 @dataclass(frozen=True, slots=True)
 class OptimizationSpec:
-    """One immutable Direct-only multi-variable CMA-ES request declaration."""
+    """One immutable physical objective request with an explicit optimizer strategy."""
 
     variables: tuple[OptimizationVariable, ...]
     objectives: tuple[CostObjective, ...]
-    optimizer: CMAESSpec
+    optimizer: CMAESSpec | LBFGSBSpec | ProjectedLBFGSSpec | HybridSpec
     allow_extrapolation: tuple[ParameterRef, ...] = ()
+    discretization: FixedMeshSpec | None = None
 
-    def __init__(self, *, variables: Sequence[OptimizationVariable], objectives: Sequence[CostObjective], optimizer: CMAESSpec) -> None:
-        self._initialize(variables=variables, objectives=objectives, optimizer=optimizer, allow_extrapolation=())
+    def __init__(self, *, variables: Sequence[OptimizationVariable], objectives: Sequence[CostObjective], optimizer: CMAESSpec | LBFGSBSpec | ProjectedLBFGSSpec | HybridSpec, discretization: FixedMeshSpec | None = None) -> None:
+        self._initialize(variables=variables, objectives=objectives, optimizer=optimizer, allow_extrapolation=(), discretization=discretization)
 
     def _initialize(
         self,
         *,
         variables: Sequence[OptimizationVariable],
         objectives: Sequence[CostObjective],
-        optimizer: CMAESSpec,
+        optimizer: CMAESSpec | LBFGSBSpec | ProjectedLBFGSSpec | HybridSpec,
         allow_extrapolation: Sequence[ParameterRef],
+        discretization: FixedMeshSpec | None,
     ) -> None:
         checked_variables = tuple(variables)
         checked_objectives = tuple(objectives)
@@ -937,8 +1415,8 @@ class OptimizationSpec:
             raise InvalidOptimizationSpec("variables must be nonempty OptimizationVariable values", stage="spec_validation")
         if not checked_objectives or not all(isinstance(item, CostObjective) for item in checked_objectives):
             raise InvalidOptimizationSpec("objectives must be nonempty CostObjective values", stage="spec_validation")
-        if not isinstance(optimizer, CMAESSpec):
-            raise InvalidOptimizationSpec("optimizer must be CMAESSpec", stage="spec_validation")
+        if not isinstance(optimizer, (CMAESSpec, LBFGSBSpec, ProjectedLBFGSSpec, HybridSpec)):
+            raise InvalidOptimizationSpec("optimizer must be CMAESSpec, LBFGSBSpec, ProjectedLBFGSSpec or HybridSpec", stage="spec_validation")
         variable_keys = tuple(_parameter_key(item.parameter) for item in checked_variables)
         if len(set(variable_keys)) != len(variable_keys):
             raise InvalidOptimizationSpec("optimization parameters must be unique", stage="spec_validation")
@@ -952,6 +1430,9 @@ class OptimizationSpec:
             or any(active_parameters[_parameter_key(item)] is not item for item in auth)
         ):
             raise InvalidOptimizationSpec("allow_extrapolation must contain unique active parameters", stage="spec_validation")
+        if discretization is not None and not isinstance(discretization, FixedMeshSpec):
+            raise TypeError("discretization must be FixedMeshSpec")
+        object.__setattr__(self, "discretization", discretization)
         object.__setattr__(self, "variables", checked_variables)
         object.__setattr__(self, "objectives", checked_objectives)
         object.__setattr__(self, "optimizer", optimizer)
@@ -998,11 +1479,14 @@ class OptimizationSpec:
             objectives=self.objectives,
             optimizer=self.optimizer,
             allow_extrapolation=allow_extrapolation,
+            discretization=self.discretization,
         )
         return instance
 
     def show(self) -> HtmlPresentation:
         """Present model defaults, active overrides, objectives, and CMA controls."""
+
+        from .results import HtmlPresentation
 
         def mapping_scale(variable: OptimizationVariable) -> str:
             if variable.scale is not None:
@@ -1031,10 +1515,7 @@ class OptimizationSpec:
             "</li>"
             for objective in self.objectives
         )
-        controls = (
-            f"seed={self.optimizer.seed}; max_evaluations={self.optimizer.max_evaluations}; "
-            f"population_size={self.optimizer.population_size}; initial_sigma={self.optimizer.initial_sigma}"
-        )
+        controls = str(self.optimizer._canonical_record())
         return HtmlPresentation(
             "<table><thead><tr><th>parameter</th><th>model default</th><th>consumer override</th><th>resolved bounds / domain</th><th>transform</th><th>mapping scale</th></tr></thead>"
             f"<tbody>{rows}</tbody></table><h3>objectives</h3><ul>{objectives}</ul><h3>optimizer</h3><p>{escape(controls)}</p>"
@@ -1045,121 +1526,7 @@ class OptimizationSpec:
             "type": "optimization", "variables": tuple(item._canonical_record() for item in self.variables),
             "objectives": tuple(item._canonical_record() for item in self.objectives),
             "optimizer": self.optimizer._canonical_record(), "allow_extrapolation": self.allow_extrapolation,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class PumpAxis:
-    """Name one independent positive-frequency HB pump fundamental."""
-
-    id: str
-    _frequency: Quantity
-
-    def __init__(self, *, id: str, frequency: Quantity) -> None:
-        id = _identifier(id, field="pump-axis id")
-        units.require_positive_quantity(frequency, "hertz", name="pump-axis frequency")
-        object.__setattr__(self, "id", id)
-        object.__setattr__(self, "_frequency", _detached_quantity(frequency))
-
-    @property
-    def frequency(self) -> Quantity:
-        return quantity_view(self._frequency)
-
-    def _canonical_record(self) -> Mapping[str, object]:
-        return {"id": self.id, "frequency": self.frequency}
-
-
-@dataclass(frozen=True, slots=True)
-class CurrentDrive:
-    """Declare one logical-Port HB Fourier-current injection channel."""
-
-    id: str
-    at: PortRef
-    mode: tuple[int, ...]
-
-    def __init__(self, *, id: str, at: PortRef, mode: tuple[int, ...]) -> None:
-        id = _identifier(id, field="HB drive id")
-        if not isinstance(at, PortRef):
-            raise TypeError("CurrentDrive.at must be a PortRef")
-        checked = _mode_tuple(mode, name="CurrentDrive.mode")
-        object.__setattr__(self, "id", id)
-        object.__setattr__(self, "at", at)
-        object.__setattr__(self, "mode", checked)
-
-    def _canonical_record(self) -> Mapping[str, object]:
-        return {
-            "id": self.id,
-            "port_id": self.at.id,
-            "mode": self.mode,
-            "orientation": "port_node_to_reference",
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class HBCaseSpec:
-    """Name one immutable set of declared HB drive coefficients."""
-
-    id: str
-    _currents: Mapping[CurrentDrive, Quantity]
-
-    def __init__(self, *, id: str, currents: Mapping[CurrentDrive, Quantity]) -> None:
-        id = _identifier(id, field="HB case id")
-        if not isinstance(currents, Mapping):
-            raise TypeError("HBCaseSpec.currents must be a mapping")
-        checked: dict[CurrentDrive, Quantity] = {}
-        for drive, current in currents.items():
-            if not isinstance(drive, CurrentDrive):
-                raise TypeError("HBCaseSpec current keys must be CurrentDrive values")
-            _validate_complex_current(current, name=f"current for drive {drive.id!r}")
-            checked[drive] = _detached_quantity(current)
-        object.__setattr__(self, "id", id)
-        object.__setattr__(self, "_currents", MappingProxyType(checked))
-
-    @property
-    def currents(self) -> Mapping[CurrentDrive, Quantity]:
-        return MappingProxyType({drive: quantity_view(current) for drive, current in self._currents.items()})
-
-@dataclass(frozen=True, slots=True)
-class HBTruncation:
-    """Declare the request-global finite HB operating and response lattices."""
-
-    pump_harmonics: tuple[int, ...]
-    modulation_harmonics: tuple[int, ...]
-    three_wave_mixing: bool
-    four_wave_mixing: bool
-    max_intermodulation_order: int | None
-
-    def __init__(
-        self,
-        *,
-        pump_harmonics: tuple[int, ...],
-        modulation_harmonics: tuple[int, ...],
-        three_wave_mixing: bool,
-        four_wave_mixing: bool,
-        max_intermodulation_order: int | None = None,
-    ) -> None:
-        pump = _nonnegative_int_tuple(pump_harmonics, name="pump_harmonics")
-        modulation = _nonnegative_int_tuple(modulation_harmonics, name="modulation_harmonics")
-        if not isinstance(three_wave_mixing, bool) or not isinstance(four_wave_mixing, bool):
-            raise TypeError("HB mixing selections must be bool")
-        if (
-            max_intermodulation_order is not None
-            and (not isinstance(max_intermodulation_order, int) or isinstance(max_intermodulation_order, bool) or max_intermodulation_order < 0)
-        ):
-            raise ValueError("max_intermodulation_order must be a nonnegative integer or None")
-        object.__setattr__(self, "pump_harmonics", pump)
-        object.__setattr__(self, "modulation_harmonics", modulation)
-        object.__setattr__(self, "three_wave_mixing", three_wave_mixing)
-        object.__setattr__(self, "four_wave_mixing", four_wave_mixing)
-        object.__setattr__(self, "max_intermodulation_order", max_intermodulation_order)
-
-    def _canonical_record(self) -> Mapping[str, object]:
-        return {
-            "pump_harmonics": self.pump_harmonics,
-            "modulation_harmonics": self.modulation_harmonics,
-            "max_intermodulation_order": self.max_intermodulation_order,
-            "three_wave_mixing": self.three_wave_mixing,
-            "four_wave_mixing": self.four_wave_mixing,
+            "discretization": None if self.discretization is None else self.discretization._canonical_record(),
         }
 
 
@@ -1202,137 +1569,6 @@ class SParameterTrace:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class HBSolveSpec:
-    """Request one immutable shared-basis nonlinear HB batch."""
-
-    pump_axes: tuple[PumpAxis, ...]
-    drives: tuple[CurrentDrive, ...]
-    _frequencies: Quantity
-    cases: tuple[HBCaseSpec, ...]
-    truncation: HBTruncation
-    traces: tuple[SParameterTrace, ...]
-    allow_driven_ptc: bool
-
-    def __init__(
-        self,
-        *,
-        pump_axes: Sequence[PumpAxis],
-        drives: Sequence[CurrentDrive],
-        frequencies: Quantity,
-        cases: Sequence[HBCaseSpec],
-        truncation: HBTruncation,
-        traces: Sequence[SParameterTrace] = (),
-        allow_driven_ptc: bool = False,
-    ) -> None:
-        axes = tuple(pump_axes)
-        declared_drives = tuple(drives)
-        declared_cases = tuple(cases)
-        declared_traces = tuple(traces)
-        if not all(isinstance(axis, PumpAxis) for axis in axes):
-            raise TypeError("pump_axes must contain PumpAxis values")
-        if len({axis.id for axis in axes}) != len(axes):
-            raise ValueError("pump-axis IDs must be unique")
-        if not all(isinstance(drive, CurrentDrive) for drive in declared_drives):
-            raise TypeError("drives must contain CurrentDrive values")
-        if len({drive.id for drive in declared_drives}) != len(declared_drives):
-            raise ValueError("HB drive IDs must be unique")
-        if not isinstance(truncation, HBTruncation):
-            raise TypeError("truncation must be an HBTruncation")
-        if len(truncation.pump_harmonics) != len(axes) or len(truncation.modulation_harmonics) != len(axes):
-            raise ValueError("HB truncation rank must equal pump-axis rank")
-        _validate_frequency_grid(frequencies)
-        if not all(isinstance(case, HBCaseSpec) for case in declared_cases) or not declared_cases:
-            raise ValueError("cases must be a nonempty sequence of HBCaseSpec values")
-        if len({case.id for case in declared_cases}) != len(declared_cases):
-            raise ValueError("HB case IDs must be unique")
-        if not all(isinstance(trace, SParameterTrace) for trace in declared_traces):
-            raise TypeError("traces must contain SParameterTrace values")
-        if len({trace.id for trace in declared_traces}) != len(declared_traces):
-            raise ValueError("HB trace IDs must be unique")
-        if not isinstance(allow_driven_ptc, bool):
-            raise TypeError("allow_driven_ptc must be bool")
-
-        rank = len(axes)
-        declared_by_mode: set[tuple[str, tuple[int, ...]]] = set()
-        for drive in declared_drives:
-            _validate_hb_mode(
-                drive.mode,
-                rank=rank,
-                limits=truncation.pump_harmonics,
-                truncation=truncation,
-                name=f"drive {drive.id!r}",
-            )
-            key = (drive.at.id, drive.mode)
-            inverse = (drive.at.id, tuple(-item for item in drive.mode))
-            if drive.mode and any(drive.mode) and inverse in declared_by_mode:
-                raise ValueError("HB drives must not independently declare conjugate modes at one Port")
-            declared_by_mode.add(key)
-        for trace in declared_traces:
-            _validate_hb_mode(
-                trace.input_mode,
-                rank=rank,
-                limits=truncation.modulation_harmonics,
-                truncation=truncation,
-                name=f"trace {trace.id!r} input_mode",
-            )
-            _validate_hb_mode(
-                trace.output_mode,
-                rank=rank,
-                limits=truncation.modulation_harmonics,
-                truncation=truncation,
-                name=f"trace {trace.id!r} output_mode",
-            )
-        declared_set = set(declared_drives)
-        for case in declared_cases:
-            for drive, current in case._currents.items():
-                if drive not in declared_set:
-                    raise ValueError("HB case binds a CurrentDrive not declared by this HBSolveSpec")
-                if not any(declared is drive for declared in declared_drives):
-                    raise ValueError("HB case must bind the exact declared CurrentDrive object")
-                if not any(drive.mode) and complex(current.to("ampere").magnitude).imag != 0.0:
-                    raise ValueError("a DC HB current coefficient must be real")
-        object.__setattr__(self, "pump_axes", axes)
-        object.__setattr__(self, "drives", declared_drives)
-        object.__setattr__(self, "_frequencies", _detached_quantity(frequencies))
-        object.__setattr__(self, "cases", declared_cases)
-        object.__setattr__(self, "truncation", truncation)
-        object.__setattr__(self, "traces", declared_traces)
-        object.__setattr__(self, "allow_driven_ptc", allow_driven_ptc)
-
-    @property
-    def frequencies(self) -> Quantity:
-        return quantity_view(self._frequencies)
-
-    def _canonical_record(self) -> Mapping[str, object]:
-        return {
-            "type": "hb_solve",
-            "pump_axes": tuple(axis._canonical_record() for axis in self.pump_axes),
-            "drives": tuple(drive._canonical_record() for drive in self.drives),
-            "frequencies": self.frequencies,
-            "cases": tuple(
-                {
-                    "id": case.id,
-                    "currents": tuple(
-                        {
-                            "drive_id": drive.id,
-                            "coefficient": current,
-                            "coefficient_convention": "exp_minus_i_m_dot_omega_t_fourier_coefficient",
-                        }
-                        for drive, current in self._ordered_case_currents(case)
-                    ),
-                }
-                for case in self.cases
-            ),
-            "truncation": self.truncation._canonical_record(),
-            "traces": tuple(trace._canonical_record() for trace in self.traces),
-            "allow_driven_ptc": self.allow_driven_ptc,
-        }
-
-    def _ordered_case_currents(self, case: HBCaseSpec) -> tuple[tuple[CurrentDrive, Quantity], ...]:
-        return tuple((drive, case._currents[drive]) for drive in self.drives if drive in case._currents)
-
-
 ReportChannel = str | tuple[str, tuple[int, ...]]
 
 
@@ -1364,49 +1600,13 @@ def _exact_report_channel(
     return channels[_channel_index(channels, selector, role=role, default=False)]
 
 
-def _declared_hb_trace_channels(
-    result: HBBatchResult,
-) -> Mapping[str, tuple[tuple[str, tuple[int, ...]], tuple[str, tuple[int, ...]]]]:
-    presentation = getattr(result, "_presentation", {})
-    declarations = (
-        presentation.get("declared_traces")
-        if isinstance(presentation, Mapping)
-        else None
-    )
-    if not isinstance(declarations, Mapping):
-        raise ValueError("HB Result has no verified declared-trace presentation metadata")
-    normalized: dict[
-        str, tuple[tuple[str, tuple[int, ...]], tuple[str, tuple[int, ...]]]
-    ] = {}
-    for identifier, declaration in declarations.items():
-        if not isinstance(identifier, str) or not isinstance(declaration, Mapping):
-            raise ValueError("HB Result declared-trace presentation metadata is malformed")
-        channels: list[tuple[str, tuple[int, ...]]] = []
-        for name in ("input_channel", "output_channel"):
-            channel = declaration.get(name)
-            coordinate = channel.get("coordinate") if isinstance(channel, Mapping) else None
-            mode = channel.get("mode") if isinstance(channel, Mapping) else None
-            if (
-                not isinstance(coordinate, str)
-                or not coordinate
-                or not isinstance(mode, (tuple, list))
-                or any(not isinstance(value, int) or isinstance(value, bool) for value in mode)
-            ):
-                raise ValueError("HB Result declared-trace presentation metadata is malformed")
-            channels.append((coordinate, tuple(mode)))
-        normalized[identifier] = (channels[0], channels[1])
-    return MappingProxyType(normalized)
-
-
 @dataclass(frozen=True, slots=True)
 class ReportPanel:
     """One closed presentation selection for an exact verified Result."""
 
-    result: AnalysisResult
+    result: Result
     kind: Literal["response", "matrix", "summary", "outcomes", "history"]
     family: Literal["S", "Y", "Z"] | None
-    case: str | None
-    trace: str | None
     input_channel: ReportChannel | None
     output_channel: ReportChannel | None
     _frequency: Quantity | None = field(repr=False)
@@ -1420,11 +1620,9 @@ class ReportPanel:
     def __init__(
         self,
         *,
-        result: AnalysisResult,
+        result: Result,
         kind: Literal["response", "matrix", "summary", "outcomes", "history"] | None = None,
         family: Literal["S", "Y", "Z"] | None = None,
-        case: str | None = None,
-        trace: str | None = None,
         input_channel: ReportChannel | None = None,
         output_channel: ReportChannel | None = None,
         frequency: Quantity | None = None,
@@ -1435,14 +1633,24 @@ class ReportPanel:
         objective: str | None = None,
         parameter: ParameterRef | None = None,
     ) -> None:
-        if not _is_verified_analysis_result(result):
-            raise TypeError("ReportPanel.result must be a verified AnalysisResult")
+        from .results import (
+            DirectSolveResult, OperatorResult, OptimizationResult,
+            ParameterSweepResult, _is_checked_report_input,
+            InMemoryDirectSolveResult, InMemoryAnalysisResult,
+            InMemoryParameterSweepResult, InMemoryOptimizationResult,
+        )
+
+        if not _is_checked_report_input(result):
+            raise TypeError("ReportPanel.result must be a checked report Result")
+        is_direct = isinstance(result, (DirectSolveResult, InMemoryDirectSolveResult)) or (
+            type(result) is InMemoryAnalysisResult and result.result_kind == "direct_solve" and result.status == "success"
+        )
+        is_operator = isinstance(result, OperatorResult) or (
+            type(result) is InMemoryAnalysisResult and result.result_kind == "operator" and result.status == "success"
+        )
+        is_optimization = isinstance(result, (OptimizationResult, InMemoryOptimizationResult))
         if family is not None:
             _family(family)
-        if case is not None and (not isinstance(case, str) or not case):
-            raise TypeError("case must be a nonempty case ID or None")
-        if trace is not None and (not isinstance(trace, str) or not trace):
-            raise TypeError("trace must be a nonempty trace ID or None")
         input_channel = _report_channel(input_channel, name="input_channel")
         output_channel = _report_channel(output_channel, name="output_channel")
         if frequency is not None:
@@ -1464,7 +1672,7 @@ class ReportPanel:
         history_requested = any(value is not None for value in (history_metric, objective, parameter))
         response_requested = any(
             value is not None
-            for value in (family, case, trace, input_channel, output_channel, component, magnitude)
+            for value in (family, input_channel, output_channel, component, magnitude)
         )
         if kind is None:
             groups = sum((matrix_requested, history_requested, response_requested and not matrix_requested))
@@ -1476,11 +1684,11 @@ class ReportPanel:
                 kind = "history"
             elif response_requested:
                 kind = "response"
-            elif isinstance(result, DirectSolveResult):
+            elif is_direct:
                 kind = "response" if len(result.s.view.input_channels) == len(result.s.view.output_channels) == 1 else "summary"
-            elif isinstance(result, (HBBatchResult, ParameterSweepResult)):
+            elif isinstance(result, (ParameterSweepResult, InMemoryParameterSweepResult)):
                 kind = "outcomes"
-            elif isinstance(result, OptimizationResult):
+            elif is_optimization:
                 kind = "history"
             else:
                 kind = "summary"
@@ -1488,18 +1696,12 @@ class ReportPanel:
             raise ValueError("kind must be 'response', 'matrix', 'summary', 'outcomes', or 'history'")
 
         if kind == "response":
-            if not isinstance(result, (DirectSolveResult, HBBatchResult)):
-                raise TypeError("response panels require a Direct or HB Result")
+            if not is_direct:
+                raise TypeError("response panels require a Direct Result")
             if matrix_requested or history_requested:
                 raise ValueError("response panels do not accept matrix or history selectors")
-            if trace is not None and (input_channel is not None or output_channel is not None):
-                raise ValueError("trace and matrix-channel selection are mutually exclusive")
             if (input_channel is None) != (output_channel is None):
                 raise ValueError("input_channel and output_channel must be supplied together")
-            if isinstance(result, DirectSolveResult) and (case is not None or trace is not None):
-                raise ValueError("Direct response panels do not accept HB case or trace selectors")
-            if isinstance(result, HBBatchResult) and family not in {None, "S"}:
-                raise ValueError("HB response panels support only the S family")
             family = "S" if family is None else family
             component = "magnitude" if component is None else component
             magnitude = "linear" if magnitude is None else magnitude
@@ -1507,7 +1709,7 @@ class ReportPanel:
                 raise ValueError("dB is supported only for S magnitude")
             if component != "magnitude" and magnitude != "linear":
                 raise ValueError("dB magnitude is incompatible with a non-magnitude component")
-            if isinstance(result, DirectSolveResult):
+            if is_direct:
                 view = result._family(family).view
                 if (
                     input_channel is None
@@ -1524,82 +1726,18 @@ class ReportPanel:
                     view.output_channels[0] if output_channel is None else output_channel,
                     role="output",
                 )
-            else:
-                if case is not None and case not in result.cases:
-                    raise ValueError(f"unknown HB case: {case}")
-                selected_cases = (
-                    (result.cases[case],)
-                    if case is not None
-                    else tuple(result.cases.values())
-                )
-                successful = tuple(
-                    outcome for outcome in selected_cases if outcome.succeeded
-                )
-                declared_traces = _declared_hb_trace_channels(result)
-                if trace is not None:
-                    if trace not in declared_traces:
-                        raise ValueError(f"unknown HB trace: {trace}")
-                    if any(trace not in outcome.traces for outcome in successful):
-                        raise ValueError(f"unknown HB trace: {trace}")
-                if trace is None and input_channel is None and successful:
-                    if any(
-                        len(outcome.s.view.input_channels) != 1
-                        or len(outcome.s.view.output_channels) != 1
-                        for outcome in successful
-                    ):
-                        raise ValueError("multichannel HB response panels require a trace or exact channels")
-                if input_channel is not None:
-                    if successful:
-                        first = successful[0].s.view
-                        input_channel = _exact_report_channel(
-                            first.input_channels, input_channel, role="HB input"
-                        )
-                        output_channel = _exact_report_channel(
-                            first.output_channels, output_channel, role="HB output"
-                        )
-                        for outcome in successful[1:]:
-                            view = outcome.s.view
-                            if (
-                                input_channel not in view.input_channels
-                                or output_channel not in view.output_channels
-                            ):
-                                raise ValueError(
-                                    "selected HB channels are absent from a successful case"
-                                )
-                    else:
-                        declared_pairs = tuple(declared_traces.values())
-                        declared_inputs = tuple(dict.fromkeys(
-                            item[0] for item in declared_pairs
-                        ))
-                        declared_outputs = tuple(dict.fromkeys(
-                            item[1] for item in declared_pairs
-                        ))
-                        input_channel = _exact_report_channel(
-                            declared_inputs,
-                            input_channel,
-                            role="HB declared input",
-                        )
-                        output_channel = _exact_report_channel(
-                            declared_outputs,
-                            output_channel,
-                            role="HB declared output",
-                        )
-                        if (input_channel, output_channel) not in declared_pairs:
-                            raise ValueError(
-                                "failed HB response channels must match one declared trace"
-                            )
             history_metric = None
         elif kind == "matrix":
-            if not isinstance(result, (DirectSolveResult, OperatorResult)):
+            if not (is_direct or is_operator):
                 raise TypeError("matrix panels require a Direct or Operator Result")
-            if history_requested or any(value is not None for value in (case, trace, input_channel, output_channel)):
-                raise ValueError("matrix panels accept no response-channel, case, trace, or history selectors")
+            if history_requested or any(value is not None for value in (input_channel, output_channel)):
+                raise ValueError("matrix panels accept no response-channel or history selectors")
             if frequency is None:
                 raise ValueError("matrix panels require an exact frequency")
             matrix_style = "table" if matrix_style is None else matrix_style
-            if isinstance(result, OperatorResult) and family is not None:
+            if is_operator and family is not None:
                 raise ValueError("Operator matrix panels do not accept an S/Y/Z family")
-            if isinstance(result, DirectSolveResult):
+            if is_direct:
                 family = "S" if family is None else family
                 view = result._family(family).view
                 from .results.selection import _frequency_index
@@ -1615,15 +1753,15 @@ class ReportPanel:
                 if component is None:
                     raise ValueError("matrix heatmaps require an explicit component")
                 magnitude = "linear" if magnitude is None else magnitude
-                if isinstance(result, OperatorResult) and magnitude != "linear":
+                if is_operator and magnitude != "linear":
                     raise ValueError("Operator heatmaps do not accept dB magnitude")
-                if isinstance(result, DirectSolveResult) and magnitude == "db" and (
+                if is_direct and magnitude == "db" and (
                     family != "S" or component != "magnitude"
                 ):
                     raise ValueError("dB is supported only for S magnitude")
             history_metric = None
         elif kind == "history":
-            if not isinstance(result, OptimizationResult):
+            if not is_optimization:
                 raise TypeError("history panels require an OptimizationResult")
             if matrix_requested or response_requested:
                 raise ValueError("history panels accept no response or matrix selectors")
@@ -1652,15 +1790,13 @@ class ReportPanel:
         else:
             if matrix_requested or history_requested or response_requested:
                 raise ValueError(f"{kind} panels accept no selection fields")
-            if kind == "outcomes" and not isinstance(result, (HBBatchResult, ParameterSweepResult)):
-                raise TypeError("outcomes panels require an HB batch or parameter sweep")
+            if kind == "outcomes" and not isinstance(result, (ParameterSweepResult, InMemoryParameterSweepResult)):
+                raise TypeError("outcomes panels require a parameter sweep")
             history_metric = None
 
         object.__setattr__(self, "result", result)
         object.__setattr__(self, "kind", kind)
         object.__setattr__(self, "family", family)
-        object.__setattr__(self, "case", case)
-        object.__setattr__(self, "trace", trace)
         object.__setattr__(self, "input_channel", input_channel)
         object.__setattr__(self, "output_channel", output_channel)
         object.__setattr__(self, "_frequency", None if frequency is None else immutable_quantity(frequency))
@@ -1678,22 +1814,24 @@ class ReportPanel:
 
 @dataclass(frozen=True, slots=True)
 class ReportSpec:
-    """Choose exact existing Analysis Results for a pure derived report."""
+    """Choose exact checked saved or detached Results for a pure derived report."""
 
-    inputs: tuple[AnalysisResult, ...]
+    inputs: tuple[Result, ...]
     theme: Theme = Theme.AUTO
     panels: tuple[ReportPanel, ...] = ()
 
     def __init__(
         self,
         *,
-        inputs: Sequence[AnalysisResult],
+        inputs: Sequence[Result],
         theme: Theme = Theme.AUTO,
         panels: Sequence[ReportPanel] = (),
     ) -> None:
+        from .results import _is_checked_report_input
+
         checked = tuple(inputs)
-        if not checked or not all(_is_verified_analysis_result(item) for item in checked):
-            raise TypeError("ReportSpec.inputs must be nonempty AnalysisResult values")
+        if not checked or not all(_is_checked_report_input(item) for item in checked):
+            raise TypeError("ReportSpec.inputs must be nonempty checked report Result values")
         if any(left is right for index, left in enumerate(checked) for right in checked[index + 1 :]):
             raise ValueError("ReportSpec.inputs must not repeat the same Result object")
         selected = tuple(panels)

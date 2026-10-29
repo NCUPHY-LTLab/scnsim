@@ -21,9 +21,9 @@ from pathlib import Path
 from typing import Mapping
 
 
-TRANSITION_ID = "scnsim.sqlite_commit_default10.20261008"
-PRIOR_PUBLISHED_GIT_COMMIT = "10b0b1f72b498c4a2c5c851e10629726ededd1f2"
-TRANSITION_FILE = Path(__file__).with_name("engineer_publication_transitions_sqlite_default10.json")
+TRANSITION_ID = "scnsim.r2.course_presentation_namespace.992ca14.20261027"
+PRIOR_PUBLISHED_GIT_COMMIT = "992ca14c8a6ef677fca29ce0b736f55ababa406d"
+TRANSITION_FILE = Path(__file__).with_name("engineer_publication_transitions_r2_course_presentation_992ca14_20261027.json")
 _TRANSITION_NAMES = {
     f"chapter-{chapter:02d}-artifacts.json" for chapter in range(1, 9)
 }
@@ -297,7 +297,8 @@ def _prior_publication_binding(
 
 
 def _historical_execution(
-    manifest: Mapping[str, object], prior_binding: Mapping[str, object]
+    manifest: Mapping[str, object], prior_binding: Mapping[str, object],
+    *, prior_publication_artifacts: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     executed = manifest.get("binding")
     if not isinstance(executed, Mapping):
@@ -322,7 +323,10 @@ def _historical_execution(
         or payload_sha256 != _canonical_sha256(_execution_payload(manifest, artifacts))
     ):
         raise RuntimeError("engineer historical execution evidence is inconsistent")
-    prior_artifacts = manifest.get("artifacts")
+    prior_artifacts = (
+        manifest.get("artifacts")
+        if prior_publication_artifacts is None else prior_publication_artifacts
+    )
     if not isinstance(prior_artifacts, Mapping):
         raise RuntimeError("engineer prior publication artifacts are malformed")
     redrawn = {
@@ -565,9 +569,22 @@ def _prepare_rebind(
     name, transition = _transition_for(current)
     if name != path.name or hashlib.sha256(raw).hexdigest() != transition.get("prior_manifest_sha256"):
         raise RuntimeError(f"{path} is not the exact trusted prior published manifest")
-    artifacts = manifest.get("artifacts")
-    if not isinstance(artifacts, Mapping) or artifacts != transition.get("artifacts"):
-        raise RuntimeError(f"{path} prior published artifacts are inconsistent")
+    prior_artifacts = manifest.get("artifacts")
+    artifacts = transition.get("artifacts")
+    if (
+        not isinstance(prior_artifacts, Mapping)
+        or not isinstance(artifacts, Mapping)
+        or set(prior_artifacts) != set(artifacts)
+        or any(
+            not isinstance(name, str)
+            or not isinstance(artifacts[name], str)
+            or (prior_artifacts[name] != artifacts[name] and Path(name).suffix != ".md")
+            for name in artifacts
+        )
+    ):
+        raise RuntimeError(f"{path} source-only artifact change is not Markdown-only")
+    # The trusted manifest seals execution history. The closed transition seals
+    # actual published wrappers, which may differ only in reviewed Markdown.
     actual_artifacts = {
         artifact: hashlib.sha256((path.parent / artifact).read_bytes()).hexdigest()
         for artifact in artifacts
@@ -575,13 +592,16 @@ def _prepare_rebind(
     if actual_artifacts != dict(artifacts):
         raise RuntimeError(f"{path} prior published artifact bytes changed")
     if validate_historical is not None:
-        validate_historical(manifest, artifact_sha256=actual_artifacts)  # type: ignore[operator]
+        validate_historical(manifest, artifact_sha256=dict(prior_artifacts))  # type: ignore[operator]
     prior_binding = _prior_publication_binding(
         manifest,
         reviewed_prior=_prior_binding_from_transition(current, transition),
     )
-    historical = _historical_execution(manifest, prior_binding)
+    historical = _historical_execution(
+        manifest, prior_binding, prior_publication_artifacts=artifacts,
+    )
     previous_rebind = manifest.get("publication_rebind")
+    manifest["artifacts"] = dict(artifacts)
     manifest["publication_binding"] = _publication_record(current)
     manifest["publication_rebind"] = _rebind_record(
         prior_manifest_sha256=hashlib.sha256(raw).hexdigest(),
@@ -619,6 +639,106 @@ def _publish_all(candidates: list[tuple[Path, bytes]]) -> None:
     finally:
         for _, temporary in staged:
             temporary.unlink(missing_ok=True)
+
+
+
+def _bind_course_examples(root: Path) -> None:
+    """Expose only this course's companion namespace after installed validation."""
+    import importlib.machinery
+    import importlib.util
+    import sys
+
+    directory = (root / "examples").resolve(strict=True)
+    if "examples" in sys.modules:
+        existing = sys.modules["examples"]
+        paths = getattr(existing, "__path__", ())
+        if tuple(Path(path).resolve(strict=True) for path in paths) != (directory,):
+            raise RuntimeError("existing examples namespace differs from course source")
+        return
+    spec = importlib.machinery.ModuleSpec("examples", loader=None, is_package=True)
+    spec.submodule_search_locations = [str(directory)]
+    sys.modules["examples"] = importlib.util.module_from_spec(spec)
+
+
+def installed_course_runtime(root: Path) -> dict[str, object]:
+    """Bind explicit course execution to an exact noneditable installed wheel.
+
+    Source-only --check never calls this. Generated knowledge has its own
+    maintenance authority; all installed files still bind to the actual wheel
+    and RECORD, while runtime contributors must match the canonical source.
+    Paths remain private execution facts, not public figure metadata.
+    """
+    import base64
+    import csv
+    import importlib.metadata
+    import sys
+    import tomllib
+    from urllib.parse import unquote, urlparse
+    import zipfile
+    import scnsim
+
+    distribution = importlib.metadata.distribution("scnsim")
+    package = Path(scnsim.__file__).resolve(strict=True).parent
+    prefix = Path(sys.prefix).resolve(strict=True)
+    if package.is_relative_to(root.resolve()) or not package.is_relative_to(prefix):
+        raise RuntimeError("course generation requires the isolated installed wheel")
+    direct = json.loads(distribution.read_text("direct_url.json") or "{}")
+    if direct.get("dir_info", {}).get("editable", False):
+        raise RuntimeError("course generation does not use editable producer installation")
+    url = urlparse(direct.get("url", ""))
+    if url.scheme != "file" or url.netloc not in ("", "localhost"):
+        raise RuntimeError("course generation requires its retained local wheel input")
+    wheel = Path(unquote(url.path))
+    if os.name == "nt" and wheel.as_posix().startswith("/") and len(wheel.as_posix()) > 3 and wheel.as_posix()[2] == ":":
+        wheel = Path(wheel.as_posix()[1:])
+    if wheel.suffix != ".whl" or not wheel.is_file():
+        raise RuntimeError("course wheel input is unavailable")
+    record = distribution.read_text("RECORD")
+    if record is None:
+        raise RuntimeError("installed wheel RECORD is unavailable")
+    for name, digest, length in csv.reader(record.splitlines()):
+        if digest:
+            raw = Path(distribution.locate_file(name)).read_bytes()
+            actual = "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")
+            if actual != digest or len(raw) != int(length):
+                raise RuntimeError("installed course RECORD mismatch: " + name)
+    with zipfile.ZipFile(wheel) as archive:
+        wheel_record, = [name for name in archive.namelist() if name.endswith(".dist-info/RECORD")]
+        for name, digest, length in csv.reader(archive.read(wheel_record).decode().splitlines()):
+            if digest:
+                raw = archive.read(name)
+                actual = "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")
+                if actual != digest or len(raw) != int(length):
+                    raise RuntimeError("course wheel RECORD mismatch: " + name)
+                if Path(distribution.locate_file(name)).read_bytes() != raw:
+                    raise RuntimeError("installed course input differs from exact wheel: " + name)
+    version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    if distribution.version != version:
+        raise RuntimeError("installed course version differs from canonical source")
+    contributors = {}
+    for source in sorted((root / "src/scnsim").rglob("*")):
+        relative = source.relative_to(root / "src")
+        if (not source.is_file() or "_agent_knowledge" in relative.parts
+                or source.suffix not in {".py", ".json", ".toml", ".cpp"}):
+            continue
+        installed = Path(distribution.locate_file(relative.as_posix()))
+        raw = source.read_bytes()
+        if installed.read_bytes() != raw:
+            raise RuntimeError("installed course contributor differs: " + relative.as_posix())
+        contributors[relative.as_posix()] = hashlib.sha256(raw).hexdigest()
+    native = {str(path.relative_to(package)): hashlib.sha256(path.read_bytes()).hexdigest()
+              for path in sorted((package / "_native").glob("_compensated_cpu*"))
+              if path.suffix in {".so", ".pyd", ".dll"}}
+    if not native:
+        raise RuntimeError("installed compensated native resource is unavailable")
+    _bind_course_examples(root)
+    return {"python": sys.version.split()[0], "scnsim": distribution.version,
+            "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            "installed_record_sha256": hashlib.sha256(record.encode()).hexdigest(),
+            "course_helper_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "runtime_contributors_sha256": hashlib.sha256(json.dumps(
+                contributors, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+            "native_resources": native, "noneditable": True}
 
 
 def main() -> None:

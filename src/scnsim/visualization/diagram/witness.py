@@ -1,8 +1,7 @@
-"""Independent A/B witnesses for one emitted structured diagram scene.
+"""Independent A/B witness for one emitted manual diagram scene.
 
-Expected facts come from the immutable resolved point/compiler evidence.
-Observed facts come from visible neutral-scene geometry only; renderer
-correlation, placement, semantic tags, and captured net names are never read.
+Expected facts come from the immutable resolved point. Electrical observations
+come from visible neutral-scene geometry; correlation keys never supply nets.
 """
 
 from __future__ import annotations
@@ -66,6 +65,8 @@ def witness_authoring(
     scene: NeutralScene,
     *,
     show_values: bool,
+    layout,
+    metrics,
 ) -> tuple[Mapping[str, object], Mapping[str, object], tuple[Mapping[str, object], ...]]:
     """Reconstruct and compare exact authoring A/B visible evidence."""
 
@@ -73,9 +74,9 @@ def witness_authoring(
         raise TypeError("visible authoring witness requires point and NeutralScene")
     if not isinstance(show_values, bool):
         raise TypeError("show_values must be boolean")
-    expected = build_point_expected(point, representation="authoring")
+    expected = build_point_expected(point)
     electrical, structural, rows = reconstruct_authoring(
-        scene, show_values=show_values
+        scene, show_values=show_values, layout=layout, metrics=metrics
     )
     _compare("authoring electrical reconstruction", expected.electrical, electrical)
     _compare("authoring structural reconstruction", expected.structural, structural)
@@ -110,45 +111,4 @@ def witness_authoring(
     return electrical, structural, rows
 
 
-def witness_compiled(
-    point: ResolvedPlanPoint,
-    scene: NeutralScene,
-    compiled_evidence: Mapping[str, object],
-    *,
-    show_values: bool,
-) -> tuple[Mapping[str, object], Mapping[str, object], tuple[Mapping[str, object], ...]]:
-    """Reconstruct and compare exact same-point compiled visible evidence."""
-
-    if not isinstance(point, ResolvedPlanPoint) or not isinstance(scene, NeutralScene):
-        raise TypeError("visible compiled witness requires point and NeutralScene")
-    if not isinstance(compiled_evidence, Mapping):
-        raise TypeError("compiled witness requires compiler evidence mapping")
-    if not isinstance(show_values, bool):
-        raise TypeError("show_values must be boolean")
-    expected = build_point_expected(
-        point,
-        representation="compiled",
-        compiled_evidence=compiled_evidence,
-    )
-    from .audit import (
-        _compiled_manifests,
-        _verify_compiled_geometry,
-        _visible_compiled_rows,
-    )
-
-    node_order, visible_rows = _visible_compiled_rows(scene)
-    detail_rows, ports = _verify_compiled_geometry(scene, node_order, visible_rows)
-    ordered_ports = sorted(ports, key=lambda row: cast(str, row["port_id"]))
-    electrical, structural = _compiled_manifests(
-        node_order, visible_rows, ordered_ports
-    )
-    _compare("compiled electrical reconstruction", expected.electrical, electrical)
-    _compare("compiled structural reconstruction", expected.structural, structural)
-    if any((symbol.value is not None) != show_values for symbol in scene.symbols):
-        raise _fail(
-            "compiled coefficient glyph value visibility disagrees with the diagram request"
-        )
-    return electrical, structural, tuple(detail_rows)
-
-
-__all__ = ["witness_authoring", "witness_compiled"]
+__all__ = ["witness_authoring"]

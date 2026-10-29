@@ -1,0 +1,42 @@
+---
+title: "輸入與單位"
+description: "宣告物理數值、綁定要選取的參數，並依單位讀取回傳量。"
+lang: zh-TW
+---
+
+所有物理輸入與輸出都應使用帶單位的 `Quantity`。固定值直接使用常數；只有物理欄位需要在不同計算間變動時，才建立參數。
+
+## 宣告物理數值
+
+匯入 SCNSim 的單位登錄表，並為每個數值附上單位：
+
+{{< include ../../_generated/canonical-code/docs/tutorials/inputs-units.qmd/block-001.qmd >}}
+
+一般頻率使用 Hz，角頻率使用 rad/s。單獨的 `110.0` 沒有描述電容量的物理單位。
+
+## 綁定會變動的輸入
+
+當元件欄位需要具名物理輸入時，使用 `ParameterDefinitions` 與 `ParameterSpec`。`ParameterSet` 會為既有綁定選取數值，不會建立新綁定。
+
+{{< include ../../_generated/canonical-code/docs/tutorials/inputs-units.qmd/block-002.qmd >}}
+
+建立 Plan 時，請將 `capacitance` 傳給元件欄位。只有在要替已綁定欄位選取數值時，才使用 `selected`。固定電感或耦合電容可以直接使用帶單位的 `Quantity`。
+
+## 依所需單位讀取結果
+
+Result 會保留物理單位。請轉換回傳量，以供顯示或比較：
+
+{{< include ../../_generated/canonical-code/docs/tutorials/inputs-units.qmd/block-003.qmd >}}
+
+只改標籤或只讀取原始數值不會轉換物理量。請在計算過程保留 `Quantity`，並在報告時轉換。
+
+## 常見輸入錯誤
+
+- 單獨的數字沒有物理量綱，請附上所需單位。
+- Hz 與 rad/s 代表不同的頻率慣例，請依請求使用正確單位。
+- `ParameterSet` 只能替已綁定至元件欄位的參數提供數值。
+- Root Hint 是局部搜尋的起始值，不是答案，也不代表要找出所有根。
+- 電路圖呈現 Plan；它不會建立電氣連線，也不會選擇分析 View。
+- 傳輸線使用實際長度、數值 RLGC 矩陣與明確的導體順序。圖面上的線長不是傳輸線的實際長度。
+
+接著可閱讀[模擬慣例](../concepts/simulation-conventions.qmd)、[參數系統](/en/docs/contracts/parameter-system.html)與[根與分支選擇指南](../guides/roots-and-branch-selection.qmd)。

@@ -1,0 +1,18 @@
+---
+title: "第 6 章 — 電路圖自訂"
+subtitle: "工程課程 · 繁體中文"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 第 6 章 — 電路圖自訂
+
+本章在乾淨核心中獨立執行。四個網頁課程依序呈現來源片段。必要 API 只改變電路圖呈現，電路 Plan 仍是權威。
+
+本章檢視明確配置、Port 姿態、T 形與十字接點，以及同一完整配置的重用。
+{{< include _01-default.qmd >}}
+{{< include _02-port-poses.qmd >}}
+{{< include _03-junctions.qmd >}}
+{{< include _04-reuse.qmd >}}

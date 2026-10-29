@@ -1,0 +1,50 @@
+- title: "Component authoring"
+  path: "../component-authoring.qmd"
+  description: "Choose physical component fields, boundaries, and supported models."
+  topic: model
+  order: 0
+- title: "CircuitPlan assembly"
+  path: "circuit-plan-assembly.qmd"
+  description: "Connect components and reusable subsystems into one complete Plan."
+  topic: model
+  order: 1
+- title: "Manual circuit diagrams"
+  path: "automatic-semantic-circuit-diagram-layout.qmd"
+  description: "Declare geometry and inspect its electrical correspondence to the Plan."
+  topic: model
+  order: 2
+- title: "Parameters, sweeps, and bound Results"
+  path: "parameter-system.qmd"
+  description: "Bind physical inputs and inspect points, spaces, and optimization parameters."
+  topic: model
+  order: 3
+- title: "Runtime and Result contracts"
+  path: "../v1-runtime-contract.qmd"
+  description: "Specify numerical requests, ownership, units, failures, and saved readback."
+  topic: run
+  order: 4
+- title: "Roots and branch selection"
+  path: "../guides/roots-and-branch-selection.qmd"
+  description: "Distinguish a Hint, an explicit search, and a tracked local branch."
+  topic: run
+  order: 5
+- title: "Sensitivity"
+  path: "../guides/sensitivity.qmd"
+  description: "Declare derivatives and read their units and availability."
+  topic: run
+  order: 6
+- title: "Static capacitance"
+  path: "static-capacitance.qmd"
+  description: "Evaluate finite compiled capacitance matrices and zero-charge reductions."
+  topic: run
+  order: 7
+- title: "Benchmark"
+  path: "../guides/benchmark.qmd"
+  description: "Separate preparation, numerical work, storage, and public-call clocks."
+  topic: run
+  order: 8
+- title: "Workspace evidence v3"
+  path: "workspace-evidence-v3.qmd"
+  description: "Read exact binary columns, fixed results and old-format rejection."
+  topic: run
+  order: 9

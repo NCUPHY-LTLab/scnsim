@@ -1,17 +1,168 @@
 ---
-title: "Workspace, Attempts, Receipts, and Artifacts"
-subtitle: "How is durable evidence appended and resolved safely?"
+title: "Workspace, operations and saved Results"
+subtitle: "Publish exact binary evidence and resolve a fixed result"
 toc-depth: 2
 ---
+
+A Workspace stores immutable numerical objects and fixed result selections in
+SQLite. Reconstruct the same Plan, View, Spec and parameters to read a saved
+Result with `resolve()`; reading never runs a solver.
+
+## One Plan leaf and one operation store
+
+A replaceable Workspace root selects one sealed Plan leaf. Its operation store
+is `operations/operations.sqlite3`, internal revision 8 with evidence version 3.
+SQLite uses DELETE journaling and EXTRA synchronization. Object references bind
+schema, storage/database, role, full hash and exact length.
+
+`versioned=False` supports topology iteration: a changed Plan selects a new
+leaf, and a reader bound to the replaced instance raises
+`WorkspacePlanReplacedError`. `versioned=True` retains separate topology
+iterations. Workspace location does not become the physical circuit identity.
+
+## Immutable data and atomic completion
+
+Direct, including a parameter Sweep of Direct, writes the original call's
+synchronized host arrays directly to checked immutable objects. Its sink retains
+small references, not a spool or a second numerical result. Optimization keeps
+its operation spool and ordered lazy history.
+
+A newly inserted object is read back and verified before `put_object` returns.
+Completed chunks may commit independently, but those chunks alone do not select
+a successful Result. The final revision-checked transaction publishes the
+manifest, result, completion, terminal attempt state and success selection
+atomically. Failed or interrupted attempts keep their actual evidence.
+
+CMA publishes complete post-tell groups and the declared checkpoint state.
+The baseline is not generation zero; iteration/evaluation counters retain their
+optimizer meaning. Each public `stage.history` includes its saved baseline
+before its evaluations. Stage/model/source-bound locators preserve ancestry,
+including continuation histories; absent or corrupt declarations are not
+replaced by a global baseline.
+
+## Readback and lifetime
+
+Readers fix immutable completion metadata and hydrate selected objects in short
+readonly snapshots. They verify role, schema, hash, framing, length and the closed
+binary header. A reopened snapshot verifies again. Results retain no Run,
+live connection, numerical factor or AD tape. Values already materialized remain
+detached, while unloaded values require their original intact Workspace.
+
+`run.close()` releases Run-owned resources. Fixed saved Results remain readable
+after close and in an independent process. Memory Results are detached and have
+no saved attempt or completion identity. Sweep points retain their original
+source order, repeated points, values, executed markers and structured failures.
+Public Direct/Operator evidence is readonly and belongs to the same call;
+conditional affine evidence appears only when used.
+
+## Format admission and recovery
+
+Opening an existing Workspace checks its envelope/store version read-only
+before creating a directory, lock file or writable SQLite connection. The
+current format is checked again under the ordinary lock before mutation.
+Old data are neither migrated nor deleted. The typed rejection states:
+
+> Operation evidence was written by a pre-1.0 development build that 1.0 does not support; use a new Workspace and recompute.
+
+Readonly `resolve()` and Benchmark never recover or repair evidence. When an
+existing current store requires recovery, explicitly use
+`run.recover_workspace()`; that operation does not resume numerical work.
+Preserve the complete leaf and any SQLite journal when relocating data.
+
+## Locks and platform boundary
+
+Stable Workspace locks and operation leases preserve the established ownership
+order. POSIX uses advisory file locks; Windows uses native byte-range locks.
+Readonly SQLite paths use `Path.as_uri()` with `mode=ro`, including Windows
+paths and Unicode. Lock success is separate from publication durability;
+filesystem and SQLite errors retain their original typed causes.
+
+See [Workspace evidence v3](../contracts/workspace-evidence-v3.qmd) for exact
+columns and [the lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle)
+for operation and reader ownership.
+
+## History: superseded pre-1.0 implementation
+
+The following record describes the earlier runtime and storage versions.
+Its algorithms, schema IDs and execution observations keep their original scope.
+Use the current interfaces above for 1.0.
+
+<details>
+<summary>Earlier implementation record</summary>
 
 **Status:** Accepted append-only Result evidence remains `STABILIZED`; the
 newer Run preparation, replacement maintenance, read leases, and optimization
 checkpoint/resume ownership paths remain `CONVERGING`.
 
+## Current JAX operation evidence
+
+Current operation evidence uses the Plan leaf's `operations/operations.sqlite3`,
+OperationStore version7, with DELETE/EXTRA. Older operation stores are rejected:
+use a new Workspace and recompute; no old reader, migration or deletion is
+provided. The native Julia request/attempt/result-file protocol below remains
+its distinct current backend contract, not a JAX compatibility path.
+
+Manifest plus operation start publish atomically. Request/task/attempt/running
+state and operation association register in one required transaction. The
+`benchmark_value` object contains the canonical scientific body directly as
+`record_bytes(body)`, with no task/key wrapper or occurrence fields. Its
+intrinsic parameters, identity, dependencies and numerical evidence remain in
+that body. Each ordered occurrence retains its exact task-local context and
+body reference. Fixed readers hydrate only selected referenced bodies in a short snapshot;
+role, length and hash checks are cached only for that transaction/snapshot and
+repeated after reopen/relock.
+
+JAX Optimization prepares its baseline and sealed anchors in memory. Workers
+acknowledge anchor installation in memory; no baseline commit, generation-0
+checkpoint or initial callback is emitted. Only complete post-tell generations
+count. The first completed group includes the baseline body once; generation
+checkpoints additionally contain anchor restore state and the latest completed
+CMA/RNG state at generation 1 or later. Off omits restore-only state. Required
+group ACK precedes its callback; optional diagnostics are separate. Failure or
+interruption preserves actual complete generation tails and the original error,
+without resending a failed/uncertain required batch.
+
+The dev27 JAX Direct/Sweep completion domain owns versioned exact binding,
+ordered point/frequency chunk references and the final verified result selection.
+Chunks are staged privately and final success is atomic; there is no per-chunk
+COMMIT. Results bind that fixed completion once and read selected chunks in
+short snapshots, without task replay, implicit recovery or latest reselection.
+Explicit selected output axes are factorized metadata, not repeated per-frequency
+records. Unpublished scratch remains execution-owned rather than a Result.
+The new completion domain does not change SQLite operation version7 or the
+independent Julia native artifact formats. Its concrete producer/reader records
+are being implemented within the same current contract.
+
+Normal solve/evaluate publishes required result, successful attempt and first
+success selection atomically, followed by optional timing and the separate
+operation root. Result reads never execute a solver. The detailed current
+ownership belongs to the [Runtime Contract](../v1-runtime-contract.qmd).
+
+The SQLite v7 completion seal binds request/attempt/instance, result and baseline refs,
+selected generation ancestry, counts, exact best locator and sealed index root.
+Generation/candidate locators and summary projections publish within the existing
+required generation or terminal transaction; they do not add a COMMIT or become
+another scientific-body authority. Indexed rows must agree with the sealed root
+and selected ancestry. Creating a Run performs bounded transaction recovery and
+lease-aware operation scratch cleanup, while readonly access does neither.
+Full body/database auditing is explicit maintenance. The single
+[lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle) specifies stable
+OS leases, supervisor handoff and reader ownership.
+
+`terminal_attempt_ref` names the completed canonical attempt document; the public
+attempt digest retains that terminal-document meaning. It is not the initial
+running allocation digest. Native Optimization separately publishes a sealed
+`scnsim.native_result_index` v1 before immutable success selection, with compact
+generation summaries and qualified native artifact/body locators. Its reader
+fixes root metadata and loads summary chunks or selected bodies only. Missing
+index data is not rebuilt during readonly access. This Workspace index does not
+change the Julia numerical body or native artifact schemas below.
+
 ## Bind one leaf workspace to one Plan
 
 A V1 replaceable workspace is a relocatable stable root pointing to one leaf
-with one sealed Plan plus append-only request attempts. Each request carries
+with one sealed Plan. For native Julia, append-only request attempts use the
+file protocol below. Each native request carries
 its own semantic runtime:
 
 ```text
@@ -20,9 +171,10 @@ workspace.json                 # replaceable root and active-leaf pointer
 leaves/<leaf-instance-id>/
   workspace.json               # immutable Plan binding
   plan.json
+  .scnsim-workspace-staging/<operation-uuidv4>/<request-sha256>/
+    .staging-000001-<lowercase-canonical-uuidv4>/
   requests/<request-sha256>/
     request.json
-    attempts/.staging-000001-<lowercase-canonical-uuidv4>/
     attempts/000001/
       attempt.json
       logs/
@@ -45,16 +197,70 @@ parallel. This deliberately simple ceiling avoids two processes selecting the
 same next attempt number or sealing competing successes. Per-request locking
 is considered only if measured same-workspace throughput requires it.
 
-On Linux and macOS the stable root permanently retains `.scnsim.lock` and uses
-stdlib `fcntl.flock`: writers take an exclusive lock and `resolve()` takes a
-shared lock. The file is never deleted or replaced; normal exit, crash, or
-process termination releases the kernel-held lock. Windows fails before any
-workspace mutation.
+The stable root permanently retains `.scnsim.lock`: writers take an exclusive
+lock and `resolve()` takes a shared lock. Linux and macOS use stdlib
+`fcntl.flock`. The Windows JAX candidate uses `LockFileEx`/`UnlockFileEx` over
+one byte at offset zero of the same dedicated lock file for every consumer.
+Blocking acquisition waits in the native API; only the idle probe requests
+nonblocking acquisition, and only native lock-contention error 33 means busy.
+Other native errors remain failures with their causes. Lock files are never
+deleted or replaced. Each call owns its handle through its scope and releases
+it on close; process-exit release belongs to the operating system.
 
-The writer lock spans Plan binding or replacement, attempt-ordinal allocation,
-child execution, staged-artifact promotion, outcome verification, and receipt
-sealing. `resolve()` takes the same lock only long enough to read one stable
-hash chain; it never holds an execution slot.
+Root activity, per-operation, request-selection and store locks keep their
+existing order and distinct lifetimes. Unix supervisor descriptor duplication
+retains its existing semantics; Windows handles do not imply Linux open-file-
+description inheritance. The Windows JAX path retains the original handles
+through numerical drain and Result construction. Julia's Windows supervisor
+remains unsupported.
+
+Filesystem paths use `Path`; SQLite readonly connections use the absolute
+path's `as_uri()` with `mode=ro`, including drive roots, spaces and Unicode.
+Saved artifact keys remain normalized POSIX-relative logical names and are
+converted to platform paths only at the filesystem boundary. A drive or rooted
+path cannot escape the bound evidence root. Publication durability is a
+separate platform boundary; acquiring a Windows lock is not a claim that a
+POSIX directory `fsync` is available there.
+
+The private Workspace OS-I/O authority owns those native calls. Unix retains
+its existing file `fsync`, atomic `os.replace`, and directory `fsync` sequence.
+Windows flushes a written regular-file handle with `FlushFileBuffers` and
+publishes files/directories with `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`;
+`COPY_ALLOWED` is never set, so cross-volume moves do not become a copy/delete
+publication. Existing directory barriers obtain a real writable directory
+handle with `CreateFileW(..., FILE_FLAG_BACKUP_SEMANTICS, ...)` and call
+`FlushFileBuffers` on it. Handles close on every path. Unsupported-handle,
+permission, move and flush errors remain visible native errors, with no no-op
+or fallback; a successful file move does not assert that unrelated directory
+mutations were flushed. The Windows candidate requires actual saved-operation
+observations before a working-platform claim, and neither platform's API calls
+establish arbitrary hardware power-loss behavior.
+
+For the logical active pointer, POSIX uncertainty begins after successful
+replace if the subsequent barrier or exact-state confirmation fails. Windows
+also treats a native failure returned by an issued combined write-through
+move as indeterminate, because the API does not expose rename and flush as
+separate outcomes. The existing commit-indeterminate owner retains Plan/seal
+responsibility and the actual native cause; earlier path/write/file-flush
+failures are not promoted to that class.
+
+See Microsoft's [LockFileEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex),
+[MoveFileExW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw),
+and [FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)
+contracts for the native boundary rather than inferring cross-platform handle
+inheritance or POSIX directory durability.
+
+For native Julia, short writer-lock scopes cover Plan binding or replacement,
+attempt-ordinal allocation, and verified artifact/receipt publication. The
+separate operation lease retains activity ownership through child execution,
+callbacks, decoding and cleanup; child work and callbacks do not run under a
+storage lock. `resolve()` takes a short read lock for its fixed selected evidence
+and never holds an execution slot.
+
+A private same-request execution lease for JAX and native work preserves existing cache reuse
+and single-success selection across those short storage scopes. Its descriptor
+is additionally retained by the native operation supervisor through actual child drain;
+it is separate from root/operation activity leases and is not a SQL transaction.
 
 ## Iterate topology in one workspace {#iterate-topology-in-one-workspace}
 
@@ -118,7 +324,7 @@ the conversion. It does not become stale merely because the user enabled
 preservation; subsequent replacements of that leaf remain detectable by its
 instance ID.
 
-## Reuse success and append failure history
+## Native Julia success and failure history
 
 The request directory is derived from canonical request identity. If one
 attempt contains a complete verified success, the terminal operation returns
@@ -198,10 +404,11 @@ generation is discarded and deterministically replayed.
 
 ## Promote one attempt atomically
 
-Attempt staging is always a sibling of the final ordinal directory. For
+Attempt staging is allocated under the leaf's centralized operation-owned
+scratch, separately from the final attempt directory. For
 positive numeric ordinal `k`, its path text is `str(k).zfill(6)`: `1` becomes
 `000001`, while `1000000` remains `1000000`. The two names are therefore
-`requests/<request-sha256>/attempts/.staging-<ordinal-text>-<uuidv4>/` and
+`.scnsim-workspace-staging/<operation-uuidv4>/<request-sha256>/.staging-<ordinal-text>-<uuidv4>/` and
 `requests/<request-sha256>/attempts/<ordinal-text>/`. The staging suffix must
 match lowercase canonical UUIDv4 form; a short ordinal, uppercase UUID, wrong
 version/variant nibble, or mismatch with `attempt.json.ordinal` is invalid
@@ -209,8 +416,11 @@ evidence rather than an alternate spelling.
 
 Julia writes only inside that staging directory. Python validates the outcome
 and allowed artifacts, writes
-`receipt.json` last, fsyncs the written files and directories, then atomically
-renames the staging directory to the final ordinal name on the same filesystem.
+`receipt.json` last, flushes the written files and directories through the
+platform authority, then atomically publishes the staging directory to the
+final ordinal name on the same filesystem. Unix retains its existing
+rename/fsync sequence; Windows uses the native write-through move and real
+directory barrier described above.
 
 A valid `outcome.json`, logs, and referenced artifacts move with that rename;
 the receipt records the outcome SHA-256. Invalid raw outcome bytes may be moved
@@ -246,3 +456,5 @@ The exact envelopes and Result/artifact references are defined by the
 [machine-readable identity schemas](canonical-identities-and-schemas.qmd).
 
 [Next: Composite snapshots and recursive expansion](composite-snapshots-and-recursive-expansion.qmd)
+
+</details>

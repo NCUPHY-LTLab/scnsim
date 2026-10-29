@@ -1,4 +1,4 @@
-"""Capture-bound orchestration for one audited frozen structured drawing."""
+"""Capture-bound orchestration for one explicitly laid-out manual diagram."""
 
 from __future__ import annotations
 
@@ -9,31 +9,33 @@ from ...authoring.identity import canonical_diagram_digests, canonical_parameter
 from ...errors import SCNSimValidationError
 from ...results import CircuitDiagramAudit, CircuitDiagramResult, _verified_result
 from ...specs import CircuitDiagramSpec
+from ..schematic import SchematicLayout
 from .audit import certify_scene
 from .drawing import _svg_certificate_from_audit, freeze_drawing
 from .scene import NeutralScene, append_provenance_band
+from .structured import realize_layout
 
 
 def _fail(message: str, **evidence: object) -> SCNSimValidationError:
     return SCNSimValidationError(message, stage="schematic_audit", evidence=evidence)
 
 
-def _provenance_lines(*, representation: str, plan_id: str, digests: Mapping[str, str], parameters_sha256: str) -> tuple[str, str]:
+def _provenance_lines(*, plan_id: str, digests: Mapping[str, str], parameters_sha256: str) -> tuple[str, str]:
     """Keep requested source digests in a compact, separate footer."""
 
     return (
-        f"{representation.upper()} · CircuitPlan {plan_id} · parameters {parameters_sha256[:12]}",
+        f"MANUAL · CircuitPlan {plan_id} · parameters {parameters_sha256[:12]}",
         f"plan {digests['plan_sha256'][:12]} · connectivity {digests['connectivity_sha256'][:12]} · semantic {digests['semantic_sha256'][:12]}",
     )
 
 
-def _point_identity(point: ResolvedPlanPoint, *, representation: str) -> tuple[str, Mapping[str, str], str]:
+def _point_identity(point: ResolvedPlanPoint) -> tuple[str, Mapping[str, str], str]:
     """Read one immutable point identity without consulting its live Plan."""
     semantic = point.snapshot.semantic_record
     plan_id = semantic.get("plan_id") if isinstance(semantic, Mapping) else None
     if not isinstance(plan_id, str) or not plan_id:
         raise _fail("captured authoring point has no plan identity")
-    digests = canonical_diagram_digests(point.snapshot, representation=representation)
+    digests = canonical_diagram_digests(point.snapshot)
     if not isinstance(digests, Mapping) or any(
         not isinstance(digests.get(name), str)
         for name in ("plan_sha256", "connectivity_sha256", "semantic_sha256")
@@ -45,18 +47,24 @@ def _point_identity(point: ResolvedPlanPoint, *, representation: str) -> tuple[s
     return plan_id, digests, parameters_sha256
 
 
-def _with_provenance(scene: NeutralScene, *, point: ResolvedPlanPoint, spec: CircuitDiagramSpec) -> NeutralScene:
+def _with_provenance(
+    scene: NeutralScene,
+    *,
+    point: ResolvedPlanPoint,
+    spec: CircuitDiagramSpec,
+    metrics: object,
+) -> NeutralScene:
     if not spec.show_provenance:
         return scene
-    plan_id, digests, parameters_sha256 = _point_identity(point, representation=spec.representation)
+    plan_id, digests, parameters_sha256 = _point_identity(point)
     return append_provenance_band(
         scene,
         _provenance_lines(
-            representation=spec.representation,
             plan_id=plan_id,
             digests=digests,
             parameters_sha256=parameters_sha256,
         ),
+        metrics=metrics,
     )
 
 
@@ -65,70 +73,48 @@ def _finish(
     spec: CircuitDiagramSpec,
     scene: NeutralScene,
     *,
-    compiled_evidence: Mapping[str, object] | None,
-    composition: object = None,
+    layout: SchematicLayout,
 ) -> CircuitDiagramResult:
     """Certify before a scene is exposed through a Drawing or Result facade."""
+    metrics = layout.preparation.metrics
     audit_data = certify_scene(
         point,
         scene,
-        representation=spec.representation,
         show_values=spec.show_parameter_values,
-        compiled_evidence=compiled_evidence,
+        layout=layout,
+        metrics=metrics,
     )
     audit = CircuitDiagramAudit._from_data(audit_data)
     drawing = freeze_drawing(
         scene,
         theme=spec.theme,
         certificate=_svg_certificate_from_audit(audit),
+        metrics=metrics,
     )
-    return _verified_result(
-        CircuitDiagramResult, drawing=drawing, audit=audit, composition=composition,
-    )
+    return _verified_result(CircuitDiagramResult, drawing=drawing, audit=audit, layout=layout)
 
 
-def _authoring_result(point: ResolvedPlanPoint, spec: CircuitDiagramSpec, layout: object) -> CircuitDiagramResult:
-    from ..composition import detached_composition
-    from .composition_constraints import verify_composition
-    from .composition_planner import plan_composition
-
-    planned = plan_composition(point, layout, show_values=spec.show_parameter_values)
-    scene = planned.scene
-    verify_composition(scene, planned.composition, point=point)
-    return _finish(
-        point,
-        spec,
-        _with_provenance(scene, point=point, spec=spec),
-        compiled_evidence=None,
-        composition=detached_composition(planned.composition),
-    )
-
-
-def _compiled_result(point: ResolvedPlanPoint, spec: CircuitDiagramSpec) -> CircuitDiagramResult:
-    from ...execution.compilation import _compiled_schematic_evidence
-    from .compiled import layout_compiled
-
-    evidence = _compiled_schematic_evidence(point)
-    if not isinstance(evidence, Mapping):
-        raise _fail("compiler audit did not return an immutable evidence mapping")
-    scene = layout_compiled(point, evidence, show_values=spec.show_parameter_values)
-    return _finish(
-        point,
-        spec,
-        _with_provenance(scene, point=point, spec=spec),
-        compiled_evidence=evidence,
-    )
-
-
-def render_schematic(point: ResolvedPlanPoint, spec: CircuitDiagramSpec, *, layout: object = None) -> CircuitDiagramResult:
-    """Render one resolved point; no Run, View, or mutable Plan is consulted."""
+def render_schematic(
+    point: ResolvedPlanPoint,
+    spec: CircuitDiagramSpec,
+    *,
+    layout: SchematicLayout | None = None,
+) -> CircuitDiagramResult:
+    """Render one captured point from its complete caller-declared layout."""
     if not isinstance(point, ResolvedPlanPoint):
         raise TypeError("diagram rendering requires ResolvedPlanPoint")
     if not isinstance(spec, CircuitDiagramSpec):
         raise TypeError("diagram rendering requires CircuitDiagramSpec")
-    if spec.representation == "authoring":
-        return _authoring_result(point, spec, layout)
-    return _compiled_result(point, spec)
+    selected = layout if layout is not None else spec.layout
+    if not isinstance(selected, SchematicLayout):
+        raise SCNSimValidationError(
+            "manual diagram rendering requires a complete SchematicLayout",
+            stage="schematic_layout",
+        )
+    scene = realize_layout(selected.preparation, selected)
+    metrics = selected.preparation.metrics
+    scene = _with_provenance(scene, point=point, spec=spec, metrics=metrics)
+    return _finish(point, spec, scene, layout=selected)
 
 
 __all__ = ["render_schematic"]

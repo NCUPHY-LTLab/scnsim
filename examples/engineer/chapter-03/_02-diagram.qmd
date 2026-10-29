@@ -1,47 +1,41 @@
 ## Lesson 2 — Review what the fixed diagram can show {#lesson-ch3-diagram}
 
+Prepare the complete Plan, declare its explicit layout, and inspect the resulting schematic before reviewing the two standalone illustrations.
+
 ### Preserve the complete-Plan layout outcome
 
-Rendering is independent of numerical execution. For this complete Plan, the
-current fixed Default authoring layout reports a typed `schematic_layout`
-failure. The cell catches only that stage so another validation error still
-stops execution.
+Rendering is independent of numerical execution. Prepare this exact Plan,
+then declare its complete root and child geometry in ordinary Python. The
+package renderer checks those declarations and independently audits the ink;
+it does not finish a partial recipe or retry a failed layout.
 
 ```{python}
 #| id: ch3-attempt-complete-diagram
+from examples.engineer.diagram_layouts import engineer_layout
 from scnsim.errors import SCNSimValidationError
 
-complete_diagram = None
-complete_diagram_error = None
-try:
-    complete_diagram = plan.render_schematic(
-        CircuitDiagramSpec(
-            representation="authoring",
-            theme=Theme.AUTO,
-            show_parameter_values=True,
-            show_provenance=True,
-        )
+complete_preparation = plan.prepare_schematic(
+    CircuitDiagramSpec(
+        theme=Theme.AUTO,
+        show_parameter_values=True, show_provenance=True,
     )
-except SCNSimValidationError as error:
-    if error.stage != "schematic_layout":
-        raise
-    complete_diagram_error = error
-    display(
-        {
-            "complete fixed layout unavailable": str(error),
-            "stage": error.stage,
-            "evidence": dict(error.evidence),
-        }
+)
+complete_layout = engineer_layout(complete_preparation, "feedline_readout")
+complete_diagram = plan.render_schematic(
+    CircuitDiagramSpec(
+        layout=complete_layout, theme=Theme.AUTO,
+        show_parameter_values=True, show_provenance=True,
     )
-if complete_diagram is not None:
-    display(complete_diagram.show())
+)
+display(complete_diagram.show())
 ```
 
-::: {.callout-note title="Current complete-Plan layout limitation"}
-The exact complete declaration currently reports `fixed connector intersects
-occupied geometry`. Chapter 3 publishes no complete-Plan SVG certificate and
-does not retry, search for another placement, or alter the circuit to obtain a
-drawing.
+::: {.content-visible when-format="html"}
+
+![Complete feedline and readout Plan with its explicit layout.](../figures/03-complete-plan.svg){fig-alt="Complete two-Port feedline and capacitively coupled readout with explicit root and child geometry."}
+
+[Open the complete Plan SVG](../figures/03-complete-plan.svg)
+
 :::
 
 ### Use honest standalone illustrations
@@ -110,20 +104,22 @@ feedline_figure_plan.add_port(
     role="terminated",
     reference_impedance=50.0 * u.ohm,
 )
-feedline_illustration = feedline_figure_plan.render_schematic(
-    CircuitDiagramSpec(
-        representation="authoring",
-        theme=Theme.AUTO,
-        show_parameter_values=True,
-        show_provenance=False,
-    )
+feedline_preparation = feedline_figure_plan.prepare_schematic(
+    CircuitDiagramSpec(theme=Theme.AUTO, show_parameter_values=True, show_provenance=False)
 )
-feedline_illustration.show()
+feedline_layout = engineer_layout(feedline_preparation, "feedline_illustration")
+feedline_illustration = feedline_figure_plan.render_schematic(
+    CircuitDiagramSpec(layout=feedline_layout, theme=Theme.AUTO,
+                       show_parameter_values=True, show_provenance=False)
+)
+display(feedline_illustration.show())
 ```
 
 ::: {.content-visible when-format="html"}
 
 ![Standalone feedline subcircuit illustration.](../figures/03-feedline-illustration.svg){#fig-ch3-feedline-illustration .lightbox fig-alt="Separate illustrative Plan with two one-millimetre scalar CPW sections between terminated Ports."}
+
+{{< askr-image-view target="fig-ch3-feedline-illustration" label="Inspect circuit" >}}
 
 [Open the SVG](../figures/03-feedline-illustration.svg).
 
@@ -145,20 +141,22 @@ readout_figure_plan.parallel(
     branches=((figure_readout_capacitor,), (figure_readout_inductor,)),
     end=readout_figure_plan.ground,
 )
-readout_illustration = readout_figure_plan.render_schematic(
-    CircuitDiagramSpec(
-        representation="authoring",
-        theme=Theme.AUTO,
-        show_parameter_values=True,
-        show_provenance=False,
-    )
+readout_preparation = readout_figure_plan.prepare_schematic(
+    CircuitDiagramSpec(theme=Theme.AUTO, show_parameter_values=True, show_provenance=False)
 )
-readout_illustration.show()
+readout_layout = engineer_layout(readout_preparation, "readout_illustration")
+readout_illustration = readout_figure_plan.render_schematic(
+    CircuitDiagramSpec(layout=readout_layout, theme=Theme.AUTO,
+                       show_parameter_values=True, show_provenance=False)
+)
+display(readout_illustration.show())
 ```
 
 ::: {.content-visible when-format="html"}
 
 ![Standalone grounded-readout subcircuit illustration.](../figures/03-readout-illustration.svg){#fig-ch3-readout-illustration .lightbox fig-alt="Separate illustrative Plan containing a 110 femtofarad capacitor and 5.8 nanohenry inductor in parallel to ground."}
+
+{{< askr-image-view target="fig-ch3-readout-illustration" label="Inspect circuit" >}}
 
 [Open the SVG](../figures/03-readout-illustration.svg).
 

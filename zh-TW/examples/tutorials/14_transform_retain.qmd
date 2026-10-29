@@ -1,0 +1,13 @@
+---
+title: "已移至新課程 — 轉換並保留 View"
+subtitle: "工程課程導覽"
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 本課程已移至新的工程課程
+
+選讀轉換 View 與 Direct 量值評估請參閱第 4 章的[轉換 View](../engineer/chapter-04/04-optional-transform.qmd)及[量值評估](../engineer/chapter-04/05-optional-quantity.qmd)。View 與 Result 的精確行為以英文[執行期契約](/en/docs/v1-runtime-contract.html)為準。
+
+本短頁保留舊網址。已取代的可執行內容與 Notebook 仍可在 Git 歷史中找到。

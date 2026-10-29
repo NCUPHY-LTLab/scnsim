@@ -1,0 +1,9 @@
+## 第 1 課 — 將實體單元封裝在 Library 邊界內 {#lesson-ch5-library}
+
+### 定義元件目錄與工廠
+
+當一組元件有明確所有者、刻意設計的公開邊界，且在實作之外有易懂名稱時，可使用 Composite。接地 LC 是適合重用的單元：工廠持有其電容、電感、局部匯流排與接地關係，父層則持有耦合器與 Port。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-05/_01-library.qmd/block-001.qmd >}}
+
+兩個 Pin 是同一條內部訊號匯流排上等效的公開連線點。Coordinate 用於分析該匯流排，不是導線。只有呼叫端提供實際 `ParameterRef` 值時，C 與 L 才會公開為參數。

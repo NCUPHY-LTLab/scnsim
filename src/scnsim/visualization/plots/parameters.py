@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from html import escape
+import textwrap
 from typing import Any
 
 import numpy as np
@@ -58,11 +59,22 @@ def _parameter_field_data(result: Any, *, x: Any, y: Any | None) -> dict[str, An
     ])
     source_indices = [str(sample["source_index"]) for sample in result._samples]
     identities: list[str] = []
+    provenance: list[Mapping[str, object]] = []
     for sample in result._samples:
-        identity = getattr(sample["identity"], "parameters_sha256", None)
-        if not isinstance(identity, str) or not identity:
-            raise ValueError("ParameterField sample parameter identity is malformed")
-        identities.append(identity)
+        if "identity" in sample:
+            identity = getattr(sample["identity"], "parameters_sha256", None)
+            if not isinstance(identity, str) or not identity:
+                raise ValueError("saved ParameterField sample identity is malformed")
+            identities.append(identity)
+            provenance.append({"parameters_sha256": identity})
+        elif "execution_id" in sample:
+            execution_id = sample["execution_id"]
+            if not isinstance(execution_id, str) or not execution_id:
+                raise ValueError("in-memory ParameterField execution identity is malformed")
+            identities.append(f"not persisted; execution {execution_id}")
+            provenance.append({"persistence": "memory", "execution_id": execution_id})
+        else:
+            raise TypeError("ParameterField sample lacks saved or in-memory provenance")
     statuses = ["success" if sample["failure"] is None else "failure" for sample in result._samples]
     failures = [
         "—"
@@ -84,6 +96,7 @@ def _parameter_field_data(result: Any, *, x: Any, y: Any | None) -> dict[str, An
         },
         "source_indices": source_indices,
         "identities": identities,
+        "provenance": provenance,
         "statuses": statuses,
         "failures": failures,
         "failure_indices": [index for index, status in enumerate(statuses) if status == "failure"],
@@ -162,14 +175,12 @@ def _parameter_field_trace(result: Any, *, data: Mapping[str, Any], y: Any | Non
             meta=_trace_meta(
                 x_axis=data["x_axis"],
                 y_axis=data["y_axis"],
-                source={
-                    "samples": [
-                        {"source_index": source, "parameters_sha256": identity, "status": status}
-                        for source, identity, status in zip(
-                            data["source_indices"], data["identities"], data["statuses"], strict=True
-                        )
-                    ]
-                },
+                source={"samples": [
+                    {"source_index": source, **record, "status": status}
+                    for source, record, status in zip(
+                        data["source_indices"], data["provenance"], data["statuses"], strict=True
+                    )
+                ]},
             ),
             customdata=np.asarray(
                 list(zip(data["statuses"], data["source_indices"], data["identities"], data["failures"], strict=True)),
@@ -178,7 +189,7 @@ def _parameter_field_trace(result: Any, *, data: Mapping[str, Any], y: Any | Non
             hovertemplate=(
                 f"{data['x_label']}=%{{x}}<br>value=%{{y}} {data['unit']}"
                 "<br>status=%{customdata[0]}<br>source=%{customdata[1]}"
-                "<br>parameters=%{customdata[2]}<br>%{customdata[3]}<extra></extra>"
+                "<br>provenance=%{customdata[2]}<br>%{customdata[3]}<extra></extra>"
             ),
         )
     return go.Heatmap(
@@ -187,9 +198,9 @@ def _parameter_field_trace(result: Any, *, data: Mapping[str, Any], y: Any | Non
         meta=_trace_meta(
             x_axis=data["x_axis"], y_axis=data["y_axis"],
             source={"samples": [
-                {"source_index": source, "parameters_sha256": identity, "status": status}
-                for source, identity, status in zip(
-                    data["source_indices"], data["identities"], data["statuses"], strict=True
+                {"source_index": source, **record, "status": status}
+                for source, record, status in zip(
+                    data["source_indices"], data["provenance"], data["statuses"], strict=True
                 )
             ]},
         ),
@@ -197,7 +208,7 @@ def _parameter_field_trace(result: Any, *, data: Mapping[str, Any], y: Any | Non
         hovertemplate=(
             f"{data['x_label']}=%{{x}}<br>{data['y_label']}=%{{y}}"
             f"<br>value=%{{z}} {data['unit']}<br>status=%{{customdata[0]}}"
-            "<br>source=%{customdata[1]}<br>parameters=%{customdata[2]}"
+            "<br>source=%{customdata[1]}<br>provenance=%{customdata[2]}"
             "<br>%{customdata[3]}<extra></extra>"
         ),
     )
@@ -213,7 +224,7 @@ def _parameter_field_status_table(result: Any, data: Mapping[str, Any]) -> Any:
         for sample in result._samples
     ]
     return go.Table(
-        header={"values": ["source", "status", "parameters identity", "parameters", "failure"]},
+        header={"values": ["source", "status", "parameter provenance", "parameters", "failure"]},
         cells={"values": [
             [escape(value) for value in data["source_indices"]],
             [escape(value) for value in data["statuses"]],
@@ -312,24 +323,189 @@ def parameter_field_add_to(result: Any, figure: Any, *, row: int, col: int, x: A
     return figure
 
 
-def points_plot(points: Sequence[Any], *, theme: Theme = Theme.AUTO, title: str = "Parameter sweep outcomes") -> Any:
-    from html import escape
+def _parameter_set_lines(parameters: Any) -> list[str]:
+    from ...authoring.physical_values import RLGC
+    from ...units import Quantity
+    from ..quantity_presentation import _quantity
 
+    bindings = parameters.values
+    if not bindings:
+        return ["∅"]
+
+    lines: list[str] = []
+    for parameter, value in bindings.items():
+        name = f"{parameter.definitions_id}.{parameter.id}"
+        if isinstance(value, Quantity):
+            magnitude, unit = _quantity(value)
+            lines.append(f"{name} = {magnitude} {unit}")
+            continue
+        if isinstance(value, RLGC):
+            conductors = ", ".join(value.conductors)
+            lines.append(
+                f"{name}: RLGC({conductors}; reference {value.reference_conductor})"
+            )
+            for label, attribute in (
+                ("R", "resistance_per_length"),
+                ("L", "inductance_per_length"),
+                ("G", "conductance_per_length"),
+                ("C", "capacitance_per_length"),
+            ):
+                matrix = getattr(value, attribute)
+                rows = np.asarray(matrix.magnitude).tolist()
+                entries = "; ".join(
+                    "[" + ", ".join(repr(float(item)) for item in row) + "]"
+                    for row in rows
+                )
+                lines.append(f"{name} {label} = [{entries}] {matrix.units:~P}")
+            continue
+        raise TypeError(
+            f"unsupported sweep parameter value type: "
+            f"{type(value).__module__}.{type(value).__qualname__}"
+        )
+    return lines
+
+
+def _parameter_record_lines(bindings) -> list[str]:
+    from ...canonical import float64_from_hex
+    from ...units import Quantity, registry
+    from ..quantity_presentation import _declared_quantity, _quantity
+
+    bindings = tuple(bindings)
+    if not bindings:
+        return ["∅"]
+
+    lines: list[str] = []
+    for parameter, record in bindings:
+        name = f"{parameter['definitions_id']}.{parameter['parameter_id']}"
+        if record["type"] in {"quantity_f64", "complex_quantity_f64"}:
+            value = _declared_quantity(record)
+            if not isinstance(value, Quantity):
+                raise TypeError("parameter quantity record did not decode to a Quantity")
+            magnitude, unit = _quantity(value)
+            lines.append(f"{name} = {magnitude} {unit}")
+            continue
+        if record["type"] == "rlgc":
+            conductors = ", ".join(record["conductors"])
+            lines.append(f"{name}: RLGC({conductors}; reference {record['reference_conductor']})")
+            for label, attribute in (
+                ("R", "resistance_per_length"),
+                ("L", "inductance_per_length"),
+                ("G", "conductance_per_length"),
+                ("C", "capacitance_per_length"),
+            ):
+                matrix_record = record[attribute]
+                rows = np.asarray([
+                    float64_from_hex(value) for value in matrix_record["values_f64"]
+                ], dtype=np.float64).reshape(tuple(matrix_record["shape"])).tolist()
+                entries = "; ".join(
+                    "[" + ", ".join(repr(float(item)) for item in row) + "]"
+                    for row in rows
+                )
+                unit = format(registry.Quantity(1, matrix_record["si_unit"]).units, "~P")
+                lines.append(f"{name} {label} = [{entries}] {unit}")
+            continue
+        raise TypeError(
+            f"unsupported sweep parameter record type: {record['type']}"
+        )
+    return lines
+
+
+def _wrapped_table_cell(value: str, *, width: int) -> tuple[str, int]:
+    lines: list[str] = []
+    for line in value.splitlines() or [""]:
+        lines.extend(
+            textwrap.wrap(
+                line,
+                width=width,
+                break_long_words=True,
+                break_on_hyphens=False,
+                replace_whitespace=False,
+            )
+            or [""]
+        )
+    return "<br>".join(escape(line) for line in lines), len(lines)
+
+
+def points_plot(points: Sequence[Any], *, theme: Theme = Theme.AUTO, title: str = "Parameter sweep outcomes") -> Any:
     go, _, _ = _plotly()
+    compact_rows = points._plot_rows() if callable(getattr(points, "_plot_rows", None)) else None
     source_index: list[str] = []
     status: list[str] = []
     parameters: list[str] = []
-    failure: list[str] = []
-    for point in points:
-        source_index.append(escape(str(point.source_index)))
-        status.append("success" if point.succeeded else "failure")
-        parameters.append(escape(point.identity.parameters_sha256))
-        failure.append("—" if point.succeeded else escape(f"{point.failure.kind}: {point.failure}"))
+    identities: list[str] = []
+    failures: list[str] = []
+    row_line_counts: list[int] = []
+    if compact_rows is None:
+        rows = (
+            {
+                "source_index": point.source_index,
+                "status": "success" if point.succeeded else "failure",
+                "parameters_sha256": point.identity.parameters_sha256,
+                "parameters": point.parameters,
+                "failure": None if point.succeeded else {
+                    "kind": point.failure.kind,
+                    "message": str(point.failure),
+                },
+            }
+            for point in points
+        )
+    else:
+        rows = compact_rows
+    for row in rows:
+        source, source_lines = _wrapped_table_cell(str(row["source_index"]), width=12)
+        state, state_lines = _wrapped_table_cell(str(row["status"]), width=14)
+        parameter, parameter_lines = _wrapped_table_cell(
+            "\n".join(
+                _parameter_record_lines(row["parameter_values"])
+                if "parameter_values" in row
+                else _parameter_set_lines(row["parameters"])
+            ),
+            width=56,
+        )
+        if "parameters_sha256" in row:
+            identity_text = f"saved parameters SHA-256: {row['parameters_sha256']}"
+        elif "execution_id" in row:
+            identity_text = f"not persisted; execution {row['execution_id']}"
+        else:
+            raise TypeError("parameter outcome row lacks saved or in-memory provenance")
+        identity, identity_lines = _wrapped_table_cell(identity_text, width=40)
+        failure = row["failure"]
+        if failure is None:
+            failure_text = "—"
+        elif "stage" in failure:
+            failure_text = f"{failure['kind']} ({failure['stage']}): {failure['message']}"
+        else:
+            failure_text = f"{failure['kind']}: {failure['message']}"
+        failure_value, failure_lines = _wrapped_table_cell(failure_text, width=32)
+        source_index.append(source)
+        status.append(state)
+        parameters.append(parameter)
+        identities.append(identity)
+        failures.append(failure_value)
+        row_line_counts.append(
+            max(source_lines, state_lines, parameter_lines, identity_lines, failure_lines)
+        )
+
+    cell_height = max(30, 8 + 16 * max(row_line_counts, default=1))
     figure = go.Figure(data=[go.Table(
-        header={"values": ["source index", "status", "parameters", "failure"]},
-        cells={"values": [source_index, status, parameters, failure]},
+        columnwidth=[0.08, 0.10, 0.40, 0.20, 0.22],
+        header={
+            "values": ["source index", "status", "parameter values", "parameter provenance", "failure"],
+            "height": 36,
+            "font": {"size": 13},
+        },
+        cells={
+            "values": [source_index, status, parameters, identities, failures],
+            "height": cell_height,
+            "align": "left",
+            "font": {"size": 12},
+        },
     )])
-    figure.update_layout(meta={"scnsim": {"kind": "parameter_sweep_outcomes", "point_count": len(points)}})
+    figure.update_layout(
+        width=1100,
+        height=72 + 64 + 36 + cell_height * len(source_index),
+        meta={"scnsim": {"kind": "parameter_sweep_outcomes", "point_count": len(source_index)}},
+    )
     return _style(figure, theme, title=title)
 
 

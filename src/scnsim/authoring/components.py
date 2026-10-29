@@ -12,7 +12,7 @@ from .factory_context import _component_creation_token, _two_terminal_use_token
 from .handles import CoordinateRef, InductiveBranchRef, PinRef, TwoTerminalUse
 from .parameters import ParameterRef
 from .physical_values import (
-    AffineMap, RLGC, RLGCParameterSpec, _checked_field_baseline,
+    AffineMap, RLGC, RLGCParameterSpec, ScalarRLGCMap, _checked_field_baseline,
     _retained_literal_field, identifier, quantity_record,
 )
 from .snapshot import freeze
@@ -21,6 +21,10 @@ from .snapshot import freeze
 def _binding(v, u, name, positive=False, nonnegative=False):
     """Bind a physical field and validate its baseline domain immediately."""
 
+    if isinstance(v, ScalarRLGCMap):
+        if u != "rlgc":
+            raise TypeError(f"{name} is not an RLGC field")
+        return v.baseline, MappingProxyType({**v._record(), "_scalar_rlgc": v}), v.parameters
     if isinstance(v, ParameterRef):
         if isinstance(v.baseline, RLGC):
             return v.baseline, {"kind": "ref", "parameter": v._key_record()}, v
@@ -154,13 +158,15 @@ class ComponentInstance:
         # Primitive fields expose the original consumed input reference, not
         # an affine field's transformed value. Composite build replaces this
         # surface with its explicitly exposed parameters only.
-        self.parameters = MappingProxyType(
-            {
-                name: ref
-                for name, (_, _, ref, _, _, _) in self.fields.items()
-                if ref is not None
-            }
-        )
+        public_parameters = {}
+        for name, (_, _, refs, _, _, _) in self.fields.items():
+            if isinstance(refs, tuple):
+                for ref in refs:
+                    public_parameters[f"{name}.{ref.definitions_id}.{ref.id}"] = ref
+            elif refs is not None:
+                public_parameters[name] = refs
+        self.parameters = MappingProxyType(public_parameters)
+
         self._frozen = True
 
     def __setattr__(self, name, value):

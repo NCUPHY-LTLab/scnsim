@@ -3,14 +3,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import math
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
 from pint import Quantity
 
 from ..canonical import float64_from_hex
 from ..construction import unavailable
+from ..value_storage import quantity_view
 from ..visualization.presentation import Theme
-from .base import AnalysisResult, MatrixFamilyResult, MatrixView, _fresh_quantity_attribute
+from .base import AnalysisResult, HtmlPresentation, MatrixFamilyResult, MatrixView, _fresh_quantity_attribute
 
 if TYPE_CHECKING:
     from plotly.graph_objects import Figure
@@ -34,13 +36,6 @@ class ReconciliationEvidence:
     def __init__(self) -> None:
         unavailable("ReconciliationEvidence construction")
 
-@dataclass(frozen=True, slots=True)
-class HBScatteringMatrixResult(ScatteringMatrixResult):
-    backend_native: MatrixView | None = None
-    reconciliation: ReconciliationEvidence | None = None
-
-    def __init__(self) -> None:
-        unavailable("HBScatteringMatrixResult construction")
 
 @dataclass(frozen=True, slots=True)
 class DirectSolveResult(AnalysisResult):
@@ -51,13 +46,28 @@ class DirectSolveResult(AnalysisResult):
     y: MatrixFamilyResult
     z: MatrixFamilyResult
     traces: Mapping[str, TraceResult] = field(default_factory=dict)
+    evidence: Mapping[str, object] = field(default_factory=dict, repr=False, compare=False)
     _quantity_fields = frozenset({"frequencies"})
 
     def __init__(self) -> None:
         unavailable("DirectSolveResult construction")
 
     def __getattribute__(self, name: str) -> object:
+        if name == "evidence":
+            return _fresh_evidence_attribute(object.__getattribute__(self, name))
         return _fresh_quantity_attribute(self, name)
+
+    def __repr__(self) -> str:
+        frequencies = object.__getattribute__(self, "frequencies")
+        traces = object.__getattribute__(self, "traces")
+        return (
+            "DirectSolveResult("
+            f"identity={object.__getattribute__(self, 'identity')!r}, "
+            f"frequency_count={len(frequencies.magnitude)}, "
+            f"frequency_unit={frequencies.units}, "
+            f"coordinates={object.__getattribute__(self, 's').view.coordinates!r}, "
+            f"traces={traces!r})"
+        )
 
     def _family(self, family: Literal["S", "Y", "Z"]) -> MatrixFamilyResult:
         if family == "S":
@@ -105,6 +115,7 @@ class DirectQuantityResult(AnalysisResult):
     branch_b_residue: Quantity | None = None
     evaluation_omega: Quantity | None = None
     family: Literal["S", "Y", "Z"] | None = None
+    evidence: Mapping[str, object] = field(default_factory=dict, repr=False, compare=False)
     _presentation: Mapping[str, object] = field(default_factory=dict, repr=False, compare=False)
     _quantity_fields = frozenset({
         "root", "frequency", "linewidth", "slope", "value", "magnitude",
@@ -117,6 +128,8 @@ class DirectQuantityResult(AnalysisResult):
         unavailable(f"{type(self).__name__} construction")
 
     def __getattribute__(self, name: str) -> object:
+        if name == "evidence":
+            return _fresh_evidence_attribute(object.__getattribute__(self, name))
         return _fresh_quantity_attribute(self, name)
 
     @property
@@ -134,20 +147,32 @@ class DirectQuantityResult(AnalysisResult):
             and frequency > float64_from_hex(row.policy["max_frequency"]["si_value_f64"])
         )
 
-    def plot(self, *, theme: Theme = Theme.AUTO) -> Figure:
+    def plot(self, *, theme: Theme = Theme.AUTO, detailed: bool = False) -> Figure:
         from ..visualization.plots.numerical import scalar_plot
 
-        return scalar_plot(self, theme=theme)
+        return scalar_plot(self, theme=theme, detailed=detailed)
 
-    def show(self, *, theme: Theme = Theme.AUTO) -> None:
-        from ..visualization.plots.common import show_figure
+    def show(self, *, theme: Theme = Theme.AUTO, detailed: bool = False) -> HtmlPresentation:
+        from ..visualization.quantity_html import scalar_show
 
-        return show_figure(self.plot(theme=theme))
+        return scalar_show(self, theme=theme, detailed=detailed)
 
     def add_to(self, fig: Figure, *, row: int, col: int) -> Figure:
         from ..visualization.plots.numerical import scalar_add_to
 
         return scalar_add_to(self, fig, row=row, col=col)
+
+
+def _fresh_evidence_attribute(value: object) -> object:
+    """Detach nested Pint wrappers while retaining immutable result backing."""
+
+    if isinstance(value, Quantity):
+        return quantity_view(value)
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _fresh_evidence_attribute(item) for key, item in value.items()})
+    if isinstance(value, (tuple, list)):
+        return tuple(_fresh_evidence_attribute(item) for item in value)
+    return value
 
 @dataclass(frozen=True, slots=True)
 class DiagonalRootResult(DirectQuantityResult):
@@ -192,9 +217,15 @@ class OperatorResult(AnalysisResult):
     """Verified selected-network operator points in declared frequency order."""
 
     points: tuple[OperatorPointResult, ...]
+    evidence: Mapping[str, object] = field(default_factory=dict, repr=False, compare=False)
 
     def __init__(self) -> None:
         unavailable("OperatorResult construction")
+
+    def __getattribute__(self, name: str) -> object:
+        if name == "evidence":
+            return _fresh_evidence_attribute(object.__getattribute__(self, name))
+        return object.__getattribute__(self, name)
 
     def at(self, frequency: Quantity) -> OperatorPointResult:
         """Return the already materialized point at exactly ``frequency``."""
@@ -236,3 +267,46 @@ class OperatorResult(AnalysisResult):
         return operator_add_to(
             self, fig, row=row, col=col, frequency=frequency, kind=kind, component=component
         )
+
+
+def _unsupported_static_presentation(self, *args, **kwargs):
+    """Static V1 exposes detached numeric values, not an RF/scalar plot route."""
+    raise TypeError("Static capacitance presentation is unsupported; read matrix/value and coordinate axes")
+
+
+@dataclass(frozen=True, slots=True)
+class StaticCapacitanceResult(AnalysisResult):
+    """Finite static C in the compiled transformed node basis, in farads."""
+
+    matrix: Quantity
+    row_coordinates: tuple[str, ...]
+    column_coordinates: tuple[str, ...]
+    zero_charge: tuple[str, ...]
+    evidence: Mapping[str, object]
+    _quantity_fields = frozenset({"matrix"})
+    plot = show = add_to = _unsupported_static_presentation
+
+    def __init__(self) -> None:
+        unavailable("StaticCapacitanceResult construction")
+
+    def __getattribute__(self, name: str) -> object:
+        return _fresh_quantity_attribute(self, name)
+
+
+@dataclass(frozen=True, slots=True)
+class StaticCapacitanceElementResult(AnalysisResult):
+    """Selected retained coordinate-pair coefficient of the same static C."""
+
+    value: Quantity
+    row: str
+    column: str
+    zero_charge: tuple[str, ...]
+    evidence: Mapping[str, object]
+    _quantity_fields = frozenset({"value"})
+    plot = show = add_to = _unsupported_static_presentation
+
+    def __init__(self) -> None:
+        unavailable("StaticCapacitanceElementResult construction")
+
+    def __getattribute__(self, name: str) -> object:
+        return _fresh_quantity_attribute(self, name)

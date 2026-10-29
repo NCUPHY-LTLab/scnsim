@@ -1,13 +1,189 @@
 ---
-title: "Execution Backends and Operation Benchmark"
-subtitle: "Same-process JAX, verified results and read-only hierarchical observations"
+title: "Runtime and Benchmark"
+subtitle: "Prepare JAX work, execute one operation and inspect its recorded costs"
+toc-depth: 2
 ---
 
-**Status:** CONVERGING, 1.0.0a2 Alpha candidate contract. The following interfaces are
+SCNSim executes numerical work through one JAX CPU physical program in the
+calling Python process. A Benchmark reads the recorded operation; it does not
+execute an independent comparison workload.
+
+## Public operations and runtime configuration
+
+`CircuitRun(plan=plan, workspace=path)` selects saved ownership;
+`CircuitRun(plan=plan, storage="memory")` selects detached RAM ownership.
+The constructor has no backend selector. Both support Direct, typed quantities,
+Sensitivity, ordered ParameterSpace and declared Optimization strategies.
+`precision="float64"` is the default; an explicit `float32` uses the corresponding
+real/complex kernel dtype. Host coherent-SI declarations remain binary64.
+Precision, compensated arithmetic, units and achieved accuracy are distinct.
+
+Call `configure_runtime(cpu_threads=...)` before numerical runtime initialization.
+The declaration controls the process resource budget; it is not a measurement
+of actual CPU utilization. Identical declarations are idempotent. A conflicting
+or late declaration retains its runtime-preparation failure.
+
+## Preparation, progress and evidence residency {#warm-preparation-progress-and-evidence-residency}
+
+`explain()` performs declaration and compiler preflight without solving or
+creating an operation record. `prepare()` acquires a detached numeric function
+and layouts. `warmup()` lowers/compiles the same declared variants used by
+execution without running assembly, a sparse solve, Newton or an optimizer
+baseline. Frame-dependent consumers remain lazy when exact static inputs are
+not available; matching shapes alone are not a preparation claim.
+
+The Run owns bounded static programs and executable resources. Call-local
+factors, linearization frames and arrays remain owned through synchronization
+and required consumption. The existing one-slot policy remains; this is not a
+pipeline or a promise about unknown native scratch. Returned values and fixed
+saved selections remain usable after Run close.
+
+## Storage and publication
+
+Memory owns actual detached values and evidence without a Workspace, spool or
+saved identity. Workspace uses evidence v3 and OperationStore revision 8.
+Direct and Direct Sweeps stream same-call host arrays directly to immutable
+objects; Optimization retains its bounded operation spool and lazy stage history.
+No second numerical pass materializes saved data.
+
+CMA groups complete post-tell generations according to the declared commit
+cadence. Required publication completes before its callback; transient progress
+and optional timing are separate. Local accepted-iteration publication retains
+its declared cadence. Each public stage history includes its saved baseline,
+without changing evaluation or iteration counts. Final completion and success
+selection are atomic. See [Workspace evidence v3](../contracts/workspace-evidence-v3.qmd).
+
+## Built-in readonly Benchmark
+
+`run.benchmark()` describes recorded work. Memory keeps only its last compact
+aggregate Benchmark; before an operation it raises `ResultUnavailableError`.
+Memory supports aggregate timing only. Workspace can retain aggregate or detailed
+timing. `BenchmarkResult.open(benchmark.workspace)` reopens the explicit saved
+operation-store locator, not an enclosing directory discovered by search.
+
+Recorded wall spans, compilation, sparse/native compute, synchronization,
+publication, observer and cleanup costs keep their actual clock scopes.
+Unavailable or unaligned clocks stay unavailable. Reusing a completed request
+is readback, not evidence that the solver executed again. Candidate counts,
+native dispatches, factor counts, frequency points and public API calls are
+different work measures; retain the denominator when reporting a mean.
+
+## Numerical authority
+
+Values, Jacobian/JVP/VJP and objective losses consume the same selected physical
+program. Checked failures, residual/correction policies, transpose conventions,
+mesh and exact dtype belong to the [numerical contract](../v1-runtime-contract.qmd).
+Timing and compile-cache observations do not alter that contract or establish a
+speedup, accuracy threshold or optimization attainment.
+
+## History: pre-1.0 runtime and storage
+
+<details>
+<summary>Earlier version-bound implementation record</summary>
+
+**Status:** CONVERGING, 1.0.0.dev32 development candidate contract. The following interfaces are
 implementation targets, not completed execution, performance or acceptance
 claims. Historical dev10 comparison records remain bound to their original
 source, wheel, numerical outputs and publication identities. No durable tests
 or stabilization are assigned.
+
+## Checked JAX memory completion target (dev32)
+
+Checked evaluate, Sensitivity and ParameterSpace/Sweep are connected to
+the same numerical producer with RAM output/evidence ownership. This storage
+scope does not alter physical/root/derivative checks or add another evaluator.
+A memory call creates no Workspace, disk spool, numerical object/index,
+checkpoint or timing publication; typed detached results own actual values and
+remain readable/presentable after close. Run retains only its last compact
+aggregate Benchmark, bound to the call-local recorder after synchronization,
+required projection and cleanup. Existing saved-recovery and Julia/HB capability boundaries remain explicit.
+Julia/HB and saved resolution/recovery remain outside this target. Source
+integration and actual installed observations are distinct from Human acceptance.
+
+## Memory-only point Direct Benchmark
+
+`CircuitRun(plan=plan, storage="memory")` supports JAX point Direct execution
+without a Workspace, filesystem operation lease, spool, numerical object/index
+or diagnostic publication. This mode uses the same warmed candidate/frequency
+kernels and numerical failure responsibility. Its `InMemoryDirectSolveResult`
+has no saved Result identity; S/Y/Z and trace leaves remain detached after Run
+close. Memory timing supports `timing="aggregate"` only; detailed timing is rejected
+before numerical work. Saved aggregate/detailed behavior is unchanged.
+
+`result.benchmark` is an immutable compact `InMemoryBenchmarkResult` for
+that call. `run.benchmark()` returns only the last operation, accepts no filters
+and raises `ResultUnavailableError` before the first operation. The reported
+public call includes preparation, synchronized numerical execution, resource
+drain and typed-result assembly. It is not a numerical-kernel-only clock or a
+saved history. Current dev28 and earlier timing observations retain their
+original scopes; this candidate does not establish memory-mode performance.
+
+## Memory Optimization candidate (dev31)
+
+The same `storage="memory"` Run and `run.optimize(...)` entry are source-ready for CMA/current L-BFGS-B/Hybrid on the shared physical Objective.
+RAM records retain visible failed trials, true accepted iterates and stage
+histories; the caller owns the detached InMemoryOptimizationResult. There is
+no SQL/spool/checkpoint/resolve authority or persistent operation timing, and
+Run keeps only its last compact aggregate Benchmark. Checkpoint omission
+resolves to memory `off` and Workspace `generation`; explicit saved recovery
+controls are rejected in memory. Compile-only Optimization warmup uses the
+same declared variant planner and does not solve a baseline.
+
+`OptimizationProgress.persistence="memory"` marks RAM-observed/accepted
+counters; durable committed counts are zero. Workspace progress retains its
+default `persistence="workspace"`. Failed +Inf rows are visible evidence, not manufactured gradients
+or proof that the physical point is infeasible. `ProjectedLBFGSSpec` names the distinct value-first reject-aware projected
+L-BFGS candidate controller; existing SciPy L-BFGS-B FG semantics
+are not silently replaced. The method is an implementation decision under
+the authorized behavior, not Human acceptance of its mathematical scope. It
+uses the same physical value/gradient authority: unavailable or nondecreasing
+trials are recorded before halving the feasible mapped-coordinate displacement
+step within the
+explicit budgets; only a lower actual cost with an actual gradient is accepted.
+Primal-valid gradient-unavailable trials keep their finite cost/components and
+separate `optimizer_unavailability` provenance, rather than converting a real
+value to a fabricated gradient or hiding the failure. No universal convergence
+or performance claim follows from this source contract. Candidate integration, actual observations and
+Human acceptance remain distinct. For bounded variables, the map uses the
+resolved bounds width when no explicit optimizer scale is supplied; open-domain
+and signed-log mappings retain their declared behavior. Current dev30 timing/CI records retain their
+original identities and do not establish this new scope.
+
+## Direct stage bundles and observation scope (dev30 candidate)
+
+Ordinary Direct maps ready point arithmetic within the existing main bucket
+(default eight) and tail-one variant. Independent different-matrix sparse
+equations share a host boundary crossing, with separate local factors and
+per-lane certificates. W, actual Y/Z/S formation/checks and source W retain
+per-point dependency order; the first and source equation bundles remain
+separate. Already-ready later lanes can execute before an earlier later-stage
+failure is known. Ordered reducers preserve original occurrence failure
+selection and actual performed evidence; external submissions stop and
+in-flight work drains without swallowing unexpected fatal errors.
+
+Unknown total native scratch still uses one external chunk slot. Batch shape,
+callback count, factor count, numerical work and aggregate wall clocks remain
+separate observations; none implies a speedup. Warmup plans and compiles the
+same successor callable/key/signature actually consumed by execution, without
+running sparse equations or choosing a baseline. True frame-dependent
+consumers remain explicitly lazy. Historical one-/four-slot diagnoses retain
+their original source and instrumentation identities and are not this
+successor's performance measurement. Memory storage, numerical checks, dtype,
+mesh, output grid and Julia/reference boundaries are unchanged.
+
+## Differentiable program implementation target
+
+The [dev28 physical-program contract](../v1-runtime-contract.qmd#physical-program-target)
+is CONVERGING. JAX values, Jacobian/JVP/VJP and optimizer objectives share one
+physical evaluator; existing Julia code remains frozen legacy/reference scope.
+Selected dtype differs from compensated arithmetic and achieved accuracy.
+Sparse/root derivatives retain physical transpose, slope and gauge dependencies.
+Pure callbacks return value/status data without diagnostic or storage side
+effects. Their operation owner waits for primal and derivative work before
+resource release. Actual factorization, upload, compilation, compute and
+readback costs remain distinct; AD implies no speedup, factor-once or
+cross-platform accuracy guarantee. Fixed-mesh planning and explicit stage
+changes follow the contract, without automatic remeshing or fallback.
 
 ## SQLite workspace candidate (dev12)
 
@@ -16,26 +192,27 @@ stdlib SQLite database per Plan leaf at `operations/operations.sqlite3`, using
 DELETE journaling and EXTRA synchronization. This is a target contract, not a
 claim that the implementation or observations below have completed. Dev11
 outputs remain historical evidence; the new goal does not rerun that writer or
-its old-flow tests. Historical workspace readers remain read-only, with no
-migration or fallback writer.
+its old-flow tests. Current operation stores use SQLite version7. Older databases or file-journal
+stores fail with `UnsupportedEvidenceVersionError`: use a new Workspace and
+recompute. Old data are neither migrated nor automatically deleted.
 
 JAX Optimization defaults to `commit_every_generations=10`, a positive integer
-excluding booleans. Explicit `None` remains invalid. Omission resolves after
-backend selection: JAX uses 10, while explicit Julia retains its native value 1. Baseline
-evidence commits separately. After N completed post-tell generations, one
+excluding booleans. Explicit `None` remains invalid. Omission resolves to 10. Baseline
+evidence stays in memory until the first complete group publishes it once. After N completed post-tell generations, one
 transaction publishes their ordered numerical records and the latest full
 CMA/RNG state. A short final group commits at the normal tail or a handleable
 error; incomplete generation work is never presented as a resumable generation.
 Checkpoint off retains evidence without fabricating a resumable snapshot. The
 interval binds operation/task/checkpoint identity, not the numerical request,
 so completed numeric cache lookup stays independent of commit granularity.
-Explicit Julia intervals other than 1 are unsupported and fail before launch.
-Numerical algorithms, precision, candidate order and winner meaning do not change.
+The workspace policy does not change numerical algorithms, precision, candidate
+order or winner meaning. The dev13 sparse implementation below changes the
+factorization mechanism under a distinct numerical algorithm identity.
 
 A generation callback is delivered once per committed group, for its latest
 committed generation, after commit acknowledgement and outside storage locks.
-Intermediate generations do not receive deferred callbacks. Baseline and separate
-terminal notifications retain their existing roles. Original callback, numerical and
+Intermediate generations do not receive deferred callbacks. There is no initial
+baseline notification; the separate final completion callback remains. Original callback, numerical and
 interruption errors remain primary if recording also fails. A transaction has a
 unique identity: an uncertain commit is reconciled from that identity, never
 blindly replayed. Canonical byte objects have content hashes; references identify
@@ -52,19 +229,118 @@ indexes support timeline reads without replaying all numerical candidates.
 Existing clocks, result units/axes, partial provenance and rendering semantics
 remain; no UI redesign or physical power-loss promise is introduced.
 
-The bounded new performance observations are 14 CPU1 current-disk tasks and four
-SSD tasks over the existing LC and M80-fixed models. Separate authorized
-fault/state/function/render observations use the integrated candidate. Prior
-numbers remain classified historical; no speed or numerical acceptance
-threshold is added.
+The earlier SQLite-workspace performance campaign's scope was 14 CPU1
+current-disk tasks and four SSD tasks over LC and M80-fixed models. That matrix
+and its version-bound observations are historical; they are not dev24 execution
+or delivery obligations. The current architecture/lifecycle candidate uses only
+its assigned stage-specific installed-wheel observations. No speed or numerical
+acceptance threshold is added.
+
+## Warm preparation, progress and evidence residency (dev27) {#warm-preparation-progress-and-evidence-residency-dev27}
+
+`run.warmup(view, spec, parameters=None)` prepares the exact current JAX
+Plan/parameter/View topology and executable signatures for an existing Direct,
+quantity, Sensitivity or Optimization declaration. Omitted parameters use the Plan baseline.
+It returns an immutable preparation summary; it does not solve a network, run
+Newton, choose an Optimization winner, create a checkpoint or claim a stored
+successful result. Preparation lowers and compiles exact shape/dtype signatures
+without executing assembly, sparse solve callbacks, Newton or continuation.
+Raw aggregate transforms, candidate preparation and high-level frequency chunks
+are separate variants. Only a matching producer callable/key, shape, dtype,
+device and capability partition establishes a warm hit; a raw aggregate compile
+cannot be reported as chunk reuse. The main bucket follows `execution_policy.frequency_chunk_size` (default eight);
+the stable tail bucket is one, with a single variant when both are one. Summaries
+identify those signatures and declared root/coupling checked-value signatures
+separately from lazy unrequested transforms or future shapes. Abstract root
+packet acquisition supplies coupling argument shapes without running Newton.
+Sensitivity and explicitly requested derivatives also prepare the actual checked
+candidate and joint-branch linearization producers. Their frame consumers stay
+lazy unless the same cached producer exposes its exact Partial static structure;
+a fresh abstract linearization with matching array shapes is insufficient.
+The summary records the requested checked Sensitivity kind separately from
+explicit raw transformations. Each Sensitivity expression leaf retains its own
+View rather than inheriting one imposed warmup View.
+Mapped scalar root primals carry their checked Error and actual packet through
+the finite sequential boundary. The owned archive bridge preserves equation
+site, role/order, occurrence dependency and mapped-lane presence/code payloads;
+scalar first-failure control does not erase those lane facts. Raw use leaves
+that debug bridge inert; a high-level checked call owns certificate projection
+and typed failure. This is not universal certification of arbitrary caller AD.
+Native AD uses the transformable callable rather than differentiating an AOT
+executable. Static programs and prepared handles follow bounded Run-local
+admission and active pins; point arrays, tapes and factors do not belong there.
+Optimization
+warmup lowers raw objective quantities without resolving a baseline-dependent
+loss scale or evaluating a baseline. Warm entries belong to the Run;
+operation-local candidate state is released at operation end. Shared executable
+references do not authorize clearing another Run's cache. Reachable objects and
+Python/native allocators may retain RSS after references are released; RSS need
+not immediately drop. Run-owned warmed executables remain available to that Run,
+while candidate worker state and operation-local scratch have operation scope.
+
+Each optimization stage owns one immutable physical model/program with fixed
+sections, sparse pattern and shapes. Runtime physical coordinates remain
+operands rather than executable-cache keys. Candidate frames, factors, prepared
+wave packets and derivative work are call-local and released after synchronized
+consumption. The stage cache keeps operation-spool references to actual numerical
+evidence, not a history of numerical frames. Warmup explicitly prepares static
+programs and executables; ordinary native acquisition can admit matching static
+cores through the same bounded owner. Admission never retains candidate arrays,
+factors or linearization frames. All-pinned or unadmitted items remain
+operation-owned. Ordinary sweeps retain their
+declared dynamic/fixed/grouped discretization behavior and reuse matching static
+variants; a new actual shape can require compilation. This policy does not
+promise immediate allocator/RSS return or prescribe a global cache clear.
+
+Continuation evaluates intermediate physical operands through the same fixed
+stage program and original-point branch anchors. Step-local numerical work ends
+after evaluation and observation synchronize, before recursion proceeds; the
+immutable stage program remains stage-owned. Changed branch hints require new
+prepared packets, never reuse of a packet bound to different inputs. This does
+not clear Run-owned warm holders or promise immediate allocator/RSS return.
+
+`run.optimize(..., progress=True)` enables a transient display observer,
+independently of the durable `on_progress` callback. After each complete JAX tell,
+the display distinguishes completed generations from committed generations.
+The built-in `population_evaluating` phase is set before ask, so pending
+population work is visible without implying a completed or committed generation.
+A memory-only baseline display update is not an initial durable callback.
+Explicit Julia displays its existing native notification boundaries as staged
+progress, with an unknown durable generation count until verified terminal
+success publication. Only then does the display report saved generations; no
+new native observer is introduced.
+Display errors warn and disable that observer; original durable callback errors
+remain fatal. `progress=False` disables display without changing the numerical
+request, candidate order, commits or callback cadence.
+
+Uncommitted complete-generation evidence uses Workspace-bound, operation-local
+scratch with mode `0700`. The candidate cache retains light body references and
+the TaskWriter stages body references, rather than duplicate full candidate
+histories. This scratch is not a checkpoint, SQLite commit or recoverable result.
+Atomic publication streams one scientific body at a time for a group of complete
+post-tell generations and retains one complete latest CMA/RNG state. The write
+transaction verifies each body and releases its full payload after checking.
+Resume hydration follows verified references one block at a time; it does not
+retain duplicate raw and hydrated history containers. The full ordered typed
+public ledger remains available as a fixed lazy generation Sequence, with its
+original candidate/winner semantics. Explicit iteration materializes requested values.
+Normal and handled-error cleanup removes only the operation's own scratch;
+unexpected process death can leave it behind. An explicit cadence such as
+`commit_every_generations=100` keeps the same persistence semantics; the default
+remains 10. Workspace schema is version7, and older Workspaces are rejected
+rather than adapted.
+
+Numerical plots size rows and wrapped text from their displayed content;
+parameters appear as rows rather than long annotations. Plotting consumes saved
+results and performs no numerical solve. Benchmark rendering remains a separate
+operation/timing presentation, and schematic work remains deferred. These are
+CONVERGING implementation contracts, not memory, speed or completed-case claims.
 
 ## Public operations and runtime configuration
 
-Normal `CircuitRun.solve`, `evaluate`, `optimize` and `resolve` select JAX CPU
-with `precision="float64"` by default. The Run constructor defaults to `backend="jax", precision="float64"`. Their
-keyword-only `backend=None` and `precision=None` inherit those Run defaults;
-explicit per-call values override them, including `backend="julia"` and JAX
-`precision="float32"`. Existing positional declarations, parameter ownership,
+`CircuitRun` and its public operations use JAX CPU. The Run constructor
+defaults to `precision="float64"`; per-call `precision=None` inherits that
+default, and an explicit `precision="float32"` selects Float32. Existing positional declarations, parameter ownership,
 Views and typed result meanings remain. JAX runs in the calling Python process;
 there is no Python numerical child, Julia discovery, Julia preflight or fallback.
 Float32 uses real Float32/Complex64 kernel arrays, not rounded Float64 outputs.
@@ -72,15 +348,17 @@ Host SI declarations and CMA state remain binary64. Existing epsilon and
 stagnation procedures derive from the selected kernel dtype; no new tolerance,
 search envelope or numerical acceptance condition is introduced.
 
-The JAX scope is complete Direct S/Y/Z, DiagonalRoot, ResponseElement and their
-parameter sweeps and corresponding Optimization expressions. Original, retained
-and transformed Views share the existing physical compiler and View authority.
-HB, OperatorSpec, operator-element roots, hybridized poles, transfer zeros and
-residue-normalized coupling require explicit Julia. Selecting those with JAX
-fails with a feature-specific actionable error before numerical work; it never
-selects Julia automatically. Explicit Julia retains its current Float64 contract
-and requires the optional Julia extra plus a manually provided Julia executable;
-feature calls do not acquire Julia.
+The dev14 JAX candidate covers Direct S/Y/Z, DiagonalRoot, ResponseElement,
+OperatorElementRoot, HybridizedPole, S/Y/Z TransferZero,
+ResidueNormalizedCoupling (diagonal or hybridized branches; fixed frequency or
+complex-root midpoint), and Operator output. Public `evaluate`, parameter
+sweeps and all existing scalar Optimization selectors/expressions share one
+quantity authority across original, retained and transformed Views. Operator
+matrices are inspectable outputs and cannot become scalar objectives. The
+[Direct quantity contract](direct-poles-zeros-and-operators.qmd) owns the
+formulas, certificates, units, baseline rules and denominator amendment; this
+page does not introduce another numerical contract. Source-bound installed-wheel
+observations for the new scope remain pending.
 
 `configure_runtime(*, cpu_threads: int | None = None) -> RuntimeConfiguration`
 records an immutable process resource declaration. `None` leaves the existing
@@ -96,8 +374,10 @@ and both precision choices can share the declared pool. This observer isolation
 does not create a product numerical subprocess. The base installation requires Python
 3.12 and the pinned CPU JAX/jaxlib and CMA dependencies; Julia remains optional.
 
-Optimization retains generation checkpoints and boundary diagnostics. A public
-callback sees its event only after the corresponding evidence is durable;
+Optimization retains generation checkpoints and boundary diagnostics. A JAX public
+callback sees its event only after the corresponding group evidence is durable.
+Native callbacks remain staged progress telemetry after the baseline checkpoint
+ACK and do not promise per-generation durable publication;
 callback exceptions and KeyboardInterrupt retain their original ownership.
 Optimization accepts explicit checkpoint policy and exact checkpoint resume
 references. Resume verifies the same request/backend/precision/resource/source
@@ -107,6 +387,119 @@ generation/off. A cache-hit operation records its requested policy and actual
 checkpoint availability without creating missing snapshots. Checkpoint off does
 not discard numerical evidence or baseline/root
 anchors. Standalone root anchors never become CMA-resumable checkpoints.
+
+## Same-generation JAX Optimization resources
+
+`configure_runtime(cpu_threads=N)` declares the task's CPU budget. Optimization
+uses persistent candidate threads, with capacity bounded by N and the declared
+population size. `None` retains coordinator serial execution with the existing
+environment, and 1 is serial. The baseline is evaluated first and its actual
+anchors are sealed by the coordinator. Uncached candidates are prepared in finite ready waves bounded by the actual
+worker capacity, then consumed in request order; there is no full-population
+preparation barrier. Candidates from another generation are
+never submitted before the current generation is consumed.
+
+The stage program binds View routing, topology and sparse index structure.
+Physical validation, coefficients and transformed-capacitance weights remain
+candidate-specific operands. Every optimization stage, including CMA, has fixed
+sections; ordinary requests retain their separate declared mesh policy. Transform declaration order and ordered numerical consumption
+are unchanged. The coordinator alone owns CMA ask/tell and RNG, candidate mapping,
+cache admission/registration, occurrence ordinals, winner,
+SQLite state and callbacks. Duplicate candidates share numerical bodies while
+retaining their original ordered occurrences.
+
+The fixed thread scheduler uses finite ready waves of compatible fixed-shape
+inputs. The coordinator prepares each wave under exclusive assembly ownership
+and submits ordered numerical work through the operation resource owner. JAX
+uses the shared parent PJRT pool and runtime coefficients/indices. Native sparse
+work shares the declared budget through the fair gate; no missing candidate is
+padded and no process-actor implementation is selected. The common ObjectiveProgram
+composes finalized ordered loss with the same native physical callable. Actual
+JAX reverse differentiates the complete cost, while same-frame checked
+projection preserves numerical failure and derivative-unavailable distinctions.
+A zero-target squared magnitude uses raw real/imaginary components on the cost
+path; its diagnostic magnitude is not an invented abs-at-zero subgradient.
+There is no optimizer-only physical evaluator or Python AD interpreter. The
+coordinator owns scheduling, publication and controller state. Native derivative
+and timing observations bind their actual installed candidate; source cutover
+alone is not evidence of their completion.
+
+For an integer CPU declaration, `threadpoolctl==3.7.0` establishes BLAS1 in the
+coordinator and at worker initialization. Managed limits remain in force until
+owned workers join, then prior library limits are restored. `None` leaves library
+limits unchanged. The process resource lease also covers normal same-process
+Direct/evaluate calls: integer declarations manage BLAS1 while retaining the
+parent's declared PJRT pool. Read-only operations do not initialize numerical
+resources. There is no executor selector, automatic fallback, Julia candidate
+parallelism or process-affinity change. Runtime and checkpoint identities bind
+the scheduler, source and resource declaration; resume must match.
+
+The candidate scaling scope remains `CONVERGING`. Numerical algorithms,
+precision, mesh policy, View replay and failure categories are unchanged. Only
+existing typed candidate numerical failures become `Inf`; infrastructure and
+worker failures remain fatal. On interruption, queued work is canceled, active
+numerical work drains to its actual return, and owned workers join. Cleanup
+errors are secondary to the original exception; there is no forced-termination
+promise for a hung native call.
+
+Numerical evidence remains complete and ordered. Commit grouping remains 10
+complete post-tell generations by default. JAX baseline and sealed anchors stay
+in memory: no separate baseline transaction, generation-0 checkpoint or initial
+callback. The first completed group saves the necessary baseline body once.
+Generation checkpointing saves the latest completed CMA/RNG and anchor restore
+state; checkpoint off omits restore-only state. A complete tail uses the same
+required acknowledgement-before-callback boundary. Optional timing is separate;
+failed or uncertain required batches are not resent. Timing aggregates remain
+`details.generation_performance` on the existing `population_evaluation` span.
+Population average is wall time divided by population count, not individual
+candidate latency. Preparation, permit wait, assembly and ordered collection
+counters classify work without permanent per-candidate spans. Worker sums and
+permit-held intervals are not CPU utilization or additive population-wall
+components; overlapping work must not be summed into an exclusive total.
+Necessary first-start imports, runtime discovery, pool initialization and
+compilation are startup costs, not automatically redundant work or a universal
+optimization target. Subsequent executable reuse does not imply Result-cache
+reuse. This contract makes no universal speed or numerical-acceptance claim.
+
+Memory observations distinguish live Python references and owner-held bytes
+from native allocator retention, mapped memory, and process-tree RSS. Shape,
+section, nnz and cache counts describe the observed work; held bytes are not an
+RSS total. Tell, commit and return/cleanup observations locate release
+boundaries, while API wall and inclusive CPU/phase costs describe different,
+potentially overlapping intervals. Recompilation and retained native memory
+must be reported as observations, without a fixed RSS or speed threshold.
+
+Current Benchmark records operation timing, phase aggregates, work counters and
+best-effort current-process memory snapshots at operation start and end. Root
+`details.process_memory` retains the platform, boundary, monotonic sample time
+and each metric's source, byte unit and measured or unavailable status. Linux
+snapshots report RSS, smaps PSS, private clean/dirty and swap where available;
+macOS snapshots report physical footprint through libproc. Process peak RSS is
+the OS lifetime high-water mark, not an operation-only or sampled peak. Missing
+platform counters remain unavailable rather than substituting another metric.
+
+These two boundary samples do not provide periodic or process-tree profiling.
+Private development measurements remain separate evidence and must identify
+platform, process or cgroup scope, units, timestamps, actual sampling cadence
+and unavailable fields. Neither record is an additional numerical-result or
+checkpoint authority.
+
+| Measurement | Meaning and limits |
+|---|---|
+| Linux cgroup `memory.current`, `memory.peak`, `memory.stat`, swap and events | Charges for the named cgroup and its descendants, including its actual shared scope. The kernel peak has its own lifetime/reset scope; it is not the maximum of sampled process RSS. |
+| Linux smaps PSS, private clean/dirty and swap | Distinguish proportional shared-page accounting, private resident pages and swapped pages. These do not identify Python live references or immediately reclaimable allocator bytes. |
+| Process RSS/HWM | Resident pages and the process high-water mark; neither proves that retained bytes are still owned by live candidate objects. |
+| Linux virtual size and VMA count | Address-space and mapping pressure, not physical memory usage. |
+| macOS `phys_footprint` | A task memory-accounting ledger metric, reported separately from RSS. The normal boundary snapshot binds its libproc source and current-process scope; private periodic measurements must bind their own source and scope. Linux observations do not establish it. |
+| Sampled maximum | The greatest value actually observed at the recorded cadence; a spike between samples may be missed. It is distinct from kernel high-water or cgroup peak accounting. |
+
+These metrics overlap and must not be summed into one memory total or treated
+as equivalent across platforms. Reading smaps or platform task information also
+has a measurement cost. Process measurements are not automatically process-tree
+measurements; a cgroup report must identify which processes its scope includes.
+See the [Linux cgroup documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html)
+and [Apple task ledger implementation](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/bsd_kern.c)
+for their separate OS accounting authorities.
 
 ## One numerical and one result authority
 
@@ -136,6 +529,20 @@ ownership and plotting meaning. Reports and trace records reference numerical
 authority rather than embedding another candidate history. `resolve` is read-only:
 no runtime initialization, numerical launch, retry, cleanup or migration.
 
+Numerical-result readback fixes a completion seal, exact attempt, reference root
+and generation ancestry independently of diagnostic history. Construction verifies
+necessary completion metadata, not all candidate bodies. The readonly ledger
+Sequence and flat candidate discretization read selected indexed evidence in
+short snapshots and return detached values, without capturing the Run or retaining
+a growing body cache. History plots consume compact summaries; comparison takes
+only baseline and exact best. Missing, corrupt or replaced evidence fails without
+fallback or whole-history replay. The [Runtime lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle)
+owns the exact fixed-reader and materialization rules. Historical files retain
+their execution identities but older operation Workspaces have no compatible reader.
+Benchmark and recovery readers retain their separate diagnostic and checkpoint
+responsibilities. This readback change does not change numerical requests,
+cache selection, optimization order or winner semantics.
+
 Explicit Julia operation traces link the actual verified native request,
 canonical attempt SHA, receipt SHA, result SHA and attempt directory. The native
 trace's `attempt_id` denotes that existing canonical attempt identity, rather
@@ -156,9 +563,13 @@ identity; a selected or unknown delta is never blindly replayed. Uncommitted
 objects do not establish a completed generation. Diagnostic persistence failures
 must not mask a primary numerical, callback or interruption exception.
 
-Grouped generations remain in process memory until commit. Increasing N can
-increase buffered evidence and recomputation after process death: only the latest
-committed full CMA/RNG snapshot is resumable, and an uncommitted tail is unknown.
+Grouped generation bodies reside in Workspace-bound operation-local scratch
+until commit; cache and staged writer state retain light references. Publication
+and verified resume hydration consume bodies one at a time. Increasing N can
+increase uncommitted evidence and recomputation after process death: only the
+latest committed full CMA/RNG snapshot is resumable, and an uncommitted tail is
+unknown. Returning the complete typed ledger still requires its public result
+representation; this policy is not a constant-RSS or bounded-result-size claim.
 Normal completion or a handleable interruption flushes completed generations; a
 SIGKILL cannot run that flush. SQLite object references identify canonical bytes
 by role, length and hash within the relative database name, so relocation does
@@ -167,23 +578,63 @@ Plan leaf, including SQLite journal state; readonly open performs no recovery.
 Explicit Julia retains its existing native evidence files and verification
 contract; this operation-store replacement does not rewrite native receipts.
 
+## Current Workspace storage (dev27 CONVERGING)
+
+OperationStore version7 retains DELETE/EXTRA and rejects older operation
+Workspaces; use a new Workspace and recompute, without migration or deletion.
+A verified-object cache lasts only one transaction or readonly snapshot and
+includes role/length bindings; reopen/relock revalidates. Manifest plus operation
+start publish atomically. Request/task/attempt/running state and operation
+association register atomically. Canonical numerical bodies omit occurrence
+context; occurrences preserve ordered task/key/source/cache/attempt facts and
+reference that body. Hydration batches references within one verified snapshot.
+No solver reads or background writer are introduced.
+
+Normal solve/evaluate atomically commits result, attempt success and the first
+selected success. One optional timing batch and separate final root follow that
+required boundary; baseline diagnostics are not independently flushed.
+Optimization diagnostics follow actual group ACK independently of callback
+prerequisites. Numerical equations, dtype, candidate ordering, CMA and native
+Julia baseline semantics are unchanged.
+
 ## Built-in read-only Benchmark
 
-`run.benchmark(*, operations=None, method=None, backend=None, precision=None, status=None) -> BenchmarkResult` reads this
-Run's current Plan leaf. Optional operation-ID and method/backend/precision/status filters select recorded
-operations; omitted filters select all recorded operations in that leaf. It does
+`run.benchmark(*, operations=None, method=None, precision=None, status=None) -> BenchmarkResult` reads this
+Run's current Plan leaf. Optional operation-ID and method/precision/status filters select recorded
+operations; omitted filters select all recorded operations in that leaf. A status
+filter matches the independently recorded operation status **or** `task_status`.
+The report preserves both facts: committed task success does not synthesize a
+successful operation finalization, and diagnostic failure cannot hide that
+committed numerical state. It does
 not accept a Spec, backend arm, alternate workspace or launch controls. The old
-public comparison executor is superseded; historical comparison documents remain
-readable through `BenchmarkResult.open(workspace)` without execution or migration.
+public comparison executor is superseded. A returned `BenchmarkResult.workspace`
+is the exact `<Plan leaf>/operations` directory containing `operations.sqlite3`,
+not the enclosing Workspace root. `BenchmarkResult.open(benchmark.workspace)`
+reads that same current version7 operation store without leaf discovery, recovery
+or a root scan; older operation stores fail explicitly
+and require a new Workspace and recomputation.
 
 Every solve/evaluate/optimize operation has one root span beginning at the
-method's first clock read. Before its endpoint, `operation_finalization` measures
-Plan ownership acquisition and pending-span archival; its end coincides with the
-root endpoint. Only the final root append and return tail remain outside that
-endpoint. Large evidence, checkpoint and span-archive work stays inside the root;
-no child interval extends past its root. Resolve and Benchmark remain fully
+method's first clock read. The root interval includes final Plan-writer
+acquisition, Plan revalidation and pending diagnostic publication before its
+endpoint; these finalization costs have no separate named phase row. Only the
+final root append and return tail remain outside that endpoint. Large evidence,
+checkpoint and diagnostic archival work stays inside the root; no child interval
+extends past its root. Resolve and Benchmark remain fully
 read-only and persist no spans.
-Actual nested spans describe preparation, cache lookup, lowering/View, transfer,
+`CircuitRun(..., timing="aggregate")` defaults to online grouped timing;
+`solve/evaluate/optimize(..., timing=None)` inherits that setting, while explicit
+`"aggregate"` or `"detailed"` overrides it. Diagnostic mode is absent from
+numerical request/cache/checkpoint math identity. Detailed cache hits do not
+recompute. Aggregates show count/status, inclusive sum/min/max and actual max
+context; mean is derived on read. They cannot reconstruct a detailed Timeline.
+Only detailed mode retains low-level actual intervals; known root/top-level
+intervals remain truthful. Optimization records actual physical preparation,
+ready-batch preparation, value/value-plus-gradient, controller, continuation,
+publication callback and cleanup intervals. Timing payloads contain context and
+counters, not scientific bodies or task-span copies.
+
+Actual nested intervals describe preparation, cache lookup, lowering/View, transfer,
 executable preparation, synchronized numerical batches, sweep points and CMA
 ask/tell/generations/checkpoint publication. Every span binds `operation_id`,
 `span_id`, nullable `parent_span_id`, kind, clock, actual start/end and status.
@@ -197,6 +648,17 @@ outcomes and candidate occurrences carry references to their original evidence.
 Trace buffering at generation/end follows the evidence barriers; callback
 notification preserves durability-before-notify. Interrupted submissions and
 terminated processes retain partial evidence; missing tails stay unknown.
+Optional timing batches are stored once in independent operation timing streams,
+never copied into numerical task events or measurement bodies. After their own
+durable acknowledgement, the recorder releases acknowledged increments instead
+of retaining and resubmitting the full history.
+It retains the identity and active parent/clock state needed by subsequent
+spans. Unacknowledged spans and the available failure tail remain pending under
+the existing commit/reconciliation contract; an uncertain publication is not
+treated as acknowledged. Archival does not discard persisted diagnostic data. Timing write failure stops
+diagnostics for that operation, including optional root finalization writes,
+independently of required numerical ACK and callback. An otherwise committed success returns with RuntimeWarning; required
+commit/integrity/callback failures and real interruptions keep their ownership.
 For a recorded failure/interruption, the public root's `details.failure` exposes
 the exact saved failure record, including available type, kind, stage, message
 and evidence. The reader does not infer a failure or result that was not saved.
@@ -236,12 +698,217 @@ Workspace owns durable evidence, trace publication, resume verification and
 read-only typed decoding. Visualization owns timeline projection and rendering.
 No report, kernel cache or trace creates a competing numerical authority.
 
-Required new installed-wheel observations follow the exact dev12 work packet:
+The historical dev12 observation scope followed its own work packet:
 Julia-blocked Direct/root/Optimization/sweep, grouped commit resume/tail/off and
 callback/interruption ownership, actual SQLite capacity/transaction fault cases,
 new/partial/relocated readonly projection and HTML inspection, and the 18 new
 performance tasks described above. Unchanged dev11 observations are historical
-evidence, not rerun or relabeled as dev12. New observations remain pending until
-source-bound receipts exist. No speed,
+evidence, not rerun or relabeled as dev12. The dev13 work packet separately assigns only its named functional observations.
+No speed,
 accuracy, memory, convergence or mesh Gate is implied. GPU, Windows Workspace,
-Float16/mixed precision and new algorithms are excluded.
+Float16/mixed precision and additional quantity families are excluded.
+
+## Sparse CPU numerical foundation
+
+The sparse foundation introduced in dev13 remains part of the current
+CONVERGING physical-program candidate: immutable indexed local stamps,
+parameter-dependent sparse View congruences and JAX numeric assembly followed
+by CPU CSC SuperLU. The shared program is the numerical authority for ordinary
+values, Sensitivity and staged optimization. Installed-wheel observations bind
+their actual source and requested workflow; historical dev13 receipts are not
+current functionality or performance evidence. There is no selectable dense
+numerical fallback. Dense conductor, Port, selected Schur
+and actual RHS blocks remain where the mathematics requires them; genuine fill
+is preserved without dropping small values.
+
+Compiler and View own binary64 SI lowering and declaration order. The backend
+owns requested arithmetic precision, local frequency assembly, direct factors,
+analytic derivatives and existing numerical certificates. C/K/G are coalesced
+before their separate absolute bounds; each series-RL section is bounded before
+section summation. For a realized section resistance that is exactly zero and nonzero
+frequency, the dev20 CONVERGING candidate evaluates the same local equation
+`(-i omega) (R - i omega L)^-1 = L^-1` as a constant inductive
+stamp. The local inverse uses the selected actual arithmetic dtype and is
+prepared once per realized section; its frequency derivative is exactly zero.
+Width one uses the direct reciprocal; width two uses entrywise
+mantissa/exponent determinant and adjugate-ratio evaluation in the actual
+dtype, without global maximum normalization. Wider local blocks retain LU. One shared 2-by-2 determinant supplies both off-diagonal
+entries without projecting or averaging the input matrix. Existing actual-dtype
+residual, status and tolerance conditions remain unchanged.
+The zero mask tests the realized binary64 section resistance after physical
+section scaling and before casting to the backend arithmetic dtype; it is not
+a test of the unscaled Plan resistance or a dtype-rounded zero.
+Ordinary transpose, incidence weights, physical inputs and coalescing order
+remain unchanged. Nonzero-resistance sections and the original zero-frequency
+path retain their existing evaluation. This change does not alter root
+conditions, add a tolerance or certify a previously failed candidate.
+For retained, non-port-realizable Z transfer-zero only, the dev20 CONVERGING
+candidate uses two-component expansions in the selected base dtype
+(Float32/Complex64 or Float64/Complex128) through assembly and selected Schur
+formation. The current high/low sparse action uses the packaged C++17 CPU
+buffer kernel with runtime CSR coefficients, indices and RHS. It preserves
+ordered high/low traversal and sparse structure without a dense operator or
+padded stencil. Native callback and synchronized numerical execution are
+distinct from JAX executable compilation; the CPU buffer action does not
+require compiling or downloading a JAX CSR row-batched kernel.
+The high-part factorization is performed once and reused for one
+fixed low-aware correction. Corrected-equation certification retains the pair
+representation as its numerical authority. Consistently formed F/Fp are then
+projected to declared-dtype Y/Yp for the current Z cofactor and denominator
+calculation. Unconsumed H/Hp are omitted on this Z branch. Other Quantity
+scopes retain their current arithmetic. Effective compensated coverage is
+recorded explicitly; this is not a 128-bit-accuracy claim or a public mode.
+Physical inputs, ordinary transpose, strict result/failure ownership, tau and
+the 0.01 Hz condition remain unchanged. No mean estimate, fallback, automatic
+precision change or new certification condition is selected.
+
+Host continuation/CMA and Workspace commit/checkpoint
+authorities remain separate. The private Python-to-Julia transport may materialize
+a dense descriptor at that adapter boundary; explicit ordinary Julia is unchanged.
+
+Runtime coefficients, indices and View weights are inputs, rather than captured
+physical constants. Static-pattern preparation, compiled-kernel reuse and actual
+call-local factor reuse are distinct observations. Each installed-wheel
+functionality claim is limited to its recorded workflow; historical measurements
+retain their original implementation identity and imply no current speed claim.
+
+The current JAX algorithm is operation-specific:
+`scnsim.jax.native_physical.{operation}.v1`, with `operation` equal to
+`direct`, `evaluate`, `optimize` or `sensitivity`. Canonical requests
+bind it, and actual execution environment records bind SciPy and the selected
+backend. This prevents an old dense request/checkpoint from becoming a new sparse
+execution by relabeling. Historical files retain their original execution
+identities, but current readers reject older operation Workspaces: use a new
+Workspace and recompute, without migration or deletion. Current native Julia
+result-file contracts remain unchanged.
+Frequency work uses the configured main bucket (default eight) and a stable
+size-one tail; each
+system has a call-local CPU SuperLU factor reused for its actual RHS solves.
+Retained roots factor only the eliminated block and form the selected Schur
+operator and analytic derivative; they never invert the full singular root
+operator. Timing distinguishes actual assembly, CSC construction, factorization,
+RHS solves and checks; these nested intervals are not additive wall-time parts.
+
+## Shared Direct quantities and staged execution
+
+The new quantity kernels reuse sparse JAX assembly and CPU SuperLU. Global and
+eliminated operators remain sparse; local numerator/retained/output matrices
+and actual RHS blocks may be dense. Native SuperLU denominator determinants
+and analytic derivatives replace any requirement to reproduce handwritten
+Julia pivots, under a distinct recorded JAX algorithm identity. Singular local
+cofactor derivatives and the existing complete denominator solve residual
+remain required. There is no performance, numerical agreement or new
+convergence claim from this implementation description.
+
+The shared physical program owns quantity expression and analytic derivative
+computation, including coupling's actual branch dependencies. The execution
+host owns baseline-anchored continuation and serialization; stage controllers
+own CMA or local search, and the coordinator owns acknowledged publication.
+Typed Result decoding consumes verified numerical records and preserves actual
+precision, units and axes without a Julia receipt. The JAX CMA default commits
+every ten complete post-tell generations; local accepted iterations use their
+explicit `commit_every_iterations` cadence. The first committed group includes
+the pending baseline body once; there is no standalone baseline commit or
+initial callback. Callbacks follow required group ACK. Generation checkpoints
+start at generation 1 and bind the latest completed state; off excludes
+restore-only state. Native Julia retains its existing baseline protocol.
+
+Coupling consumes two already-certified branch outcomes in declaration order;
+it does not locate or polish those roots again. The shared quantity codec retains
+actual scalar/vector/matrix dtype, including certified anchors restored on resume.
+`DirectQuantityResult.evidence` supplements scalar fields with detached ordered
+coordinate/channel bindings, certificates, hybridized null vectors and branch
+evidence; it does not introduce child result identities or another solve. Loaded
+operator arrays preserve `[frequency, row, column]` order, with the request grid
+as their frequency authority. Native Julia algorithm identifiers remain unchanged;
+JAX quantity and transitive Optimization identities distinguish this candidate.
+
+The dev27 JAX request layer binds one physical-program algorithm identity per
+operation: `scnsim.jax.native_physical.direct.v1`,
+`scnsim.jax.native_physical.evaluate.v1`,
+`scnsim.jax.native_physical.optimize.v1` and
+`scnsim.jax.native_physical.sensitivity.v1`. Quantity declarations, leaf Views,
+active derivative coordinates and fixed-mesh planning remain separate recorded
+inputs. Numerical source/executable identities record the actual implementation
+and arithmetic; an operation identity is not an accuracy certificate. Earlier
+`scnsim.jax.physical_program.*`, per-family `scnsim.jax.sparse_superlu.*`,
+transitive CMA and aggregate v8 records
+retain their historical identities and are not current dev27 request authority.
+The shared
+selected-state factorization of the eliminated block Qee uses SuperLU
+`MMD_AT_PLUS_A` structural ordering. One factor supplies both the Schur solve
+and its analytic derivative solve. Other native factorization options, selected
+arithmetic dtype, equations and eliminated-solve residual conditions remain
+unchanged. The subsequent coupling reciprocity amendment below is a separate
+numerical certificate change. This ordering is recorded by the new adapter identity; it introduces
+no retry, alternate-order fallback, symmetrization or new tolerance. It does not
+by itself establish full-model convergence or numerical agreement. The shared
+`root_frequency_linewidth` projection converts certified complex omega into
+public Hz fields. Certified quantities use dtype-preserving array records,
+including scalar records, rather than a second persisted frequency result.
+
+Optimization candidate records retain a canonical `dependencies` mapping from
+content body ID to numerical quantity body. Objective terms carry `body_id`;
+coupling evidence carries ordered role/binding/body references into the same
+mapping. A term carries its selector, actual value, lineage and body reference without
+duplicating that body's certificate/evidence payload. Selected readonly readers
+hydrate the referenced bodies in one verified snapshot; the decoder reconstructs
+public term evidence from that single body authority without another solve. Sealed baseline anchors
+reference certified bodies in the baseline authority and hydrate through the
+same codec on resume. Standalone and sweep point rows retain their primary
+quantity fields and the corresponding finished branch dependencies.
+
+## Backend-aware compiler explanation (dev14 CONVERGING)
+
+`CircuitRun.explain(ref, spec, *, parameters=None, precision=None)`
+inherits the Run precision; an explicit precision overrides it. JAX
+explanations use the existing sparse Python compiler and View realization at the
+effective parameter point, including every ordered scalar objective View. Their
+`scnsim.jax_preflight` evidence binds actual Plan/request hashes and declared
+backend/precision, ordered original/transformed/selected/eliminated axes, sparse
+COO coefficient and incidence records, local SeriesRL/Port blocks, resolved
+physical fields and realized line grids. Host SI lowering is binary64; no
+execution or numerical certificate is implied. There is no JAX initialization,
+JIT, global dense C/K/G allocation, numerical solve or Julia discovery.
+
+The existing ExplanationResult exposes the evidence and its line discretization
+and HTML presentation. Sparse records explicitly identify their format and
+shape. Manual schematic
+preparation/rendering does not initialize Julia or a solver; the automatic
+compiled diagram producer is retired independently of numerical compilation.
+
+## Selected-Schur reciprocity amendment (CONVERGING)
+
+The JAX coupling reciprocity certificate accounts for the actual eliminated-solve
+residual and arithmetic rounding when Schur cancellation amplifies raw skew. It
+credits only the explained solve-residual contribution, preserving input-origin
+asymmetry and the raw selected operator for every downstream quantity. Its
+rounding envelope derives from selected dtype and operation counts, without an
+empirical multiplier or an infinite overflowed success budget. The existing
+eliminated-block checks run first; root, zero, residue, derivative and branch
+independence conditions remain unchanged. There is no symmetrization, extra
+solve/factorization, retry, fallback or mixed precision.
+
+The [Direct quantity contract](direct-poles-zeros-and-operators.qmd) owns the
+identity, corrected defect and evidence meaning. The aggregate v4
+identity distinguishes this certificate from prior source-bound observations.
+The shared helper records `raw_selected_matrix`, `raw_skew`,
+`residual_contribution`, `corrected_defect`, `rounding_budget`, `allowance`,
+`unit_roundoff`, `arithmetic_precision` and `input_skew`, alongside the raw
+numerator/scale/ratio. Bound arithmetic rounds outward in the selected real
+dtype, including operation-count-derived subnormal error terms. This
+is a numerical reciprocity certificate within rounding uncertainty, not a
+forward-accuracy, performance or complete-model convergence claim.
+
+
+### dev28 編譯與暖機成本
+
+共用 execution variant plan 區分 planned、compiled、cache reused、single-flight
+waited 與 lazy。CMA 的 composed Objective cost、local/Hybrid 的實際 derivative
+路徑必須與 execution 使用同一 callable/key；子函式 AOT 不等於 composed body
+已編譯。Runtime objective coefficients 在固定 static modes 內不改 executable key。
+Compile-only warmup、首次 execution、後續同結構候選、保存與 memory observations
+分開報告。Generated-code bytes 是輔助資訊，不等於 LLVM/JAX/native allocator
+resident bytes；unknown bytes 保持 unknown，不以提高 CPU 使用率或固定秒數作 Gate。
+
+</details>

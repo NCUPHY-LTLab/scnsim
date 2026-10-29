@@ -13,3 +13,21 @@ __pycache__/
 !/examples/engineer/figures/08-report.html
 /examples/**/*_files/
 **/workspaces/
+
+# Derived bilingual source companions and canonical code includes.
+/zh-TW/.quarto/
+/zh-TW/_extensions/
+/zh-TW/_generated/
+/zh-TW/tests/figures/
+/zh-TW/docs/assets/
+/zh-TW/src/
+/zh-TW/examples/engineer/figures/
+/zh-TW/examples/engineer/chapter-07/position-figures/
+/zh-TW/examples/**/*.ipynb
+/_quarto-pages.yml
+/zh-TW/_quarto-pages.yml
+
+# Read-only shared public README link targets, staged from the English root.
+/zh-TW/LICENSE
+/zh-TW/NOTICE
+/zh-TW/pyproject.toml

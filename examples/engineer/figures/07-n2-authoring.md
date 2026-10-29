@@ -1,3 +1,3 @@
-### N=2 authoring diagram outcome
+![N=2 authoring diagram.](../figures/07-n2-authoring.svg){#img-ch7-n2-authoring .lightbox}
 
-The existing deterministic renderer reported a typed `schematic_layout` failure. No fallback layout was substituted.
+{{< askr-image-view target="img-ch7-n2-authoring" label="Open the N=2 authoring diagram" >}}

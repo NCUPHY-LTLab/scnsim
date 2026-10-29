@@ -10,13 +10,17 @@ ordinary clean-kernel units; Chapter 8 deliberately uses two independent
 kernels and one shared preserved workspace. The sixteen former Chapter URLs
 now lead to short migration guides, not a second current course.
 
-::: {.callout-warning title="Course candidate · CONVERGING" appearance="simple"}
-The public authoring grammar, Parameter System, and certified diagram scopes
-remain `CONVERGING`; accepted numerical Results keep their existing meanings.
-Generated figures are source-bound evidence for exact checkpoints, not proof
-of course acceptance, release, or every historical cell. The website executes
-no kernels or solvers.
-:::
+The course's existing figures are the recorded outputs of their original
+Chapter calculations. The current concept and API guides explain how to use
+the package; reading or rendering this course does not recalculate those figures.
+Start with the [Concept overview](concepts/index.qmd) if you want a map of the
+model, View and quantity choices before beginning a Chapter.
+
+Before interpreting a complex response, read [Simulation conventions](concepts/simulation-conventions.qmd)
+for phasor signs, current directions, wave references, selected loads, and
+linewidth units.
+For a root or notch request, use the current [roots and branch-selection guide](guides/roots-and-branch-selection.qmd)
+to distinguish Hint, explicit discovery, tracked branches and local derivatives.
 
 ## Chapter 1 — Coupled grounded LC
 
@@ -24,41 +28,41 @@ Build a 110 fF / 5.8 nH grounded resonator, connect it through a 6 fF coupler to
 a terminated 50 ohm Port, inspect its authoring diagram, read one-port S11 and
 the loaded root, then select 120 fF on the same Plan.
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 1 — Build](../examples/engineer/chapter-01/01-build.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 1 — Build](../examples/engineer/chapter-01/01-build.qmd) {.askr-card-title .unlisted}
 Define the independent capacitance, author the child LC, publish its Pin and
 Coordinate, and assemble the root coupler and Port.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 2 — Diagram](../examples/engineer/chapter-01/02-diagram.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 2 — Diagram](../examples/engineer/chapter-01/02-diagram.qmd) {.askr-card-title .unlisted}
 Render and independently audit the authored Plan without selecting an analysis
 View.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 3 — S11](../examples/engineer/chapter-01/03-s11.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 3 — S11](../examples/engineer/chapter-01/03-s11.qmd) {.askr-card-title .unlisted}
 Request the exact 401-point one-port response and read magnitude and phase from
 the typed Direct Result.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 4 — Loaded root](../examples/engineer/chapter-01/04-root.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 4 — Loaded root](../examples/engineer/chapter-01/04-root.qmd) {.askr-card-title .unlisted}
 Retain the exposed child Coordinate and evaluate its loaded frequency and
 linewidth with a 6 GHz root hint.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 5 — Change capacitance](../examples/engineer/chapter-01/05-change-capacitance.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 5 — Change capacitance](../examples/engineer/chapter-01/05-change-capacitance.qmd) {.askr-card-title .unlisted}
 Select 120 fF without mutating the Plan, then repeat the same response and root
 questions.
 :::
@@ -75,33 +79,33 @@ Rebuild the coupled grounded LC with independent C and L inputs, evaluate the
 ordered 100/110/120 fF sweep at fixed 5.8 nH, then optionally run the declared
 capacitance Optimization and explore complete grid versus listed C/L spaces.
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 1 — Build](../examples/engineer/chapter-02/01-build.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 1 — Build](../examples/engineer/chapter-02/01-build.qmd) {.askr-card-title .unlisted}
 Bind C and L to real child fields, publish a same-bus Pin and Coordinate, and
 connect the fixed root coupler directly to that Pin.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 2 — Sweep capacitance](../examples/engineer/chapter-02/02-sweep.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 2 — Sweep capacitance](../examples/engineer/chapter-02/02-sweep.qmd) {.askr-card-title .unlisted}
 Evaluate three author-ordered capacitance points and read their typed outcomes
 and loaded-frequency field. This is the Chapter's core stopping point.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 3 — Optimize and verify](../examples/engineer/chapter-02/03-optimize.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 3 — Optimize and verify](../examples/engineer/chapter-02/03-optimize.qmd) {.askr-card-title .unlisted}
 Run the fixed seed-17 request, then independently evaluate and render its
 returned best `ParameterSet` without changing the Plan baseline.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 4 — Optional C/L spaces](../examples/engineer/chapter-02/04-optional-spaces.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 4 — Optional C/L spaces](../examples/engineer/chapter-02/04-optional-spaces.qmd) {.askr-card-title .unlisted}
 Reuse the same Plan for a complete 3 × 2 grid and two explicitly listed points
 without reshaping, interpolation, or another model construction.
 :::
@@ -119,26 +123,26 @@ Build an ordered two-section scalar-RLGC feedline, couple a grounded readout,
 and inspect the named two-Port S21 response at three explicitly declared
 frequencies.
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 1 — Build](../examples/engineer/chapter-03/01-build.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 1 — Build](../examples/engineer/chapter-03/01-build.qmd) {.askr-card-title .unlisted}
 Declare the two physical feedline sections, their public boundaries, the
 readout, the coupling capacitor, and two terminated Ports.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 2 — Diagram evidence and limitation](../examples/engineer/chapter-03/02-diagram.qmd) {.course-card-title .unlisted}
-Read the complete Plan's typed Default-layout failure honestly, then inspect
-two separately declared subcircuit illustrations without treating them as a
-projection of that failed Plan.
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 2 — Diagram evidence and limitation](../examples/engineer/chapter-03/02-diagram.qmd) {.askr-card-title .unlisted}
+Declare the complete Plan's manual layout and inspect its correspondence.
+Distinguish the earlier layout outcome and separately declared subcircuit
+illustrations from the complete Plan's current source recipe.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 3 — Named S21](../examples/engineer/chapter-03/03-s21.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 3 — Named S21](../examples/engineer/chapter-03/03-s21.qmd) {.askr-card-title .unlisted}
 Run one Direct request and read the `transmission` trace on its exact
 5.5/6.0/6.5 GHz sample grid; no interpolation or resonance estimate is made.
 :::
@@ -153,39 +157,39 @@ is the independent clean-kernel execution unit.
 Rebuild the original physical four-Port probe circuit and inspect its
 certified explicit composition. The required core reads the raw four-Port
 feedline response, then applies PTC and retains the two feedline Ports for a
-separately labeled response. Transform, one scalar response element, and
-independent Direct and pump-off HB grids are optional continuations.
+separately labeled response. Transform and one scalar response element are
+optional continuations.
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 1 — Physical Plan](../examples/engineer/chapter-04/01-physical-plan.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 1 — Physical Plan](../examples/engineer/chapter-04/01-physical-plan.qmd) {.askr-card-title .unlisted}
 Declare the feedline, readout, floating branches, three couplers, and four
 logical Ports without analysis-time rewiring.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 2 — Explicit capstone](../examples/engineer/chapter-04/02-explicit-capstone.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 2 — Explicit capstone](../examples/engineer/chapter-04/02-explicit-capstone.qmd) {.askr-card-title .unlisted}
 Apply the established explicit probe-tee composition and inspect its certified
 authoring projection.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lesson 3 — PTC core](../examples/engineer/chapter-04/03-ptc-core.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lesson 3 — PTC core](../examples/engineer/chapter-04/03-ptc-core.qmd) {.askr-card-title .unlisted}
 Read the raw four-Port feedline trace, compensate both probe Ports, retain the
 feedline pair, and read the separately labeled three-sample PTC Direct S21
 Result. This is the Chapter's core stopping point.
 :::
 ::::
 
-:::: {.card .course-card}
-::: {.card-body}
-### [Lessons 4–6 — Optional analysis](../examples/engineer/chapter-04/04-optional-transform.qmd) {.course-card-title .unlisted}
+:::: {.askr-card}
+::: {.askr-card-body}
+### [Lessons 4–6 — Optional analysis](../examples/engineer/chapter-04/04-optional-transform.qmd) {.askr-card-title .unlisted}
 Continue with the same Plan through paired-coordinate transformation, a direct
-6.2 GHz response-element lookup, and separate Direct and pump-off HB Results.
+6.2 GHz response-element lookup and a separate Direct Result.
 :::
 ::::
 
@@ -227,7 +231,7 @@ and whole-C-matrix ×170/175 points on one three-frequency Direct request.
 
 - [Lesson 1 — Ordered RLGC](../examples/engineer/chapter-07/01-rlgc.qmd)
 - [Lesson 2 — Four signal Ports](../examples/engineer/chapter-07/02-ports.qmd)
-- [Lesson 3 — Authoring and compiled diagrams](../examples/engineer/chapter-07/03-diagrams.qmd)
+- [Lesson 3 — Declare the authoring diagram](../examples/engineer/chapter-07/03-diagrams.qmd)
 - [Lesson 4 — Parameter points](../examples/engineer/chapter-07/04-parameter-points.qmd)
 - [Complete Chapter source](../examples/engineer/chapter-07/chapter.qmd) and
   [zero-output Notebook](../examples/engineer/chapter-07/chapter.ipynb)
@@ -236,9 +240,9 @@ and whole-C-matrix ×170/175 points on one three-frequency Direct request.
   [zero-output Notebook](../examples/engineer/chapter-07/05-position-electrical-resolution.ipynb).
   It does not change the original four-lesson aggregate.
 
-The current deterministic renderer reports a typed fixed-connector collision
-for the exact four-Port authoring layout. That presentation limitation does not
-replace the model or its complete sixteen-channel Direct Result.
+The retained original four-Port authoring export records a typed
+fixed-connector layout failure. It does not replace the model or its complete
+sixteen-channel Direct Result, and is not an execution of the manual successor.
 
 ## Chapter 8 — Report and resolve
 
@@ -257,11 +261,11 @@ the same preserved workspace, and call only `resolve()` for the root.
 |---|---|---|
 | 1. Coupled grounded LC | Build, diagram, S11, loaded root, selected C | Current five-Lesson Chapter |
 | 2. Sweep and Optimization | Inputs, bindings, points, spaces, and established Optimization workflow | Current four-Lesson Chapter |
-| 3. CPW feedline/readout S21 | Ordered two-section CPW, coupled readout, two-Port response | Current three-Lesson Chapter; complete Default diagram reports a typed fixed-layout collision |
-| 4. Four-Port capstone | Original physical Plan and PTC core, then optional transform, quantities, and pump-off HB | Current six-Lesson Chapter |
+| 3. CPW feedline/readout S21 | Ordered two-section CPW, coupled readout, two-Port response | Current three-Lesson Chapter; retained original diagram outcome is a typed fixed-layout failure |
+| 4. Four-Port capstone | Original physical Plan and PTC core, then optional transform, quantities, | Current five-Lesson Chapter |
 | 5. Library | Create, publish, instantiate, and reuse a Composite | Current three-Lesson Chapter |
-| 6. Diagram customization | Default completion, bounded hints, composition, and A/B review | Current four-Lesson Chapter |
-| 7. MTL | Ordered multi-conductor RLGC and finite-pi compiled evidence | Current four-Lesson Chapter; exact four-Port authoring layout reports a typed fixed-layout collision |
+| 6. Diagram customization | Explicit layout declarations and actual-scene A/B review | Current four-Lesson Chapter |
+| 7. MTL | Ordered multi-conductor RLGC, explicit authoring layout and historical finite-pi evidence | Current four-Lesson Chapter; original diagram outcomes retain their execution identity |
 | 8. Report and resolve | Exact requests, Results, workspaces, reports, and restart-safe resolution | Current two-Lesson, two-kernel Chapter |
 
 The [durable migration map](implementation/engineer-course-migration-map.qmd)
@@ -277,6 +281,7 @@ available in Git history rather than as a second current syllabus. The five
 historical fixtures remain implementation-baseline evidence and are not
 imported by the current Chapters.
 
-For rationale, read [Concept](concepts/physical-authority-and-reusable-composition.qmd).
+For response conventions, start with [Concept](concepts/simulation-conventions.qmd).
+For modeling rationale, read [physical authority and composition](concepts/physical-authority-and-reusable-composition.qmd).
 For exact signatures, equations, invariants, identities, and failure behavior,
 use the [Contract map](contracts/index.qmd).

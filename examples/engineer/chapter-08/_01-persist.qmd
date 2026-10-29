@@ -78,7 +78,7 @@ the same signal bus and creates no second electrical connection.
 ```{python}
 #| id: ch8-prepare-persisted-requests
 workspace = "workspaces/engineer-chapter-08"
-run = CircuitRun(backend="julia", plan=plan, workspace=workspace)
+run = CircuitRun(plan=plan, workspace=workspace)
 direct_spec = DirectSolveSpec(frequencies=[5.5, 6.0, 6.5, 7.0] * u.GHz)
 quantity_view = run.original.reduce(
     ReductionPipeline().retain(resonator_coordinate)
@@ -95,12 +95,13 @@ run.explain(quantity_view, root_spec, parameters=baseline_parameters).show()
 #| id: ch8-execute-persisted-results
 direct = run.solve(run.original, direct_spec, parameters=baseline_parameters)
 root = run.evaluate(quantity_view, root_spec, parameters=baseline_parameters)
-display(direct.s.plot(magnitude="db", theme=Theme.AUTO))
+display(direct.s.plot(component="magnitude", magnitude="db", theme=Theme.AUTO))
 display(root.plot())
 ```
 
-The Direct request uses exactly four declared samples. The loaded root uses a
-6 GHz Newton hint; the hint is not the answer or a search interval.
+The Direct request uses exactly four declared samples. Its S11 chart shows
+magnitude only; no phase trace is available in the saved report. The loaded root
+uses a 6 GHz Newton hint; the hint is not the answer or a search interval.
 
 ```{python}
 #| id: ch8-build-result-report
@@ -123,9 +124,16 @@ report = run.build_report(
     )
 )
 report.show()
+run.close()
 ```
 
 ::: {.content-visible when-format="html"}
+
+**Port 1:** `signal_in`; this saved view contains the one magnitude trace.
+
+<iframe title="Saved Chapter 8 S11 magnitude" src="../figures/presentation/08-s11-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/08-s11-magnitude.svg" label="Open Saved S11 magnitude at four declared frequency samples. (SVG)" >}}
 
 {{< include ../figures/08-persisted-results.md >}}
 
@@ -139,4 +147,6 @@ the stored, named S channel and selects magnitude in dB; the second presents
 the loaded root summary. Because these panels name the exact Result objects in
 `inputs`, report assembly cannot silently substitute an identity-equal object.
 Building presentation does not choose another request or create a numerical
-attempt.
+attempt. Close the Run after the report is built; its saved Results keep their
+fixed readers for later presentation. The Plan leaf stores immutable evidence
+in `operations/operations.sqlite3`; reuse this same environment when reopening it.

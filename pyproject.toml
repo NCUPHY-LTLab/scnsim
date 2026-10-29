@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scnsim"
-version = "1.0.0a2"
+version = "1.0.0a3"
 description = "Superconducting Circuit Network Simulation."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -19,19 +19,17 @@ dependencies = [
   "pint>=0.24.4,<0.25",
   "plotly>=6.3,<7",
   "schemdraw>=0.23,<1",
-  "zarr>=2.18.3,<3",
+  "scipy==1.18.1",
+  "threadpoolctl==3.7.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/OrPenStrike/scnsim"
-Documentation = "https://orpenstrike.github.io/scnsim/"
-Issues = "https://github.com/OrPenStrike/scnsim/issues"
-Repository = "https://github.com/OrPenStrike/scnsim"
+Homepage = "https://github.com/NCUPHY-LTLab/scnsim"
+Documentation = "https://ncuphy-ltlab.github.io/scnsim/"
+Issues = "https://github.com/NCUPHY-LTLab/scnsim/issues"
+Repository = "https://github.com/NCUPHY-LTLab/scnsim"
 
 [project.optional-dependencies]
-julia = [
-    "juliapkg>=0.1.26,<0.2",
-]
 static-export = [
     "kaleido>=1,<2",
 ]
@@ -51,10 +49,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 scnsim = [
+  "_agent_knowledge/manifest.json",
+  "_agent_knowledge/resources/*",
   "py.typed",
+  "_native/*.cpp",
   "_schemas/*.json",
-  "_julia/*.toml",
-  "_julia/*.json",
-  "_julia/bin/*.jl",
-  "_julia/src/*.jl",
 ]

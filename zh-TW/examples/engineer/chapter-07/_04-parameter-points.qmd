@@ -1,0 +1,41 @@
+## 第 4 課 — 評估三組完整參數點 {#lesson-ch7-points}
+
+### 改變長度或完整電容矩陣
+
+第二個參數點只將長度改為 1.8 mm。第三個參數點依教學比例 170/175 縮放完整 C 矩陣；R、L、G 維持與基準宣告完全相同的值，`n_sections` 仍為 8。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_04-parameter-points.qmd/block-001.qmd >}}
+
+這是三組完整參數點的清單，不是 Q2D、元件掃描、矩陣元素軸或插值契約。
+
+### 列出完整四埠通道
+
+Direct Result 包含完整的 4×4 S 矩陣。十六個具名軌跡投影會呈現所有輸入至輸出通道，不會啟動額外求解。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_04-parameter-points.qmd/block-002.qmd >}}
+
+三個頻率都是明確宣告的取樣點。不會使用點間曲線宣稱存在連續諧振或根。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_04-parameter-points.qmd/block-003.qmd >}}
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-07/_04-parameter-points.qmd/block-004.qmd >}}
+
+圖表呈現三組參數點的 `s_readout_head_from_readout_head` 反射：基準、長度 1.8 mm，以及完整電容矩陣縮放 170/175。Port 1 為 `readout_head`；完整 16 通道矩陣仍列於表格與 CSV。
+
+::: {.content-visible when-format="html"}
+
+**Port 1：**`readout_head`；**通道：**`s_readout_head_from_readout_head`。標記點為明確宣告的 5.5、6.0 與 6.5 GHz 三個取樣頻率。
+
+<iframe title="三組參數點的 readout-head 反射幅值" src="../figures/presentation/07-readout-head-reflection-magnitude.html" class="w-100" height="400" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/07-readout-head-reflection-magnitude.svg" label="基準、1.8 mm 與電容縮放 170/175 的 readout-head 反射幅值。（SVG）" >}}
+
+<iframe title="三組參數點的 readout-head 反射相位" src="../figures/presentation/07-readout-head-reflection-phase.html" class="w-100" height="400" loading="lazy"></iframe>
+
+{{< askr-image-view src="../figures/presentation/07-readout-head-reflection-phase.svg" label="基準、1.8 mm 與電容縮放 170/175 的 readout-head 反射相位。（SVG）" >}}
+
+{{< include ../figures/07-response-points.md >}}
+
+[下載所有具名通道的精確複數取樣](../figures/07-response-points.csv)
+
+:::

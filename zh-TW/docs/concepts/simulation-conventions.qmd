@@ -1,0 +1,170 @@
+---
+title: "模擬慣例"
+description: "以明確的相量（Phasor）、電流方向、波參考、負載、選定檢視與頻率單位解讀 SCNSim 複數響應。"
+lang: zh-TW
+sidebar: concept
+---
+
+解讀相位、極點（Pole）或矩陣（Matrix）元素前，先確認 Plan、選定 View、有序軸與頻率慣例。本頁將物理慣例連結到相應版本的 SCNSim Result，不改變電路、不自動選擇 View，也不從圖表判定數值精度。
+
+## 快速對照
+
+| 讀值 | 慣例或邊界 |
+|---|---|
+| 相量／導數 | $e^{-i\omega t}$；$d/dt\mapsto-i\omega$；$\omega=2\pi f$ |
+| 電壓／電流 | 電壓相對 Plan 接地；端子電流流入待測元件（DUT） |
+| S/Y/Z 軸 | 輸出為列、輸入為欄；$I=YV$、$V=ZI$、$b=Sa$ |
+| 波參考 | 正實數或實對稱正定參考；主矩陣平方根 |
+| 負載與 PTC | 區分來源去嵌入、未補償而省略的匹配負載、明確實體電阻；只有具名非負載探針接受 PTC |
+| 公開網路／根 | S/Y/Z 共用一份明確 View；含負載算子／根有不同邊界 |
+| 極點線寬 | 被動系統 $\operatorname{Im}\Omega<0$；$\kappa=-2\operatorname{Im}\Omega$；傳輸零點（Transfer zero）不是線寬 |
+| 相位／dB | 包裹相角；$20\log_{10}|S|$；正延遲具有正傳播相位 |
+
+## 相量、傅立葉轉換與單位 {#phasors-and-units}
+
+所有公開物理值使用 `scnsim.units` 的 Pint 登錄表。先寫 `from scnsim import units as u`：`110 * u.fF` 是電容，`5.8 * u.nH` 是電感，裸數字不提供這些單位。物理量陣列保留有序軸，改顯示單位不重排或縮減矩陣。
+
+具型別 Result 投影可明確轉換單位，例如 `matrix_result.matrix.to("farad")` 或 `root_result.frequency.to("GHz")`。轉換保留物理量，不計算新 Result 或取代來源證據。導數單位為輸出單位除以輸入單位，詳見[靈敏度（Sensitivity）指南](../guides/sensitivity.qmd)。參數單位宣告（Parameter unit declaration）與不可變操作時數值由[參數系統（英文）](/en/docs/contracts/parameter-system.html)規定。
+
+SCNSim 使用下式表示實訊號：
+
+$$
+x(t)=\operatorname{Re}\{X(\omega)e^{-i\omega t}\},\qquad
+\frac{d}{dt}\longmapsto-i\omega.
+$$
+
+對應的傅立葉轉換對為：
+
+$$
+X(\omega)=\int_{-\infty}^{\infty}x(t)e^{+i\omega t}\,dt,\qquad
+x(t)=\frac{1}{2\pi}\int_{-\infty}^{\infty}X(\omega)e^{-i\omega t}\,d\omega.
+$$
+
+一般頻率 $f$ 以 Hz 表示，角頻率 $\omega=2\pi f$ 以 rad/s 表示。GHz 數值不等於 rad/s 角頻率。公開物理量攜帶單位，請使用 Result 的頻率單位，不從變數名稱猜測。
+
+JAX Direct 與 Operator 響應網格保留宣告頻率順序，包括重複項與反向掃描。軸位置代表一次請求出現，不保證頻率排序或唯一。退役 HB 契約保留其歷史網格能力。
+
+電壓相對 Plan 的標準參考接地，端子電流以**流入 DUT**為正。由此得到基本阻抗與導納（Admittance）：
+
+| 元件 | 阻抗（Impedance） $Z$ | 導納 $Y$ |
+|---|---|---|
+| 電阻 $R$ | $R$ | $1/R$ |
+| 電容 $C$ | $1/(-i\omega C)$ | $-i\omega C$ |
+| 電感 $L$ | $-i\omega L$ | $1/(-i\omega L)=i/(\omega L)$ |
+
+符號由相量決定，不由電路圖符號朝向決定。此慣例下，正延遲 $\tau$ 的訊號滿足 $X_{\rm out}=e^{+i\omega\tau}X_{\rm in}$。
+
+## 矩陣軸與功率波（Power wave） {#matrix-axes-and-power-waves}
+
+對有序端子電壓、電流向量：
+
+$$
+I=YV,\qquad V=ZI,\qquad b=Sa.
+$$
+
+所有矩陣均以**輸出為列、輸入為欄**。因此 $S_{21}$ 是其他入射波為零時，端子 1 入射波造成的端子 2 出射波。具名 `SParameterTrace(input_port=..., output_port=...)` 綁定這些角色，不改變矩陣順序。解讀數字索引前，請讀 `.s.view` 與 Result 的埠／通道中繼資料；四埠矩陣中，具名的左至右通道未必位於第 2 列第 1 欄。
+
+對正實數純量參考，令 $R_0=\operatorname{diag}(Z_{01},\ldots,Z_{0N})$、$D=R_0^{1/2}$。更一般的支援矩陣參考為實對稱正定（SPD），使用唯一實 SPD **主矩陣平方根** $D$：
+
+$$
+a=\tfrac12(D^{-1}V+DI),\qquad
+b=\tfrac12(D^{-1}V-DI).
+$$
+
+這不是逐元素平方根，也不是任意 Cholesky 因子。令 $\widetilde Y=DYD$、$\widetilde Z=D^{-1}ZD^{-1}$，必要求解存在時：
+
+$$
+S=(I+\widetilde Y)^{-1}(I-\widetilde Y)
+ =(\widetilde Z+I)^{-1}(\widetilde Z-I).
+$$
+
+反之：
+
+$$
+Y=D^{-1}(I+S)^{-1}(I-S)D^{-1},\qquad
+Z=D(I-S)^{-1}(I+S)D.
+$$
+
+公式表示線性求解，不要求實作配置完整逆矩陣。**實體網路與邊界固定時**，波參考重新正規化會改變 $S$，但端子 $Y,Z$ 不變。改變被省略的匹配終端可能改變有效保留網路及 Y/Z；增加或移除電阻則是在改變網路。
+
+實可逆電壓座標變換 $V_m=AV$ 的對偶電流為 $I_m=A^{-T}I$，因此：
+
+$$
+Y_m=A^{-T}YA^{-1},\qquad Z_m=AZA^T,\qquad R_{0m}=AR_0A^T.
+$$
+
+此處是**一般轉置**，不是複共軛轉置。轉換後波座標使用 $D_m=R_{0m}^{1/2}$ 與 $Q=D_m^{-1}AD$，得到 $S_m=QSQ^T$。即使原參考為對角矩陣，轉換後參考也可有非對角元素。此數學關係不將公開 `transform_pair()` API 擴充為任意使用者矩陣。
+
+### 僅公式範例：100 Ω DUT、50 Ω 參考
+
+對電阻 DUT $Z_{\rm DUT}=100\,\Omega$ 與波參考 $Z_0=50\,\Omega$：
+
+$$
+Y_{\rm DUT}=0.01\,\mathrm S,\qquad
+S_{11}=\frac{100-50}{100+50}=\frac13.
+$$
+
+若返回的**含負載**端子算子實際包含另一個 $50\,\Omega$ 並聯電阻，導納改為 $Y_{\rm loaded}=0.01+0.02=0.03\,\mathrm S$，阻抗為 $100/3\,\Omega$。波參考本身不建立該並聯支路；移除它需有實際矩陣項及移除權限。從已去嵌入的 DUT 導納減去 $1/Z_0$ 是錯誤做法。這是代數範例，不是模擬案例或精度聲明。
+
+## 負載、去嵌入、PTC 與保留 {#loads-and-selected-views}
+
+必須區分三種操作：
+
+| 邊界 | SCNSim 中的意義 |
+|---|---|
+| 後端來源電阻 | 求解器邊界矩陣項。SCNSim 建立選定公開網路時將它去嵌入，不是第二顆實體 DUT 電阻。 |
+| 被省略的匹配埠 | 選定散射邊界省略、且未補償的宣告埠仍保留匹配終端。明確經 PTC 補償而省略的探針不保留已移除負載。 |
+| 明確實體電阻 | 宣告實體電路的一部分，會保留；PTC 不移除它。 |
+
+選擇性埠終端補償（Port-Termination Compensation，PTC）只移除每個明確提供、角色為 `nonloading_probe` 的 `PortRef` 所具有的已證實負載矩陣項。「probe」等名稱不授權扣除。選定的 `ReductionPipeline().ptc(...)` 才是依據；SCNSim 不從圖、座標名稱或選 Y 而非 S 推論 PTC。
+
+`retain()` 選擇並排列邊界，**不會**卸除被省略量測埠的負載、補償探針或移除實體電阻。PTC 與保留回答不同問題，操作順序保留在 View 沿革（Lineage）中。
+
+### 兩個量測埠與兩個探針
+
+考慮有量測埠 `feedline_in`、`feedline_out`，以及兩個真實 `nonloading_probe` PortRef `probe_plus`、`probe_minus` 的 Plan：
+
+{{< include ../../_generated/canonical-code/docs/concepts/simulation-conventions.qmd/block-001.qmd >}}
+
+此宣告恰好移除兩個探針負載矩陣項，保留饋線埠對作散射邊界。量測終端效應及明確實體電阻仍遵循宣告角色。只含 `retain()` 的管線是不同網路問題。此示意不宣告元件值、取樣網格或數值 Result。
+
+## 公開 S/Y/Z 與含負載算子 {#network-versus-loaded-operator}
+
+對可實現埠的 View，公開 `.s`、`.y`、`.z` 介面描述**同一選定網路**，具有相同明確 View 與有序邊界。後端來源導納從公開網路去嵌入，必要時保留被省略匹配終端。若請求 PTC，它一致套用至三種介面。
+
+根、極點、耦合與算子請求針對其宣告的**含負載算子**，不自動等同來源已去嵌入的散射網路。非埠座標 Y/Z 量也屬於其宣告座標／算子邊界。保留一個座標仍可能留下外部負載。與埠網路 Y/Z 元素比較前，請讀 Spec、View 沿革、物理量族與軸綁定。
+
+::: {.callout-important title="不自動套用報告策略中的 PTC"}
+上游 SCQ Design 網路曲線程序將原始 S 與證據授權的 PTC Y/Z 作為專案報告預設。這不是 SCNSim 自動 View 操作；提供的 View 同時支配 S、Y、Z，`run.original` 不會暗中只補償 Y/Z、卻保留原始 S。請標出選定 View 與任何上游後處理。
+:::
+
+相應版本 API 與失敗規則見[座標與檢視](compilation-coordinates-and-network-views.qmd)、[選定網路實作（英文）](/en/docs/implementation/view-lineage-and-selected-networks.html)及[執行期契約（英文）](/en/docs/v1-runtime-contract.html#common-matrix-surface)。
+
+## 複數根、線寬與圖表 {#roots-linewidth-and-plots}
+
+自由衰減被動模態滿足：
+
+$$
+\Omega=\omega_r-i\kappa/2,\qquad
+ e^{-i\Omega t}=e^{-i\omega_rt}e^{-\kappa t/2}.
+$$
+
+因此正衰減對應 $\operatorname{Im}\Omega<0$，$\kappa=-2\operatorname{Im}\Omega$，Hz 線寬為 $\kappa/(2\pi)=-2\operatorname{Im}[\Omega/(2\pi)]$。含負載根的線寬不自動等於內在損耗或特定外部通道線寬。理想無阻尼根可有零虛部。**傳輸零點**的虛部不定義模態線寬，即使為零或很小也一樣；零點與極點解不同方程。
+
+dB 幅值圖對無因次波幅使用 $20\log_{10}|S_{ij}|$。包裹相位是複數響應的相角，以一圈為週期顯示，通常用度數；分支切線跳躍不是電路不連續。只有 S 幅值凹點或相位跳躍，都不足以定義經認證的複數根、極點或傳輸零點。
+
+## HB 英文歷史記錄 {#hb-adapter-boundary}
+
+目前 SCNSim 僅使用 JAX，HB 已移除。原 HB 轉接方程與說明保留於 [HB 轉接邊界（英文歷史記錄）](/en/docs/concepts/simulation-conventions.html#hb-adapter-boundary)。
+
+## 物理定義與套件責任 {#definition-ownership}
+
+上游 Knowledge 頁面持有標準物理定義。本頁說明讀者如何在套件 View、Result 與轉接邊界使用這些慣例，不改變上游報告策略。
+
+- [動力學、相量與傅立葉符號（英文）](https://scq-design-kit.arfiligol.chatgpt.site/knowledge/quantum-circuits/dynamics-conventions-and-symbol-bridge.html)
+- [埠參考、負載與功率波（英文）](https://scq-design-kit.arfiligol.chatgpt.site/knowledge/simulation/port-reference-impedance-semantics.html)
+- [功率共軛座標轉換（英文）](https://scq-design-kit.arfiligol.chatgpt.site/knowledge/network-modeling/admittance-coordinate-transforms.html)
+- [衰減、線寬與品質因子（英文）](https://scq-design-kit.arfiligol.chatgpt.site/knowledge/network-modeling/resonator-decay-linewidth-and-quality-factor.html)
+- [網路曲線報告與擷取（英文）](https://scq-design-kit.arfiligol.chatgpt.site/knowledge/network-modeling/network-trace-views.html)
+
+這些是外部 Knowledge 連結。已知路徑的匿名存取曾返回 HTTP 403，尚未確認可匿名開啟。課程所需慣例已在本頁說明，不需外部存取也能閱讀範例。

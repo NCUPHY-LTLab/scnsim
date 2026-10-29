@@ -1,0 +1,23 @@
+# Exact canonical knowledge inputs; QMD directives remain source text.
+include README.md
+include docs/agent-usage-inventory.json
+include examples/engineer/setup.qmd
+include docs/concepts/compilation-coordinates-and-network-views.qmd
+include docs/concepts/requests-execution-and-result-ownership.qmd
+include docs/concepts/simulation-conventions.qmd
+include docs/guides/roots-and-branch-selection.qmd
+include docs/guides/static-capacitance.qmd
+include docs/guides/sensitivity.qmd
+recursive-include build_support *.py
+recursive-include src/scnsim/_agent_knowledge *
+
+# Catalogue maintenance inputs and committed derivatives; builds only copy them.
+include _quarto.yml
+include docs/agent-catalogue-resources.json
+include docs/agent-catalogue-cases.json
+include scripts/generate_agent_catalogue.py
+include docs/component-authoring.qmd
+include docs/contracts/parameter-system.qmd
+include docs/contracts/circuit-plan-assembly.qmd
+recursive-include docs/reference/agent-catalogue *.md
+recursive-include src/scnsim *.py

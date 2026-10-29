@@ -1,24 +1,27 @@
-## Lesson 3 — Separate authoring and finite-pi views {#lesson-ch7-diagrams}
+## Lesson 3 — Declare the authoring diagram {#lesson-ch7-diagrams}
+
+Current source cells use full explicit layouts bound to fresh preparation. Stored figures and Notebook outputs retain their original execution identities; this source-only update does not regenerate them.
 
 ### Review the declared body
 
 ```{python}
 #| id: ch7-render-authoring
-authoring = None
-try:
-    authoring = plan.render_schematic(
-        CircuitDiagramSpec(
-            representation="authoring",
-            theme=Theme.AUTO,
-            show_parameter_values=True,
-        )
+from examples.engineer.diagram_layouts import engineer_layout
+
+authoring_preparation = plan.prepare_schematic(
+    CircuitDiagramSpec(
+        theme=Theme.AUTO,
+        show_parameter_values=True,
     )
-except SCNSimValidationError as error:
-    if error.stage != "schematic_layout":
-        raise
-    display({"authoring layout unavailable": str(error), "stage": error.stage})
-if authoring is not None:
-    display(authoring.show())
+)
+authoring_layout = engineer_layout(authoring_preparation, "ordered_mtl")
+authoring = plan.render_schematic(
+    CircuitDiagramSpec(
+        layout=authoring_layout, theme=Theme.AUTO,
+        show_parameter_values=True,
+    )
+)
+display(authoring.show())
 ```
 
 ::: {.content-visible when-format="html"}
@@ -33,26 +36,11 @@ if authoring is not None:
     authoring.audit.show()
 ```
 
-### Request the compiled presentation independently
+### Historical finite-pi projection
 
-```{python}
-#| id: ch7-render-compiled
-compiled = None
-try:
-    compiled = plan.render_schematic(
-        CircuitDiagramSpec(
-            representation="compiled",
-            theme=Theme.AUTO,
-            show_parameter_values=True,
-        )
-    )
-except SCNSimValidationError as error:
-    if error.stage != "schematic_layout":
-        raise
-    display({"compiled layout unavailable": str(error), "stage": error.stage})
-if compiled is not None:
-    display(compiled.show())
-```
+The automatic compiled diagram request is retired. Numerical finite-pi
+assembly remains unchanged. The retained export below records the original
+course outcome; it is not a current executable diagram request or a rerun.
 
 ::: {.content-visible when-format="html"}
 
@@ -60,6 +48,7 @@ if compiled is not None:
 
 :::
 
-When available, the compiled diagram expands eight finite pi sections and its
-audit retains conductor order, full matrices, and exact-zero evidence. A typed
-layout failure does not change the authored Plan or numerical model.
+Historical compiled projections described the eight-section finite-pi
+expansion, conductor order, full matrices and exact-zero evidence. Their
+original outcome does not change the authored Plan or numerical model, and
+retaining it does not retain an automatic diagram producer.

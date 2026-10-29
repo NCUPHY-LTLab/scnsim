@@ -1,0 +1,16 @@
+---
+title: "第 8 章 — 報告與讀回"
+subtitle: "工程課程 · 繁體中文"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+# 第 8 章 — 報告與讀回
+
+本章分成共用 Workspace 的兩個獨立部分。先在乾淨核心執行第 1 課並停止，再啟動第二個核心，只執行第 2 課。網頁課程供閱讀；`chapter.ipynb` 是零輸出傳遞檔，不是核心重啟證據。
+
+第 1 課會保存 Result 並建立報告；第 2 課重建精確請求，僅從相同 Workspace 讀回結果。
+{{< include _01-persist.qmd >}}
+{{< include _02-resolve.qmd >}}

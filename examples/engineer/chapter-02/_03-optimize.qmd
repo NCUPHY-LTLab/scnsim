@@ -1,5 +1,7 @@
 ## Lesson 3 — Optimize and verify one winner {#lesson-ch2-optimize}
 
+Current source cells use full explicit layouts bound to fresh preparation. Stored figures and Notebook outputs retain their original execution identities; this source-only update does not regenerate them.
+
 **Prerequisite:** run Lessons 1–2 in the aggregate Chapter Notebook.
 
 ::: {.callout-note title="This request may take several minutes" appearance="simple"}
@@ -55,7 +57,7 @@ display(optimization.best.cost)
 
 The default history plot remains available. The comparison view uses the same
 verified Result to show objective settings, model-default bounds, the complete
-initial point and metrics, and the saved best ordinal's point and metrics. It
+initial point and metrics, and the returned best ordinal's point and metrics. It
 does not recalculate or reselect a winner.
 
 ```{python}
@@ -83,9 +85,14 @@ authoring evidence at the selected point, not numerical proof of the objective.
 
 ```{python}
 #| id: ch2-render-winner
+from examples.engineer.diagram_layouts import engineer_layout
+
+winner_preparation = plan.prepare_schematic(
+    CircuitDiagramSpec(), parameters=best_parameters,
+)
+winner_layout = engineer_layout(winner_preparation, "coupled_lc")
 winner_diagram = plan.render_schematic(
-    CircuitDiagramSpec(),
-    parameters=best_parameters,
+    CircuitDiagramSpec(layout=winner_layout), parameters=best_parameters,
 )
 ```
 
@@ -100,6 +107,8 @@ winner_diagram.audit.show()
 {{< include ../figures/02-optimized-winner.md >}}
 
 ![The same Plan rendered at the returned optimization winner.](../figures/02-optimized-winner.svg){#fig-engineer-ch2-winner .lightbox fig-alt="A terminated Port and fixed six femtofarad coupling capacitor connected directly to the public terminal of the grounded parallel resonator, labeled at the returned capacitance and fixed 5.8 nanohenry inductance."}
+
+{{< askr-image-view target="fig-engineer-ch2-winner" label="Inspect circuit" >}}
 
 [Open the winner SVG](../figures/02-optimized-winner.svg) ·
 [download the winner record](../figures/02-optimized-winner.csv).

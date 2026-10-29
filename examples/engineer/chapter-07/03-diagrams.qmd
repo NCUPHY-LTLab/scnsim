@@ -1,5 +1,5 @@
 ---
-title: "Chapter 7 · Lesson 3 — Authoring and compiled diagrams"
+title: "Chapter 7 · Lesson 3 — Declare the authoring diagram"
 subtitle: "Multi-conductor line engineer course"
 jupyter: python3
 execute:

@@ -1,13 +1,28 @@
 project:
   type: website
-  output-dir: _site
+  output-dir: _site/en
+  pre-render: python3 scripts/bilingual_site.py prepare
+  post-render: python3 scripts/bilingual_site.py post-render
   resources:
+    - tests/figures/**
     - src/scnsim/_schemas/identity-v2.schema.json
+    - src/scnsim/_schemas/identity-v3.schema.json
     - src/scnsim/_schemas/identity-common.schema.json
   render:
     - index.qmd
     - examples/README.md
+    - tests/README.md
+    - tests/ci.md
+    - tests/circuit-data.md
+    - tests/network-roots.md
+    - tests/parameters-optimization.md
+    - tests/evidence-readback.md
+    - tests/diagnostics.md
+    - tests/portability-diagrams.md
+    - tests/numerical-checks.md
     - docs/index.qmd
+    - docs/contribute.qmd
+    - docs/tutorials/inputs-units.qmd
     - examples/engineer/setup.qmd
     - examples/engineer/chapter-01/01-build.qmd
     - examples/engineer/chapter-01/02-diagram.qmd
@@ -29,7 +44,6 @@ project:
     - examples/engineer/chapter-04/03-ptc-core.qmd
     - examples/engineer/chapter-04/04-optional-transform.qmd
     - examples/engineer/chapter-04/05-optional-quantity.qmd
-    - examples/engineer/chapter-04/06-optional-hb.qmd
     - examples/engineer/chapter-04/chapter.qmd
     - examples/engineer/chapter-05/01-library.qmd
     - examples/engineer/chapter-05/02-instance.qmd
@@ -63,8 +77,8 @@ project:
     - examples/tutorials/12_model_n_trace_line.qmd
     - examples/tutorials/13_compensate_probes.qmd
     - examples/tutorials/14_transform_retain.qmd
-    - examples/tutorials/15_prepare_hb.qmd
-    - examples/tutorials/16_compare_direct_hb.qmd
+    - docs/concepts/index.qmd
+    - docs/concepts/simulation-conventions.qmd
     - docs/concepts/physical-authority-and-reusable-composition.qmd
     - docs/concepts/compilation-coordinates-and-network-views.qmd
     - docs/concepts/requests-execution-and-result-ownership.qmd
@@ -72,19 +86,24 @@ project:
     - docs/concepts/units-parameters-and-optimization.qmd
     - docs/concepts/electrical-resolution.qmd
     - docs/contracts/index.qmd
+    - docs/contracts/implementation-evidence-history.qmd
+    - docs/implementation/index.qmd
     - docs/contracts/circuit-plan-assembly.qmd
     - docs/contracts/automatic-semantic-circuit-diagram-layout.qmd
     - docs/contracts/parameter-system.qmd
+    - docs/contracts/static-capacitance.qmd
+    - docs/contracts/workspace-evidence-v3.qmd
     - docs/component-authoring.qmd
     - docs/v1-runtime-contract.qmd
     - docs/guides/benchmark.qmd
+    - docs/guides/sensitivity.qmd
+    - docs/guides/static-capacitance.qmd
+    - docs/guides/roots-and-branch-selection.qmd
     - docs/implementation/benchmark-and-backends.qmd
     - docs/implementation/system-architecture.qmd
     - docs/implementation/plan-sealing-and-identity.qmd
     - docs/implementation/canonical-identities-and-schemas.qmd
     - docs/implementation/catalog-and-runtime-identity.qmd
-    - docs/implementation/julia-runtime-preparation.qmd
-    - docs/implementation/python-julia-protocol.qmd
     - docs/implementation/workspace-attempts-and-artifacts.qmd
     - docs/implementation/composite-snapshots-and-recursive-expansion.qmd
     - docs/implementation/compilation-ports-and-views.qmd
@@ -98,25 +117,136 @@ project:
     - docs/implementation/external-inputs-and-delivery.qmd
     - docs/implementation/engineer-course-migration-map.qmd
 
+lang: en
+execute:
+  enabled: false
+
 website:
   title: "SCNSim"
   description: "Superconducting Circuit Network Simulation"
   page-navigation: true
-  reader-mode: true
-  search: true
-  repo-url: "https://github.com/OrPenStrike/scnsim"
+  announcement:
+    content: "R2 is under development and has not been officially released."
+    icon: info-circle
+    type: warning
+    dismissable: false
+    position: above-navbar
+  search:
+    location: navbar
+    type: overlay
+  reader-mode: false
+  repo-url: "https://github.com/NCUPHY-LTLab/scnsim"
   repo-actions: [source, issue]
   navbar:
+    tools-collapse: true
+    tools:
+      - icon: github
+        href: https://github.com/NCUPHY-LTLab/scnsim
+        text: GitHub repository
+        aria-label: GitHub repository
     left:
       - text: "Overview"
         href: index.qmd
       - text: "Tutorial"
         href: docs/index.qmd
       - text: "Concept"
-        href: docs/concepts/physical-authority-and-reusable-composition.qmd
-      - text: "Contract"
-        href: docs/contracts/index.qmd
+        href: docs/concepts/index.qmd
+      - text: "Guides"
+        href: docs/guides/benchmark.qmd
+      - text: "Contribution"
+        href: docs/contribute.qmd
   sidebar:
+    - id: contribution
+      title: "Contribution"
+      style: "floating"
+      collapse-level: 1
+      contents:
+        - text: "Overview"
+          href: docs/contribute.qmd
+        - section: "Testing"
+          contents:
+            - text: "Testing overview"
+              href: tests/README.md
+            - text: "CI and Pages"
+              href: tests/ci.md
+            - text: "Circuit inputs and components"
+              href: tests/circuit-data.md
+            - text: "Network equations and roots"
+              href: tests/network-roots.md
+            - text: "Parameters and optimization"
+              href: tests/parameters-optimization.md
+            - text: "Evidence and readback"
+              href: tests/evidence-readback.md
+            - text: "Failure handling and diagnostics"
+              href: tests/diagnostics.md
+            - text: "Paths, diagrams, and teaching outputs"
+              href: tests/portability-diagrams.md
+            - text: "Numerical checks and local run"
+              href: tests/numerical-checks.md
+        - section: "Public contracts"
+          contents:
+            - text: "Contract map"
+              href: docs/contracts/index.qmd
+            - text: "Component Authoring Contract"
+              href: docs/component-authoring.qmd
+            - text: "CircuitPlan Assembly"
+              href: docs/contracts/circuit-plan-assembly.qmd
+            - text: "Manual circuit diagrams"
+              href: docs/contracts/automatic-semantic-circuit-diagram-layout.qmd
+            - text: "Parameter System"
+              href: docs/contracts/parameter-system.qmd
+            - text: "Roots and branch selection"
+              href: docs/guides/roots-and-branch-selection.qmd
+            - text: "Sensitivity guide"
+              href: docs/guides/sensitivity.qmd
+            - text: "Static Capacitance Contract"
+              href: docs/contracts/static-capacitance.qmd
+            - text: "Static capacitance guide"
+              href: docs/guides/static-capacitance.qmd
+            - text: "CPU Benchmark guide"
+              href: docs/guides/benchmark.qmd
+            - text: "Workspace evidence v3"
+              href: docs/contracts/workspace-evidence-v3.qmd
+            - text: "V1 Runtime Contract"
+              href: docs/v1-runtime-contract.qmd
+            - text: "Historical evidence record"
+              href: docs/contracts/implementation-evidence-history.qmd
+        - section: "Implementation"
+          contents:
+            - text: "Implementation overview"
+              href: docs/implementation/index.qmd
+            - text: "System architecture"
+              href: docs/implementation/system-architecture.qmd
+            - text: "Plan sealing and identity"
+              href: docs/implementation/plan-sealing-and-identity.qmd
+            - text: "Canonical identities and schemas"
+              href: docs/implementation/canonical-identities-and-schemas.qmd
+            - text: "Catalog and runtime identity"
+              href: docs/implementation/catalog-and-runtime-identity.qmd
+            - text: "Composite snapshots"
+              href: docs/implementation/composite-snapshots-and-recursive-expansion.qmd
+            - text: "Compilation, Ports, and Views"
+              href: docs/implementation/compilation-ports-and-views.qmd
+            - text: "RLGC and pi expansion"
+              href: docs/implementation/rlgc-q2d-and-pi-expansion.qmd
+            - text: "View lineage"
+              href: docs/implementation/view-lineage-and-selected-networks.qmd
+            - text: "Diagonal-root procedure"
+              href: docs/implementation/diagonal-root-numerical-procedure.qmd
+            - text: "Poles, zeros, couplings, and operators"
+              href: docs/implementation/direct-poles-zeros-and-operators.qmd
+            - text: "Direct quantities and optimization"
+              href: docs/implementation/direct-quantities-and-optimization.qmd
+            - text: "Runtime and Benchmark"
+              href: docs/implementation/benchmark-and-backends.qmd
+            - text: "Workspace and artifacts"
+              href: docs/implementation/workspace-attempts-and-artifacts.qmd
+            - text: "Results, reports, and diagrams"
+              href: docs/implementation/results-reports-and-diagrams.qmd
+            - text: "External inputs and delivery"
+              href: docs/implementation/external-inputs-and-delivery.qmd
+            - text: "Engineer course map"
+              href: docs/implementation/engineer-course-migration-map.qmd
     - id: overview
       title: "Overview"
       style: "floating"
@@ -181,8 +311,6 @@ website:
               href: examples/engineer/chapter-04/04-optional-transform.qmd
             - text: "Lesson 5 — Optional quantity"
               href: examples/engineer/chapter-04/05-optional-quantity.qmd
-            - text: "Lesson 6 — Optional HB"
-              href: examples/engineer/chapter-04/06-optional-hb.qmd
             - text: "Complete Chapter source"
               href: examples/engineer/chapter-04/chapter.qmd
         - section: "Optional Chapter 5 — Library"
@@ -229,93 +357,56 @@ website:
               href: examples/engineer/chapter-08/02-resolve.qmd
             - text: "Complete Chapter source"
               href: examples/engineer/chapter-08/chapter.qmd
+        - text: "Inputs and units"
+          href: docs/tutorials/inputs-units.qmd
     - id: concept
       title: "Concept"
       style: "floating"
       collapse-level: 1
       contents:
+        - text: "Concept overview"
+          href: docs/concepts/index.qmd
+        - text: "Simulation conventions"
+          href: docs/concepts/simulation-conventions.qmd
         - text: "Physical authority and composition"
           href: docs/concepts/physical-authority-and-reusable-composition.qmd
         - text: "Compilation, coordinates, and views"
           href: docs/concepts/compilation-coordinates-and-network-views.qmd
         - text: "Requests, execution, and Results"
           href: docs/concepts/requests-execution-and-result-ownership.qmd
-        - text: "Direct and HB realizations"
+        - text: "Linear Direct realization"
           href: docs/concepts/direct-and-hb-realizations.qmd
         - text: "Units, parameters, and optimization"
           href: docs/concepts/units-parameters-and-optimization.qmd
         - text: "Electrical resolution"
           href: docs/concepts/electrical-resolution.qmd
-    - id: contract
-      title: "Contract"
+    - id: guides
+      title: "Guides"
       style: "floating"
-      collapse-level: 1
       contents:
-        - text: "Contract map"
-          href: docs/contracts/index.qmd
-        - section: "Public contracts"
-          contents:
-            - text: "Component Authoring Contract"
-              href: docs/component-authoring.qmd
-            - text: "CircuitPlan Assembly"
-              href: docs/contracts/circuit-plan-assembly.qmd
-            - text: "Automatic Semantic Circuit Diagram Layout"
-              href: docs/contracts/automatic-semantic-circuit-diagram-layout.qmd
-            - text: "Parameter System"
-              href: docs/contracts/parameter-system.qmd
-            - text: "CPU Benchmark guide"
-              href: docs/guides/benchmark.qmd
-            - text: "V1 Runtime Contract"
-              href: docs/v1-runtime-contract.qmd
-        - section: "Implementation design"
-          contents:
-            - text: "Benchmark and independent backends"
-              href: docs/implementation/benchmark-and-backends.qmd
-            - text: "System architecture and ownership"
-              href: docs/implementation/system-architecture.qmd
-            - text: "Plan sealing and identity"
-              href: docs/implementation/plan-sealing-and-identity.qmd
-            - text: "Canonical identities and schemas"
-              href: docs/implementation/canonical-identities-and-schemas.qmd
-            - text: "Catalog and runtime identity"
-              href: docs/implementation/catalog-and-runtime-identity.qmd
-            - text: "Julia runtime preparation"
-              href: docs/implementation/julia-runtime-preparation.qmd
-            - text: "Python–Julia process protocol"
-              href: docs/implementation/python-julia-protocol.qmd
-            - text: "Workspace, attempts, and artifacts"
-              href: docs/implementation/workspace-attempts-and-artifacts.qmd
-            - text: "Composite snapshots and recursive expansion"
-              href: docs/implementation/composite-snapshots-and-recursive-expansion.qmd
-            - text: "Compilation, Ports, and views"
-              href: docs/implementation/compilation-ports-and-views.qmd
-            - text: "RLGC, Q2D, and pi expansion"
-              href: docs/implementation/rlgc-q2d-and-pi-expansion.qmd
-            - text: "View lineage and selected networks"
-              href: docs/implementation/view-lineage-and-selected-networks.qmd
-            - text: "Diagonal-root numerical procedure"
-              href: docs/implementation/diagonal-root-numerical-procedure.qmd
-            - text: "Direct poles, zeros, couplings, and operators"
-              href: docs/implementation/direct-poles-zeros-and-operators.qmd
-            - text: "Direct quantities and optimization"
-              href: docs/implementation/direct-quantities-and-optimization.qmd
-            - text: "HB realization and outcomes"
-              href: docs/implementation/hb-realization-and-outcomes.qmd
-            - text: "Results, reports, and diagrams"
-              href: docs/implementation/results-reports-and-diagrams.qmd
-            - text: "External inputs and delivery"
-              href: docs/implementation/external-inputs-and-delivery.qmd
+        - text: "Benchmark"
+          href: docs/guides/benchmark.qmd
+        - text: "Sensitivity"
+          href: docs/guides/sensitivity.qmd
+        - text: "Static capacitance"
+          href: docs/guides/static-capacitance.qmd
+        - text: "Roots and branch selection"
+          href: docs/guides/roots-and-branch-selection.qmd
+
+askr:
+  languages:
+    current: en
+    items:
+      - code: zh-TW
+        label: 繁體中文
+        href: /
+      - code: en
+        label: English
+        href: /en/
 
 format:
   askr-html:
     toc: true
     code-copy: true
-    page-layout: article
-    grid:
-      sidebar-width: 264px
-      body-width: 630px
-      margin-width: 264px
-      gutter-width: 26px
-    css: docs/styles.css
     html-math-method: mathjax
     respect-user-color-scheme: true

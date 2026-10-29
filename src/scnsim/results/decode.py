@@ -2,26 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
-from pathlib import Path
 from types import MappingProxyType
 
 import numpy as np
 
 from .. import units
-from ..canonical import canonical_json_bytes, float64_from_hex, quantity_from_envelope, sha256_hex
-from ..authoring import CircuitPlan, CoordinateRef, ElectricNodeRef, ParameterRef, ParameterSet
+from ..canonical import canonical_json_bytes, float64_from_hex, quantity_from_envelope
+from ..authoring import CoordinateRef, ElectricNodeRef, ParameterRef, ParameterSet
 from ..authoring.physical_values import RLGC, RLGCParameterSpec
-from ..errors import EvidenceIntegrityError
-from ..workspace import VerifiedSuccess
-from ..workspace.artifacts import _VerifiedEvidenceLease
-from .base import ParameterPointIdentity, ResultIdentity
-from .factory import _verified_result
-from .decode_hb import _decode_hb_batch_operation
-from .decode_result import _decode_result_operation
-from .decode_sweep import _decode_parameter_sweep_operation
-from .hb import HBBatchResult
-from .sweep import ParameterSweepResult
+from ..errors import EvidenceIntegrityError, SCNSimValidationError
 
 
 class VerifiedResultDecoder:
@@ -29,7 +20,8 @@ class VerifiedResultDecoder:
 
     __slots__ = (
         "_plan_sha256",
-        "_plan",
+        "_plan_owner_id",
+        "_binding_identity",
         "_parameter_lookup",
         "_coordinate_lookup",
     )
@@ -38,12 +30,14 @@ class VerifiedResultDecoder:
         self,
         *,
         plan_sha256: str,
-        plan: CircuitPlan,
+        plan_owner_id: int,
+        binding_identity: Mapping[str, object],
         parameter_lookup: Mapping[tuple[str, str], ParameterRef],
         coordinate_lookup: Mapping[str, str | None],
     ) -> None:
         self._plan_sha256 = plan_sha256
-        self._plan = plan
+        self._plan_owner_id = plan_owner_id
+        self._binding_identity = MappingProxyType(dict(binding_identity))
         self._parameter_lookup = MappingProxyType(dict(parameter_lookup))
         self._coordinate_lookup = MappingProxyType(dict(coordinate_lookup))
 
@@ -51,10 +45,10 @@ class VerifiedResultDecoder:
         self,
         value: str | ElectricNodeRef | CoordinateRef,
     ) -> str:
-        if isinstance(value, ElectricNodeRef) and value.plan is not self._plan:
+        if isinstance(value, ElectricNodeRef) and id(value.plan) != self._plan_owner_id:
             raise ValueError("coordinate belongs to another Plan")
         if isinstance(value, CoordinateRef):
-            if value.scope.root is not self._plan:
+            if id(value.scope.root) != self._plan_owner_id:
                 raise ValueError("coordinate belongs to another Plan")
             key = canonical_json_bytes(
                 {"scope": list(value.scope.path()), "id": value.id}
@@ -67,39 +61,6 @@ class VerifiedResultDecoder:
             raise ValueError("coordinate is not a public alias in this Plan")
         return resolved
 
-    def _decode_success(
-        self,
-        success: VerifiedSuccess,
-        *,
-        bound_spec: object | None = None,
-        evidence_lease: _VerifiedEvidenceLease,
-    ):
-        attempt_sha = sha256_hex(canonical_json_bytes(success.attempt))
-        result_sha = success.receipt["result_sha256"]
-        identity = _verified_result(
-            ResultIdentity,
-            plan_sha256=self._plan_sha256,
-            request_sha256=str(success.attempt["request_sha256"]),
-            attempt_sha256=attempt_sha,
-            result_sha256=result_sha,
-        )
-        result = success.result
-        kind = result["result_kind"]
-        if kind == "parameter_sweep":
-            return self._decode_parameter_sweep(
-                identity,
-                result,
-                success.request,
-                success.directory,
-                bound_spec=bound_spec,
-                evidence_lease=evidence_lease,
-            )
-        return self._decode_result(
-            identity,
-            result,
-            success.request,
-            success.directory,
-        )
 
     def _decode_parameter_ref(self, record: object) -> ParameterRef:
         if not isinstance(record, Mapping) or set(record) != {
@@ -200,6 +161,22 @@ class VerifiedResultDecoder:
         return value
 
     def _decode_parameter_set(self, record: Mapping[str, object]) -> ParameterSet:
+        # Fixed result readers expose detached immutable records: JSON arrays
+        # are tuples there. Normalize through the canonical record codec before
+        # applying the same parameter-set schema and round-trip checks used for
+        # ordinary decoded JSON documents.
+        if not isinstance(record, Mapping):
+            raise EvidenceIntegrityError(
+                "parameter set is malformed",
+                stage="result_decode",
+            )
+        try:
+            record = json.loads(canonical_json_bytes(record))
+        except SCNSimValidationError as error:
+            raise EvidenceIntegrityError(
+                "parameter set is malformed",
+                stage="result_decode",
+            ) from error
         if set(record) != {"type", "bindings", "allow_extrapolation"}:
             raise EvidenceIntegrityError(
                 "parameter set is malformed",
@@ -235,32 +212,22 @@ class VerifiedResultDecoder:
             )
         return parameters
 
-    def _decode_result(
-        self,
-        identity: ResultIdentity | ParameterPointIdentity,
-        result: Mapping[str, object],
-        request: Mapping[str, object],
-        directory: Path,
-    ):
-        return _decode_result_operation(self, identity, result, request, directory)
 
-    def _decode_parameter_sweep(
+    def _decode_sensitivity(
         self,
-        identity: ResultIdentity,
-        result: Mapping[str, object],
+        identity,
         request: Mapping[str, object],
-        directory: Path,
+        projection: Mapping[str, object],
         *,
-        bound_spec: object | None,
-        evidence_lease: _VerifiedEvidenceLease,
-    ) -> ParameterSweepResult:
-        return _decode_parameter_sweep_operation(self, identity, result, request, directory, bound_spec=bound_spec, evidence_lease=evidence_lease)
+        fixed_reader: object,
+    ):
+        """Decode one fixed Sensitivity selection after Workspace verification."""
+        from .decode_sensitivity import decode_sensitivity_operation
 
-    def _decode_hb_batch(
-        self,
-        identity: ResultIdentity | ParameterPointIdentity,
-        result: Mapping[str, object],
-        request: Mapping[str, object],
-        directory: Path,
-    ) -> HBBatchResult:
-        return _decode_hb_batch_operation(self, identity, result, request, directory)
+        return decode_sensitivity_operation(
+            self,
+            identity=identity,
+            request=request,
+            projection=projection,
+            fixed_reader=fixed_reader,
+        )

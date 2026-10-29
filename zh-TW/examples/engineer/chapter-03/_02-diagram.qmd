@@ -1,0 +1,49 @@
+## 第 2 課 — 檢視固定電路圖所呈現的內容 {#lesson-ch3-diagram}
+
+請先準備完整 Plan、宣告明確配置並檢視產生的電路圖，再查看兩個獨立插圖。
+
+### 保留完整 Plan 的配置結果
+
+繪圖與數值執行互相獨立。請準備此 Plan，接著以一般 Python 宣告完整根層與子層幾何。套件繪圖器會檢查宣告並獨立稽核圖面，不會補完不完整配置，也不會重試失敗的配置。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-03/_02-diagram.qmd/block-001.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![饋線與讀出 Plan 的完整明確配置。](../figures/03-complete-plan.svg){fig-alt="完整雙埠饋線與電容耦合讀出電路，並明確顯示根層與子層幾何。"}
+
+[開啟完整 Plan SVG](../figures/03-complete-plan.svg)
+
+:::
+
+### 清楚標示獨立插圖
+
+`SubsystemPlan` 不能獨立繪製，因此以下兩個 Plan 是身分各自獨立的插圖。它們重複饋線與讀出元件的標準物理值，但不是主 Plan 的投影、替代品或數值備援。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-03/_02-diagram.qmd/block-002.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![獨立饋線子電路示意圖。](../figures/03-feedline-illustration.svg){#fig-ch3-feedline-illustration .lightbox fig-alt="另一個示意 Plan：兩段各 1 mm 的純量 CPW 區段位於已終端的兩個 Port 之間。"}
+
+{{< askr-image-view target="fig-ch3-feedline-illustration" label="檢視電路（Inspect circuit）" >}}
+
+[開啟 SVG 圖](../figures/03-feedline-illustration.svg).
+
+:::
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-03/_02-diagram.qmd/block-003.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![獨立接地讀出子電路示意圖。](../figures/03-readout-illustration.svg){#fig-ch3-readout-illustration .lightbox fig-alt="另一個示意 Plan：110 fF 電容與 5.8 nH 電感並聯接地。"}
+
+{{< askr-image-view target="fig-ch3-readout-illustration" label="檢視電路（Inspect circuit）" >}}
+
+[開啟 SVG 圖](../figures/03-readout-illustration.svg).
+
+:::
+
+以下內容僅供閱讀拓撲；它不是繪製完成的電路、電氣證據或 ASCDLS 證明：
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-03/_02-diagram.qmd/block-004.qmd >}}

@@ -202,8 +202,25 @@ def capture_authoring_snapshot(plan) -> AuthoringSnapshot:
                         positive,
                         nonnegative,
                     )
-                    if r:
-                        captured_refs[r._key()] = r
+                    for parameter_ref in (r if isinstance(r, tuple) else (() if r is None else (r,))):
+                        captured_refs[parameter_ref._key()] = parameter_ref
+                    if b["kind"] == "scalar_rlgc":
+                        scalar_map = b["_scalar_rlgc"]
+                        for term_index, term in enumerate(scalar_map.terms):
+                            term_record = term._record()
+                            for basis_index, basis_name in enumerate(("resistance", "inductance", "conductance", "capacitance")):
+                                original_basis = term._source_basis[basis_index]
+                                if original_basis is None:
+                                    continue
+                                record = term_record[basis_name]
+                                identity = _source_unit_identity(scope="plan_scalar_rlgc", component_path=path, parameter_id=k, field=f"terms.{term_index}.{basis_name}")
+                                if identity not in source_identities:
+                                    source_identities.add(identity)
+                                    source_units.append({"identity": identity, "source_unit": str(original_basis.units), "canonical_si_unit": record["si_unit"], "canonical_dimensionality": record["dimensionality"]})
+                            if term._affine is not None:
+                                slope, intercept, support, slope_unit = term._affine
+                                for coefficient, value, si_unit in (("slope", slope, slope_unit), ("intercept", intercept, term._source_unit), ("support_lower", support[0], term._input.spec.si_unit), ("support_upper", support[1], term._input.spec.si_unit)):
+                                    source(_source_unit_identity(scope="plan_scalar_rlgc", component_path=path, parameter_id=k, field=f"terms.{term_index}.{coefficient}"), value, si_unit)
                     if isinstance(base, RLGC):
                         for (
                             rlgc_field,
@@ -305,15 +322,10 @@ def capture_authoring_snapshot(plan) -> AuthoringSnapshot:
                         x: y for x, y in b.items() if not x.startswith("_")
                     }
                     fs.append({"id": k, "unit": u, "binding": public_binding})
-                    if r:
-                        defs[r._key()] = r._definition_record()
-                        edges.append(
-                            {
-                                "path": list(path),
-                                "field": k,
-                                "parameter": r._key_record(),
-                            }
-                        )
+                    for parameter_ref in (r if isinstance(r, tuple) else (() if r is None else (r,))):
+                        defs[parameter_ref._key()] = parameter_ref._definition_record()
+                        edges.append({"path": list(path), "field": k, "parameter": parameter_ref._key_record()})
+
                 leaves.append(
                     {
                         "path": list(path),

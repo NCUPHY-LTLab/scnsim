@@ -18,7 +18,8 @@ import re
 import tokenize
 import subprocess
 import unicodedata
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 from ..canonical import _nfc, _nonempty, _validation, relative_path, sha256_hex
 
 
@@ -345,6 +346,19 @@ def _editable_distribution(package: object) -> bool:
     return isinstance(info, Mapping) and bool(info.get("editable", False))
 
 
+def _file_uri_path(path: str, *, authority: str) -> Path:
+    """Convert encoded file-URI components with the native Python 3.12 codec.
+
+    url2pathname owns percent decoding and Windows drive/UNC syntax. Passing
+    encoded components once preserves literal percent escapes in filenames.
+    localhost is the local filesystem; other authorities remain part of the
+    filesystem location rather than being silently discarded.
+    """
+    if authority and authority.lower() != "localhost":
+        path = "//" + authority + path
+    return Path(url2pathname(path))
+
+
 def _editable_distribution_root(package: object, module_name: str) -> Path | None:
     if not _editable_distribution(package):
         return None
@@ -358,7 +372,7 @@ def _editable_distribution_root(package: object, module_name: str) -> Path | Non
     if parsed is None or parsed.scheme != "file":
         return None
     try:
-        return Path(unquote(parsed.path)).resolve(strict=True)
+        return _file_uri_path(parsed.path, authority=parsed.netloc).resolve(strict=True)
     except OSError as error:
         raise _validation("editable catalog source root is unreadable") from error
 

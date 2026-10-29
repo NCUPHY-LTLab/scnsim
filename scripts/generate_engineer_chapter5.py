@@ -14,7 +14,7 @@ import tempfile
 import types
 import xml.etree.ElementTree as ET
 
-from engineer_publication_binding import check_publication_binding
+from engineer_publication_binding import check_publication_binding, installed_course_runtime
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,17 +75,17 @@ def _source_tree() -> dict[str, object]:
     rows = {
         str(path.relative_to(ROOT)): _hash(path)
         for path in sorted((ROOT / "src" / "scnsim").rglob("*"))
-        if path.is_file() and not path.is_relative_to(paused) and path.suffix in {".py", ".jl", ".json", ".toml"}
+        if path.is_file() and not path.is_relative_to(paused) and path.suffix in {".py", ".jl", ".json", ".toml", ".cpp"}
     }
     return {"sha256": _hash_bytes(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()), "files": rows}
 
 
 def _binding() -> dict[str, object]:
     cells = _parse_cells()
-    sources = (CHAPTER / "chapter.qmd", *SOURCES, *WRAPPERS)
+    sources = (CHAPTER / "chapter.qmd", *SOURCES, *WRAPPERS, ROOT / "examples" / "engineer" / "diagram_layouts.py")
     return {
         "generator_sha256": _hash(Path(__file__)),
-        "sources": {str(path.relative_to(ROOT)): _hash(path) for path in sources},
+        "sources": {str(path.relative_to(ROOT)): _hash(path) for path in (*sources, ROOT / "scripts" / "engineer_publication_binding.py")},
         "source_tree": _source_tree(),
         "cell_ids": list(EXPECTED_CELL_IDS),
         "cells": {cell_id: _hash_bytes(code.encode()) for cell_id, code in cells},
@@ -124,14 +124,14 @@ def _certificate(path: Path) -> dict[str, str]:
     return {field: identity[field] for field in required}
 
 
-def _environment() -> dict[str, str]:
+def _environment() -> dict[str, object]:
+    runtime_binding = installed_course_runtime(ROOT)
     import scnsim
-    if Path(scnsim.__file__).resolve() != (ROOT / "src" / "scnsim" / "__init__.py").resolve():
-        raise RuntimeError("generation imported scnsim from outside this checkout")
-    values = {"python": sys.version.split()[0], "scnsim": scnsim.__version__}
+    scnsim.configure_runtime(cpu_threads=10)
+    values = {"python": sys.version.split()[0], "scnsim": runtime_binding["scnsim"]}
     for name in ("matplotlib", "numpy", "pint", "schemdraw"):
         values[name] = importlib.metadata.version(name)
-    return values
+    return values | {"runtime_binding": runtime_binding}
 
 
 def _workspace(requested: Path | None) -> Path:
@@ -145,6 +145,7 @@ def _workspace(requested: Path | None) -> Path:
 
 
 def generate(workspace: Path) -> None:
+    runtime_environment = _environment()
     namespace = _execute(_parse_cells(), workspace)
     output = workspace / "artifacts"
     output.mkdir()
@@ -157,7 +158,7 @@ def generate(workspace: Path) -> None:
         "schema": "scnsim.engineer_chapter5_artifacts.v1",
         "binding": binding,
         "execution": {"generator_sha256": binding["generator_sha256"], "source_tree_sha256": binding["source_tree"]["sha256"], "cells": binding["cells"]},
-        "environment": _environment(),
+        "environment": runtime_environment,
         "certificate": _certificate(output / ARTIFACT_NAMES[0]),
         "artifacts": artifacts,
     }

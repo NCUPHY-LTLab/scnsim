@@ -1,0 +1,18 @@
+---
+title: "第 1 章 · 第 3 課 — S11 響應"
+subtitle: "耦合接地 LC 工程課程"
+jupyter: python3
+execute:
+  enabled: false
+lang: zh-TW
+---
+
+::: {.callout-note title="先完成第 1–2 課" appearance="simple"}
+本頁沿用本章先前課程的 Plan、Run 與請求，不能單獨執行。請在[完整本章 Notebook（英文）](/en/examples/engineer/chapter-01/chapter.ipynb)中依序執行。
+:::
+
+{{< include _03-s11.qmd >}}
+
+[上一課：第 2 課 — 檢視電路圖](02-diagram.qmd) ·
+[下一課：第 4 課 — 負載根](04-root.qmd) ·
+[下載完整本章 Notebook（英文）](/en/examples/engineer/chapter-01/chapter.ipynb)

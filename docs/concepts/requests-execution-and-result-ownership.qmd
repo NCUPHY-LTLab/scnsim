@@ -75,6 +75,48 @@ The broader `Result` role also covers derived explanations, diagrams, and
 reports. Those values preserve their explicit inputs but do not fabricate an
 analysis-operation receipt.
 
+## Detached preparation and saved ownership
+
+`run.prepare` acquires a caller-owned transformable numeric function and exact
+immutable layouts. It cannot publish a Result and holds no Run or Workspace.
+Its lifetime may extend beyond `Run.close()`. High-level operations separately
+retain activity registration, synchronization, checked failure handling and
+atomic publication. A Direct/Sweep Result fixes its completion and chunk
+references; it neither retains that callable nor replays a task to load values.
+Owner-local compile-cache eviction releases unused static resources, not saved
+numerical evidence.
+
+## Bodies, occurrences and completed generations
+
+A current JAX numerical body owns scientific values, intrinsic parameters,
+identity, dependencies and numerical evidence. A task occurrence owns its exact
+ordered position, source/cache/attempt context and reference to that body. The
+store writes each body once with the current binary storage codec; it does not wrap it in
+a task/key record. Read-only Result construction fixes the completion seal and reference root.
+Selected lazy reads verify and decode only their indexed evidence in a short
+snapshot, without recalculating quantities or retaining the Run.
+
+Each entered optimization stage evaluates the original full operation point
+under its fixed model to establish actual branch anchors. A transition seed is
+then reevaluated under that model; it does not replace the comparison baseline.
+There is no standalone baseline commit, generation-0 checkpoint or initial
+callback. Complete CMA post-tell generations form committed groups; the first
+group includes the global baseline body once. Local accepted iterations have
+their own declared publication cadence and support fresh restart, not exact
+curvature resume. CMA checkpoints retain the latest post-tell state and source-
+bound anchor/cache locators; checkpoint off omits recovery-only state. A required group ACK comes
+before its callback; optional Benchmark timing is separate. Imported resume locators retain exact
+source task/attempt/body ancestry; a point-dedup cache is not an occurrence ledger.
+Rebinding a resumed global baseline does not reevaluate or relabel its original
+stage/model identity, including when the resumed stage uses a different model.
+Results retain fixed readonly selections after Run close; they never retain the
+Run, a numerical frame, a factor or a live database connection.
+
+Operation stores use internal revision 8 and evidence version 3. Old operation Workspaces are unsupported: use a
+new Workspace and recompute, without migration or deleting historical data.
+The [Runtime Contract](../v1-runtime-contract.qmd) owns exact failure and
+checkpoint rules; this distinction does not alter mathematical quantities.
+
 ## Resolve exact evidence after restart
 
 The question and each execution attempt have separate identities. Repeating a

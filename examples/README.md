@@ -125,9 +125,11 @@ uv run --locked python scripts/generate_engineer_chapter3.py --check
 
 `engineer/figures/chapter-03-artifacts.json` binds the Chapter source, package
 source, environment, request, Result, and public artifact identities. The
-complete Plan's Default diagram truthfully reports the typed
+earlier complete-Plan automatic diagram reported the typed
 `schematic_layout` failure `fixed connector intersects occupied geometry` and
-therefore has no SVG or certificate. `03-feedline-illustration.svg` and
+therefore has no SVG or certificate in that historical publication. Current
+Chapter source instead declares a complete manual layout; a new generation
+would have its own outcome and identities. `03-feedline-illustration.svg` and
 `03-readout-illustration.svg` are certified projections of two separately
 declared illustrative Plans, not fragments extracted from or substitutes for
 the failed complete Plan. `03-direct-s21.svg`, `.csv`, and `.md` present the
@@ -152,9 +154,10 @@ View lineage, requests, Results, and public artifacts. The required core owns
 `04-explicit-capstone.svg`, the raw four-Port `04-raw-direct-s21.*` Result, and
 the separately labeled `04-ptc-direct-s21.*` table and figure.
 Optional evidence includes the exact 6.2 GHz `04-response-element.*` lookup,
-the separate `04-optional-direct-s21.*` Result, and the
-`04-pump-off-hb.*` Result. Direct and HB keep their separately declared grids;
-the generated summary does not overlay or interpolate them.
+the separate `04-optional-direct-s21.*` Result. The retained
+`04-pump-off-hb.*` files are historical artifacts from the retired HB path,
+not output of the current JAX generator. Historical Direct and HB data keep
+their separately declared grids; the summary does not overlay or interpolate them.
 
 ## Generate Chapters 5–8 evidence explicitly
 
@@ -183,10 +186,12 @@ uv run --locked python scripts/generate_engineer_chapter8.py --check
 Chapter 5 generates the certified reusable-Composite authoring diagram.
 Its public surface contains both C and L refs, two equivalent ordinary Pins,
 and one explicitly published Coordinate; the parent couples directly to one
-Pin and leaves the other open. Chapter 6 generates certified Default, T,
-Cross, and fixed-reuse diagrams. Chapter 7 records typed `schematic_layout`
-failures for both its authoring and finite-pi compiled diagrams; neither
-failure has an SVG substitute. Its actual three-point Direct batch still
+Pin and leaves the other open. Chapter 6's current source declares explicit layouts, Port poses, T/Cross
+junctions and exact-Plan reuse; the stored Default/T/Cross/reuse figures retain
+their original publication identities. Chapter 7's current diagram source
+declares manual authoring geometry. Its retained earlier authoring and
+finite-pi compiled `schematic_layout` failures have no SVG substitute; the
+compiled outcome is historical and has no current executable producer. Its actual three-point Direct batch still
 publishes complete sixteen-channel tables and three figures labeled as
 readout-head reflection examples. Chapter 8 launches
 two independent Jupyter kernels in one fresh execution directory: the first

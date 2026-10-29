@@ -1,0 +1,124 @@
+---
+title: "物理量的靈敏度（Sensitivity）"
+subtitle: "在相同 Plan 與 View 上宣告 Jacobian、JVP 與 VJP 請求"
+lang: zh-TW
+sidebar: guides
+---
+
+在同一份電路計畫（Circuit plan）與網路檢視（Network view）上，宣告要微分的物理量、參數（Parameter）及導數模式。結果保留物理單位與明確座標，可讀取 Jacobian、JVP 或 VJP。
+
+本 dev37 `CONVERGING` 指南描述目前候選公開宣告。程式片段是來源範例，不是已記錄的導數執行或數值精度證據。執行、所有權與失敗行為以[執行期契約（英文）](/en/docs/v1-runtime-contract.html#physical-program-target)為準。
+
+## 重用已宣告參數與實體邊界
+
+使用[第 1 章：建立電路](../../examples/engineer/chapter-01/01-build.qmd)的宣告：`plan`、純量 `capacitance`（基準 110 fF）、`resonator_coordinate`、接地 5.8 nH 電感、6 fF 耦合電容，以及帶終端負載的 50 Ω 埠。保留同一宣告 Plan 的這些物件；新建同顯示名稱的參數不是已擷取參數。本指南用相同模型建立 Run。
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-001.qmd >}}
+
+頻率網格與根提示沿用第 1 章宣告。提示不是搜尋區間或答案。每個運算式葉項持有精確 View；保留共振器座標不會卸除宣告電路負載。靈敏度沒有預設 View：所有選擇器葉項都必須用此 Run 的 `.on(view)`。相對地，`run.optimize(view, spec)` 只對沒有 `.on(...)` 的目標葉項提供明確 `view`；已綁定葉項保留自己的 View。只有 Spec 的 `run.optimize(spec)` 寫法要求所有葉項已綁定。編譯器（Compiler） `default_view` 是此明確交接，不是隱藏選擇 `run.original`。`.Y`、`.Z` 選完整網路矩陣（Matrix），`OperatorSpec.matrix` 選其宣告 View 上含負載算子矩陣。純量曲線與根選擇器使用相同物理量宣告路徑，不以目標取代矩陣輸出。
+
+## 裝置預備前檢視宣告相依項
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-002.qmd >}}
+
+此操作返回擷取的宣告使用者及其宣告身分，不要求已實現網格或 JAX 裝置。宣告相依不代表導數非零、最小、平滑或數值可用。靈敏度沒有公開進度回呼；`on_progress` 仍屬最佳化（Optimization）介面，遵循其事件與耐久契約。完整有效參數點（Parameter point）與有序 `wrt` 座標分開；不在 `wrt` 的參數仍貢獻物理係數。
+
+## 請求物理導數
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-003.qmd >}}
+
+Jacobian 儲存格帶輸出單位／輸入單位。已存輸出配置記錄物理軸、單位與分量座標。陣列元素依物理 C 順序攤平，分量放在最後且變化最快（`real`、`imag`）；實輸出只有 `real`。`OutputCoordinate.index` 包含物理陣列軸序號，不含合成實／虛軸。完整 S 矩陣的頻率／輸出埠／輸入埠序號與分量分開：
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-004.qmd >}}
+
+依實際已存配置解讀軸與埠順序，顯示標籤不能取代序號。非平滑或數值未認證點可能無法取得受檢查導數，不會以零、有限差分（Finite difference）或自動選擇後端替代。
+
+JVP 方向是相對無因次路徑參數的物理位移：
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-005.qmd >}}
+
+方向座標轉換（Coordinate transformation）到各輸入的 SI 單位，JVP 輸出保留物理輸出單位。這是局部導數，不是有限位移求解或全域最佳保證。
+
+VJP 權重指向明確輸出座標。每個權重乘上其輸出後，必須有同一純量泛函單位。下列僅含根的範例以反頻率權重宣告無因次泛函：
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-006.qmd >}}
+
+輸入餘切向量單位為泛函單位／輸入單位。共用泛函單位從提供權重記錄，不暗中假設無因次；零權重仍必須明確帶單位。
+
+## 為正規化 Jacobian 記錄尺度一次
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-007.qmd >}}
+
+這些明確尺度重用宣告基準與提示作正規化選擇，不是精度目標。屬性使用請求記錄尺度：每格乘輸入尺度、除輸出尺度，不接受替代尺度，也不認證前向精度。
+
+## 讀取精確終端記錄，再釋放 Run
+
+部分完成的靈敏度終端記錄保留實際完成的原始與請求導數證據，不進入完整成功快取或預設解析。已知**實際記錄終端 `attempt_id`** 時，明確讀取使用相同唯讀選取路徑：
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-008.qmd >}}
+
+上述 `recorded_attempt_id` 來自實際終端操作證據，不是捏造身分或最新嘗試選擇器。`ResultIdentity` 不是此選擇器；其 result／request／attempt 摘要不能取代精確終端 `attempt_id`。省略參數時，具名終端記錄提供已存有效點與精度；明確參數集合則需完整請求精確匹配。只讀取選定記錄實際包含的導數區塊。
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-009.qmd >}}
+
+Result 持有固定延遲讀取器與獨立中繼資料，不持有 Run。不可變已存證據仍可用時，關閉後仍可讀。新 Run 操作與外部 View 操作需要開啟的 Run；活動操作中關閉會失敗，不終止活動操作。重複呼叫間不需關閉。
+
+## 網格、暖快取所有權與後端邊界
+
+所有 CMA、L-BFGS-B 與 Hybrid 最佳化階段會固定實現區段數與矩陣形狀。`OptimizationSpec.discretization` 與 Hybrid 階段明確網格描述規劃定義域或固定數目。有限邊界缺漏或不足時，發警告並固定起始實現網格，不捏造最大範圍或充分性聲明。作用材料相依會改變電氣界限時，只有有限長度邊界仍不足。靈敏度微分固定實體程式，不微分整數區段選擇。見[電氣解析度（Electrical resolution）](../concepts/electrical-resolution.qmd)。
+
+`run.warmup(run.original, response_spec)` 明確接納靜態可轉換實體程式，並回報此 Run 上編譯的簽章。原始彙總轉換與高階候選／頻率區塊變體使用不同鍵。編譯原始彙總不證明受檢查頻率區塊已預熱。主桶依 `execution_policy.frequency_chunk_size`（預設八），尾桶固定大小一。匹配操作只重用相同可呼叫物件／鍵、形狀、dtype、裝置與能力分區。有限擁有端本地接納及釘選管理保留，未用項可淘汰。暫時候選框架由操作持有。導數使用原始可呼叫物件，不用 AOT 執行物。預熱不求解物理結果或發布成功，未請求轉換與未來形狀仍延遲。已存 Result 所有權獨立；釋放參考不保證 RSS 立即下降。
+
+JAX 是靈敏度、局部與 Hybrid 策略的實體程式及受檢查自動微分（AD）路徑。請求 dtype、算術與數值認證不同於前向精度。進階原始存取使用相同獨立取得方式：
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-010.qmd >}}
+
+原始可呼叫物件為 `prepared.numeric_function(theta_SI, omega_rad_per_s, seeds)`。不可變 `input_layout`、`output_layout`、`aux_layout` 定義有序座標、物理單位、形狀、dtype 與狀態欄位。此 API 不追蹤 Run 或 Workspace。原始值／狀態不是已認證 Result；高階靈敏度仍負責檢查與儲存結果。外部呼叫端建構 SI 陣列，負責外層 JAX 轉換精度與基底情境。明確 binary64 用法應在 `jax.enable_x64(True)` 或既有 x64 設定內建構輸入並套用外層 JAX AD。取得 Prepared 不全域切換程序設定，也不恢復呼叫端建陣列時已截斷位元。高階 Run 方法負責範圍內精度；原始用法指引不新增適用條件或替代路徑。
+
+Run 關閉後，呼叫端可保留獨立函式。預熱只編譯宣告簽章，摘要區分實際編譯、快取重用／接納與延遲變體。`batch_shapes` 宣告 theta 前導點批次形狀，不改物理網格或另選頻率範圍。只有產生程式碼大小可用時，完整執行物保留位元組仍未知，程式碼位元組另報。原生轉換涵蓋與資源／效能結論需要實際安裝 dev27 候選的觀察。原始閉包不持有 Run、Workspace、可變分解因子或候選框架。
+
+既有 `run.warmup(view, sensitivity_spec, parameters=...)` 綁定相同最終靈敏度物理量、精確葉項 View、完整點、作用座標與離散化。提供的 View 會檢查 Run 所有權，不取代獨立綁定葉項 View。摘要分開已知值預備與所請求受檢查導數種類。已知受檢查候選及聯合分支線性化產生器可只編譯不評估。需要框架的導數變體維持在 `lazy_work`，直到同一快取產生器提供精確 Partial 靜態結構；僅陣列形狀匹配不足以認定暖命中。明確請求原始轉換仍是獨立範圍。
+
+## 目前公開路徑
+
+| 任務 | 目前公開路徑 | 意義 |
+|---|---|---|
+| 檢視宣告使用者 | `run.dependencies(quantities=...)` | 純宣告投影，不證明導數支援 |
+| 請求導數 | `run.sensitivity(SensitivitySpec(...))` | 相同物理 Quantity／View 程式，明確導數模式 |
+| 讀正規化儲存格 | `result.normalized_jacobian` | 請求記錄的輸入／輸出尺度 |
+| 讀部分終端 | `run.resolve(spec, attempt={'attempt_id': recorded_attempt_id})` | 精確已存終端，不是預設成功或最新選取 |
+| CMA 最佳化 | `OptimizationSpec(optimizer=CMAESSpec(...))` | 既有控制與完整族群預算條件；固定階段網格 |
+| 局部／分階段最佳化 | `LBFGSBSpec`／`HybridSpec` | 明確局部控制與已接受迭代發布頻率；階段勝出者不同於最終比較 |
+| 觀察進度 | `OptimizationProgress` | `stage_id`／`strategy`；CMA 世代或局部迭代計數，不可用計數為 `None` |
+
+進度預算屬於具名目前階段：`requested_budget` 是其 `max_evaluations`；CMA 可達數含基準加完整族群，局部 `achievable_evaluations` 為 `None`。階段 `evaluated_count`、實際物理快取未命中與 SciPy 控制器計數是不同事實，Hybrid 不捏造加總可達預算。
+
+耐久進度回呼在持久化確認後發生。局部迭代計數不捏造 CMA 世代；`iteration`、`stage_transition`、`partial` 描述實際階段。Hybrid best 在最終比較模型實際完整成本評估前可為空。局部線性座標優先採明確最佳化尺度，再採宣告定義域尺度；兩者皆無的有界變數使用解析後物理邊界寬度，開放線性定義域仍用宣告尺度。對數座標用實際帶符號起始參考 `theta = reference * exp(a*x)`，有尺度時 `a = scale/abs(reference)`，無尺度帶符號對數定義域則 `a = 1`。階段記錄映射，模型間傳遞物理點而非控制器座標。保留原生有限邊界與半直線，不用 CMA 折返或捏造有限區間。局部重新啟動由已提交的已接受迭代開始新階段、清除曲率，不是精確 L-BFGS-B 延續。舊 Workspace 格式沒有相容讀取器，請保留歷史產物，在目前 Workspace 重算。
+
+## 以明確局部階段重用既有目標
+
+[第 2 章請求](../../examples/engineer/chapter-02/03-optimize.qmd)提供真實 `optimization_spec.variables`、`.objectives`、`fixed_inductance`，用於有界電容與含負載頻率目標。以下獨立片段假設使用**第 2 章** `plan` 與 `resonator_coordinate`，不是上方第 1 章物件。請在 JAX Run 以其原宣告控制代碼重用。局部控制值由呼叫端宣告策略提供；本指南不替使用者選新科學預算、線搜尋條件或停止容差。
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-011.qmd >}}
+
+`declared_local_controls` 必須包含 `max_evaluations`、`max_iterations`、`ftol`、`gtol`、`max_line_search`、`commit_every_iterations`；選用 `coordinate_scales` 使用擷取參數 ref 與物理單位。既有共用 Objective 仍規定 target／at-least 損失與權重。受檢查物理梯度經記錄的局部座標鏈式法則傳遞，不使用 CMA linquad 映射。不可用／非平滑導數依實際原因終止局部階段，不以零梯度或有限差分替代。求解器終止與設計接受分開記錄。
+
+`AcceptedIterateSelection` 指定實際已提交嘗試／階段／迭代；`accepted_iterate_id` 是持久化內容身分 `stage.accepted_iterate.locator['candidate_ref']['sha256']`，嘗試與階段識別該次出現，不是參數座標摘要或最新列選取。將它傳為 `restart_from`，會從該物理點開始新請求的宣告階段序列（明確階段種子優先），使用新控制器狀態並清除局部曲率，不續接舊 SciPy 物件。CMA `resume_from` 仍有獨立精確 post-tell CMA／RNG 檢查點語意；兩種選取都不是任選最新記錄。Hybrid 轉換傳遞選定物理點，在目標階段固定模型下重評，不傳前控制器座標。每個進入階段先在該模型下從原始完整操作點建立分支錨點。實際轉換評估、來源候選／模型與參數 ref 沿革（Lineage）一起發布於首個目標階段批次。
+
+`checkpoint="off"` 保留數值階段與已接受點證據，省略專用復原檢查點、指標及 CMA／RNG／錨點恢復狀態，不將局部重新啟動變成精確求解器延續。Hybrid 局部導數不可用時，該階段停止，終端為 PARTIAL，不自動進入後續宣告階段。明確新階段／重新啟動可使用保留點；未進入比較階段時最終 best 仍可為空。比較基準是在宣告比較模型下重評的原始操作有效點，與後續階段選點種子分開。其預備評估與成本另報，不算入最佳化搜尋預算／控制器 `nfev`。
+
+## 繪製選定的已存 Jacobian 物理量
+
+Jacobian 的 `plot()`、`show()` 可選取已存結果中的具名物理量。標籤來自 `SensitivitySpec.quantities`，`quantities` 順序決定群組順序，各群組內依已存座標順序，欄仍依宣告 `wrt` 順序。恰好提供一種選取路徑：Jacobian 使用非空有序 `quantities`，單區塊則用既有 `block_id`；JVP、VJP 仍用 `block_id`。未指定 `kind` 呼叫 `show()` 仍顯示結果摘要。選取讀取已存 Jacobian，不重跑物理計算。
+
+{{< include ../../_generated/canonical-code/docs/guides/sensitivity.qmd/block-012.qmd >}}
+
+列保留物理陣列索引及明確實／虛分量，純量輸出索引為空。參數欄依精確 `ParameterRef` 身分匹配，不依顯示標籤。既有 `output_unit`、`output_units`、`parameter_units`、`parameter_labels`、`theme` 選項仍可用；Jacobian `normalized`、`input_scales`、`output_scales` 保留既有語意。
+
+每個 Jacobian 儲存格導數單位為 $q_i/\theta_j$。比值單位與明確角頻率次方慣例相容的格，依首次出現順序分組。群組內數值轉成首格顯示單位，明確顯示單位選項仍是初始選擇。結果為一張垂直堆疊單位群組、各自有色條的圖。空交叉格會裁去，不改相對宣告順序；非成員格保持空白並標為不適用。不可用導數格保持空白，帶記錄原因；兩者都不變成數值零。
+
+`auto` 對單位群組單一輸出列選長條圖，多列選熱圖。長條依單位群組內參數分組目標，表格保留全部選定列與逐格單位。熱圖使用以零為中心、帶符號 RdBu 色階，真實零仍顯示為零，不轉絕對值或百分比。複數輸出使用明確實部、虛部列。
+
+原始 Jacobian 預設保留帶符號物理導數。既有 `normalized=True`、輸入尺度與輸出尺度保留目前請求／顯示尺度語意；選取不增加自動尺度、百分比、絕對值或門檻。顯示單位不從標籤推論轉換，也不隱式套用 $2\pi$。角頻率輸出仍代表角頻率，除非宣告物理量本身定義另一種量。完整 ID、單位、轉換詳情、格狀態及不可用原因仍可從圖形中繼資料／懸停資訊取得。
+
+這是已存結果呈現。Memory 資料保持獨立，Workspace 資料使用既有固定讀取器生命週期；呈現不修改 Result，也不建立新讀取器、快取或 Run 所有權。

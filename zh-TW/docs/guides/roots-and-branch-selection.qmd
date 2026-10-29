@@ -1,0 +1,120 @@
+---
+title: "根、凹點與分支選擇"
+subtitle: "選擇物理量、宣告搜尋，並解讀一個局部分支"
+lang: zh-TW
+toc-depth: 2
+execute:
+  enabled: false
+sidebar: guides
+---
+
+響應圖、複數根與最佳化（Optimization）的最佳點回答不同問題。本指南連結目前公開 API 與共用實體程式，說明提示（Hint）、明確探索、追蹤及局部導數的意義。實作仍為 `CONVERGING`，本頁不建立嚴格範例回歸涵蓋、獨立精度或穩定版本聲明。[執行期契約（英文）](/en/docs/v1-runtime-contract.html#typed-direct-quantity-catalog)規定詳細物理量與失敗定義。
+
+## 先決定需要哪個量
+
+在實頻率取樣的 $|S_{ij}(\omega)|$ 或 $|Z_{ij}(\omega)|$ 最小值是幅值凹點，不一定是實頻率上的精確零點。傳輸零點（Transfer zero）是所選 View 與負載下，宣告的**複數** S、Y 或 Z 元素之根。極點（Pole）或共振解另一方程，不能只因頻率接近就取代零點。
+
+| 宣告 | 問題 |
+|---|---|
+| `DirectSolveSpec` 或 `ResponseElementSpec` | 請求實頻率上的響應是什麼？ |
+| `DiagonalRootSpec`／`OperatorElementRootSpec` | 所選 Schur 算子元素在哪裡為零？ |
+| `HybridizedPoleSpec` | 選定耦合極點方程在哪裡閉合？ |
+| `TransferZeroSpec` | 此有序 S/Y/Z 傳輸分子在哪裡為零，且分母仍符合條件？ |
+| `ResidueNormalizedCouplingSpec` | 宣告的已認證分支根與斜率給出什麼局部耦合？ |
+
+座標與方向很重要：`output_coordinate` 是列，`input_coordinate` 是欄。同一實體 Plan 經不同負載、補償、轉換或保留邊界後，可以得到不同選定量。保留未設埠節點不讓它變成埠，也不暗中移除負載。請先讀[模擬慣例](../concepts/simulation-conventions.qmd)與[檢視](../concepts/compilation-coordinates-and-network-views.qmd)。
+
+## 頻率單位與選定方程
+
+公開 Hint／anchor 輸入是帶單位頻率。數值方程以 rad/s 的角頻率 $\omega=2\pi f$ 與 $\exp(-i\omega t)$ 慣例計算。複數 `zero`、`root` 與公開 Hz `frequency` 欄位是不同投影，顯示單位轉換不能暗中增減 $2\pi$。此時間慣例下，實際衰減極點滿足 $\operatorname{Im}\omega<0$。目前 JAX 混合極點閉合接受 $\operatorname{Im}\omega\le0$，包含無損實軸根；這不是對所有純量或傳輸零點自動新增的被動性篩選。
+
+對允許的固定線性節點模型，令 $s=-i\omega$，含負載算子與選定內在 Schur 算子為：
+
+$$
+Q=K+sG+s^2C,\qquad
+F=Q_{RR}-Q_{RE}Q_{EE}^{-1}Q_{ER},\qquad
+Y=\frac{F}{-i\omega}.
+$$
+
+實際模型也保留宣告串聯支路、負載、View 權重及相應頻率導數組（frequency jets）。消去求解及其導數屬於同一選定狀態產生器，不是獨立組裝。埠 View 使用實際來源／負載關聯與參考正規化；內在公式不能取代埠響應。
+
+對非零 $\omega$ 及可逆選定 $F$：
+
+$$
+Z_{ij}=(-i\omega)\frac{\operatorname{cof}_{ji}(F)}{\det F}.
+$$
+
+餘因子索引需轉置。只有雙座標非對角投影可簡化為 $Z_{21}=i\omega F_{21}/\det F$。單看 $F$ 極點譜不是傳輸零點目錄。完整負載、Schur 與族慣例見[物理量實現（英文）](/en/docs/implementation/direct-poles-zeros-and-operators.html)。
+
+## Hint 是種子，不是搜尋指令
+
+`search=None` 時，Hint／anchor 初始化一個局部解析修正器。Newton 更新不遍歷 Hint 以下所有根、不依定義選最近物理根，也不自動發現想要的 RF 凹點。根可能落在另一收斂域、候選可能未通過數值認證，所需根也可能仍未找到；這些都不證明該根不存在。
+
+目前 Z 傳輸更新使用同一族狀態的縮放 RF 餘因子 $r=\operatorname{cof}_{ji}(F_{\mathrm{eff}})$，其中 $F_{\mathrm{eff}}=(-i\omega)Y$。內在 View 重用受檢查的 $F/F'$；埠 View 使用 $F'_{\mathrm{eff}}=-iY+(-i\omega)Y'$。這從迭代殘差移除明確 DC 因子，不保證想要的正頻率收斂域，也不改成功定義。
+
+成功仍使用原始族／cofactor(Y)、完整傳輸值／斜率、分母、局部單純性／秩，以及修正／閉合證書。Y、S 更新保留各自族元素方程。既有更新限制與位元停滯行為仍有效。小修正證書不是根位置的前向誤差界，更新次數也不是所有分解或回呼次數。[根程序（英文）](/en/docs/implementation/diagonal-root-numerical-procedure.html)與[執行期契約（英文）](/en/docs/v1-runtime-contract.html)保留這些精確規則。
+
+## 另外宣告探索
+
+既有根 Spec 可選擇加入 `RootSearchSpec`，必須指定方法與精確平手選項。呼叫端提供實頻率區間，或**原始宣告** Hint 的正倍率；選用虛部區間會增加明確選擇限制，省略時不捏造限制。
+
+宣告 Hint 為 $h$、倍率為 $k$ 時，相對正 RF 上界為 $kh$。後續基準／追蹤錨點 $a$ 不會取代 $h$ 或擴張區域，也不推論 $h/k$ 下限或自動取樣網格。`tie="unavailable"` 保留歧義；`tie="source_order"` 讓精確平手依宣告來源順序決定。
+
+| 方法 | 候選來源與能力 |
+|---|---|
+| `polynomial_transfer_zero` | 符合條件的內在／非埠 Z：固定實現網格、宣告純電感區段，以及不隨頻率改變的 K/C/G、實際負載／View；無呼叫端種子 |
+| `finite_seeds` | 呼叫端提供有序非空複頻率種子，交給原修正器 |
+
+不支援的多項式能力會明確失敗。可變電阻區段即使恰好評估為零，也不自動成為宣告純電感區段；沒有隱藏方法替代。符合條件的多項式模型從相同係數與實際輸入／輸出建立稠密 $2n+1$ SISO Rosenbrock 傳輸零點矩陣（Matrix）鉛筆。廣義特徵值提案不是已認證根：定義在區域內的提案，先依來源順序通過原修正器與證書，再選取。
+
+選擇規則是**該宣告探索中符合條件且已認證的候選**裡，與 Hint 複頻率歐氏距離最近者，不保證所有連續域根或全域最近物理根。區域外已認證候選保留結果及不在選取範圍事實；未選到時回報從宣告嘗試未找到，不宣稱不存在。
+
+呼叫端必須為預期分析宣告足夠解析度。記錄搜尋範圍與網格策略不重寫已封存 Plan，也不自動重劃網格。公開 `evaluate` 沒有最佳化固定階段網格覆寫；實現網格依呼叫端 Plan 策略。另一份固定階段見證可能描述不同離散問題。見[電氣解析度（Electrical resolution）](../concepts/electrical-resolution.qmd)。
+
+## 使用既有 Plan 與 View
+
+以下函式使用呼叫端持有的宣告與參數（Parameter），不宣告展示電路或提供答案種子。`NetworkViewRef` 屬於其 Run；請傳既有 `ReductionPipeline` 宣告，在新 Run 內綁定相同 View，不重用其他 Run 的參考。
+
+{{< include ../../_generated/canonical-code/docs/guides/roots-and-branch-selection.qmd/block-001.qmd >}}
+
+倍率是明確請求選擇，不是預設值；相對無搜尋 Spec，它產生新請求身分。請讀 `result.status`、`result.failure`、`result.context`、`result.discretization`、`result.benchmark`。`result.succeeded` 時，`result.frequency` 是 Hz 投影，`result.zero` 是複數角頻率。具型別數值失敗保持可見，非預期傳輸／原生錯誤向外傳播。返回的 Memory Result 已獨立於 Run，關閉後仍可讀，不需已存嘗試或 `resolve`。
+
+## 追蹤分支並局部微分
+
+初始探索建立錨點。宣告 Sweep 保留原始 Plan 基準與點順序；明確單點搜尋在請求點初始化。最佳化在各宣告階段模型下建立原始點錨點。後續點使用選定分支及既有基準錨定延續，不在每個參數上重新全域搜尋；完成順序不暗中更新錨點。
+
+延續有既有失敗適用條件與參數語意，不是每種形成錯誤都授權重試。結構化 RLGC 替換不自動由純量延續插值。每個候選使用自己的受檢查封包與實際受檢查 Error，不用前一點的 Error。
+
+局部可用單根方程 $g(\theta,\omega)=0$ 的導數為：
+
+$$
+\mathrm d\omega=-\frac{g_\theta[\mathrm d\theta]}{g_\omega}.
+$$
+
+此導數屬於選定物理分支，不微分候選排序或有限 Newton 歷程。允許的二階／混合方向仍追蹤實際 View／材料係數相依與根誘發頻率相依。頻率根的可用性可不同於向量／規範或耦合可用性；不可用導數不以零或有限差分（Finite difference）替代。
+
+`spec.frequency.on(view)` 可進入呼叫端宣告的 `SensitivitySpec`；wrt、JVP 方向或 VJP 權重保留單位與順序。[靈敏度（Sensitivity）指南](sensitivity.qmd)說明部分區塊與正規化。原始 `PreparedFunction` 可呼叫物件提供局部純陣列運算與狀態，不提供高階離散探索或已認證 Result。外部 JAX 輸入／轉換精度由呼叫端負責，高階呼叫負責範圍內精度。
+
+## 補償處理算術，不選分支
+
+高／低通道稀疏方程表示與固定修正，依既有數值策略處理有限算術殘差。稀疏分解因子僅在回呼內持有，回呼返回前釋放；Run 快取保存靜態程式／執行物，不保存因子。一階／頻率導數組可共用備妥 RHS 工作，切向、混合或伴隨方程仍各負責實際 performed／status／certificate。
+
+補償不能選 Newton 收斂域，也不能建立缺少的已認證根。高通道分解失敗時，修正無法修復該種子；這本身不證明完整表示算子奇異。沒有全裝置或一律單次分解導數聲明。
+
+## 理解成本與修正範圍
+
+| 工作 | 可能發生的內容 |
+|---|---|
+| 僅編譯（Compilation）預熱 | 編譯已知候選／值／線性化簽章；無特徵值、根修正、分解因子或成功 Result |
+| 初始探索 | 取得係數、配置稠密矩陣鉛筆、執行特徵值求解並修正每個合適提案 |
+| 後續分支追蹤（Branch tracking） | 評估目前係數、局部修正／合適延續，再計算所需導數組 |
+| 目標／導數 | 套用相同物理量與損失，以及請求的局部導數方程 |
+| 具型別 API／已存讀取 | 綁定、投影、證據與生命週期工作，或唯讀固定已存結果載入 |
+
+稠密矩陣鉛筆儲存量隨矩陣維度成長；探索不是取代單次稀疏局部求解的固定成本操作。分母驗證、終端證書、導數方程、編譯與結果建構也可能耗時。冷預備、預熱、暖數值運算、完整具型別 API 與已存查詢是不同計時範圍。包容性階段加總不是互斥成本，不能當作獨立工作相加。[基準量測（Benchmark）](benchmark.qmd)只回報實際可用計時，不再執行另一計算。
+
+重用編譯簽章不會快取根目錄或原生分解因子。需要實際完成封包／Error 或產生端 Partial 樹的使用者，在預熱階段沒有該樹時仍保持延遲；原始彙總編譯不證明受檢查使用端命中。
+
+實作修正可處理殘差表示、封包／Error 對應、允許的高階相依、結構序號綁定或精度／回呼傳輸；這不同於證明物理模型、另一根存在、原完整應用流程或效能目標。來源修正本身不是數值觀察，私有收集／設定工具失敗也不自動等於求解器失敗。
+
+最佳化時，CMA-ES 可在記錄失敗候選後繼續。真正 L-BFGS-B 仍需要實際值／梯度契約。Projected L-BFGS 是獨立、值優先且能處理拒絕的方法：已有可接受實梯度時，可記錄失敗／不可用試點並嘗試較小可行步；初始梯度不可用時不能捏造方向。混合階段保留明確策略、網格、轉換與比較。較低成本或成功選到凹點，不代表全域最佳、所有目標達成或獨立物理驗證。

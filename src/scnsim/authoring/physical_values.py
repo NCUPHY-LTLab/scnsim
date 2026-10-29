@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 import unicodedata
 import numpy as np
-from ..value_storage import immutable_quantity
+from ..value_storage import immutable_quantity, quantity_view
 from ..errors import SCNSimValidationError
 from ..units import Quantity, registry, require_positive_quantity, require_quantity
 
@@ -531,3 +531,145 @@ class AffineMap:
                 quantity_record(x, self.input.spec.si_unit) for x in self.support
             ],
         }
+
+
+_RLGC_SCALAR_FIELDS = (
+    ("resistance", "resistance_per_length", "ohm / meter"),
+    ("inductance", "inductance_per_length", "henry / meter"),
+    ("conductance", "conductance_per_length", "siemens / meter"),
+    ("capacitance", "capacitance_per_length", "farad / meter"),
+)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class RLGCScalarTerm:
+    """A scalar source times fixed matrices; only realized totals are passive."""
+
+    _input: object
+    _affine: tuple | None
+    _source_unit: str
+    _basis: tuple
+    _source_basis: tuple
+
+    def __init__(self, source, *, resistance=None, inductance=None, conductance=None, capacitance=None) -> None:
+        from .parameters import ParameterRef
+        ref = source.input if isinstance(source, AffineMap) else source
+        if not isinstance(ref, ParameterRef) or not isinstance(ref.spec, ParameterSpec):
+            raise TypeError("RLGC scalar source must be a scalar ParameterRef or AffineMap")
+        affine = None
+        source_unit = ref.spec.si_unit
+        if isinstance(source, AffineMap):
+            source_unit = source._output_unit
+            affine = (immutable_quantity(source.slope), immutable_quantity(source.intercept), tuple(immutable_quantity(value) for value in source.support), source._slope_unit)
+        basis = []
+        source_basis = []
+        for name, field, unit in _RLGC_SCALAR_FIELDS:
+            value = locals()[name]
+            source_basis.append(None if value is None else immutable_quantity(value))
+            if value is not None:
+                if not isinstance(value, Quantity) or value._REGISTRY is not registry:
+                    raise TypeError(f"{name} basis must use scnsim.units")
+                basis_unit = registry.Unit(unit) / registry.Unit(source_unit)
+                magnitude = np.asarray(value.to(basis_unit).magnitude, dtype=np.float64)
+                if magnitude.ndim != 2 or magnitude.shape[0] != magnitude.shape[1]:
+                    raise ValueError(f"{name} basis must be a square matrix")
+                value = immutable_quantity(registry.Quantity(magnitude, basis_unit))
+            basis.append(value)
+        if all(value is None for value in basis):
+            raise ValueError("an RLGC scalar term requires at least one basis matrix")
+        object.__setattr__(self, "_input", ref)
+        object.__setattr__(self, "_affine", affine)
+        object.__setattr__(self, "_source_unit", source_unit)
+        object.__setattr__(self, "_basis", tuple(basis))
+        object.__setattr__(self, "_source_basis", tuple(source_basis))
+
+    @property
+    def source(self):
+        if self._affine is None:
+            return self._input
+        slope, intercept, support, _ = self._affine
+        return AffineMap(input=self._input, slope=quantity_view(slope), intercept=quantity_view(intercept), support=tuple(quantity_view(value) for value in support))
+
+    @property
+    def resistance(self):
+        return None if self._basis[0] is None else quantity_view(self._basis[0])
+
+    @property
+    def inductance(self):
+        return None if self._basis[1] is None else quantity_view(self._basis[1])
+
+    @property
+    def conductance(self):
+        return None if self._basis[2] is None else quantity_view(self._basis[2])
+
+    @property
+    def capacitance(self):
+        return None if self._basis[3] is None else quantity_view(self._basis[3])
+
+    def _value_at(self, value, *, authorized=False):
+        candidate = require_quantity(value, self._input.spec.si_unit, name="RLGC scalar source")
+        if self._affine is None:
+            return candidate
+        slope, intercept, support, _ = self._affine
+        lower, upper = support
+        magnitude = candidate.to(self._input.spec.si_unit).magnitude
+        if not authorized and not lower.to(self._input.spec.si_unit).magnitude <= magnitude <= upper.to(self._input.spec.si_unit).magnitude:
+            raise SCNSimValidationError("AffineMap value lies outside support", stage="authoring")
+        return slope * candidate + intercept
+
+    def _record(self):
+        result = {"source": {"kind": "ref", "parameter": self._input._key_record()} if self._affine is None else self.source._record()}
+        for (name, _, unit), basis in zip(_RLGC_SCALAR_FIELDS, self._basis):
+            if basis is None:
+                result[name] = None
+                continue
+            basis_unit = str(registry.Unit(unit) / registry.Unit(self._source_unit))
+            from ..canonical import derived_quantity_matrix_envelope
+            result[name] = derived_quantity_matrix_envelope(basis, si_unit=basis_unit, registry=registry)
+        return result
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ScalarRLGCMap:
+    """Immutable fixed conductor basis with explicit scalar physical terms."""
+
+    base: RLGC
+    terms: tuple[RLGCScalarTerm, ...]
+
+    def __init__(self, base: RLGC, *, terms: Sequence[RLGCScalarTerm]) -> None:
+        if not isinstance(base, RLGC):
+            raise TypeError("base must be RLGC")
+        terms = tuple(terms)
+        if not terms or any(not isinstance(term, RLGCScalarTerm) for term in terms):
+            raise TypeError("terms must contain RLGCScalarTerm values")
+        shape = (len(base.conductors), len(base.conductors))
+        if any(np.shape(value.magnitude) != shape for term in terms for value in term._basis if value is not None):
+            raise ValueError("RLGC basis matrices must match base conductor shape")
+        object.__setattr__(self, "base", base)
+        object.__setattr__(self, "terms", terms)
+        # Construction applies the existing physical validator to the total,
+        # without imposing positivity on individual linear basis matrices.
+        self.value_at({term._input: term._input.baseline for term in terms})
+
+    @property
+    def parameters(self):
+        return tuple(dict.fromkeys(term._input for term in self.terms))
+
+    @property
+    def baseline(self):
+        return self.value_at({ref: ref.baseline for ref in self.parameters})
+
+    def value_at(self, values: Mapping, *, authorized=frozenset()):
+        matrices = [getattr(self.base, field) for _, field, _ in _RLGC_SCALAR_FIELDS]
+        for term in self.terms:
+            value = term._value_at(values[term._input], authorized=term._input in authorized)
+            for index, basis in enumerate(term._basis):
+                if basis is not None:
+                    matrices[index] = matrices[index] + basis * value
+        return RLGC(conductors=self.base.conductors, reference_conductor=self.base.reference_conductor,
+            resistance_per_length=matrices[0], inductance_per_length=matrices[1],
+            conductance_per_length=matrices[2], capacitance_per_length=matrices[3],
+            extraction_frequency=self.base.extraction_frequency, source=self.base.source)
+
+    def _record(self):
+        return {"kind": "scalar_rlgc", "base": self.base._record(), "terms": [term._record() for term in self.terms]}

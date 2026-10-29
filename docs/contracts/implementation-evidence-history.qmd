@@ -1,0 +1,85 @@
+---
+title: "Historical implementation and course evidence"
+subtitle: "Retained checkpoint observations and their original limits"
+---
+
+This page preserves the evidence passages formerly embedded in the Contract
+landing page. Their checkpoint names, temporal wording, outcomes, and limits
+are retained verbatim; they describe those recorded observations, not a new
+execution of the current course. Use the [Contract map](index.qmd) for public
+behavior and the [Implementation overview](../implementation/index.qmd) for
+mechanisms.
+
+## Retained evidence record
+
+On source `9cd5d4e1a27adc4e9c8719370c8a38a86177f8c9`, one bounded Linux
+x86-64 exercise made two calls to the same public multi-View Optimization
+request, creating two attempts, plus one 61-point two-Port Direct request. The
+first Optimization call was interrupted only after its verified baseline
+checkpoint was published; the second reused that exact checkpoint and
+completed one generation of two candidates. A third independent Python
+process then resolved the exact Optimization and Direct
+Results with execution entries denied and zero Julia launches, and saved a
+self-contained Report plus named `signal_in` to `resonator_probe` S-magnitude
+and phase plots; its enclosing private diagnostic exited afterward while
+serializing a nested complex ledger value. This remains `CONVERGING` evidence,
+not a generalized replay, full-suite, macOS, performance, attainment, or
+acceptance claim.
+
+Additional multi-generation exercises, other-platform coverage, historical
+regression stabilization, and release delivery are separate future scopes;
+they are not unfinished CP5 work.
+
+The historical `1.0.0.dev7` research showcase keeps the new README and presentation
+refinements `CONVERGING`. Optimization declarations and retained-Result labels
+now expose readable scalar-selection and View settings, while comparison
+Figures and reports separate fixed settings from initial/best-found values.
+The unchanged Chapter 4 diagram and raw/PTC response assets remain the public
+numerical examples. This checkpoint has source- and mechanism-level checks for
+the comparison formatter, but no newly generated retained-Result comparison
+image: the preserved historical Result requires an exact catalog source that
+is not available in the retained readback environment, and no substitute Plan
+or Result is accepted.
+
+Current CI exercises portable-wheel identity, a small current-API
+Direct/pump-off HB/resolve smoke, runtime preparation, Notebook parity,
+source-bound figures, static publication, and unchanged standalone RLGC rejection
+and HB failure-classifier checks. Engineer Chapter 1 has one explicitly
+generated source-bound authoring diagram, two typed-result S11 presentations,
+complex response data, and a quantity table. Chapter 2 has source-bound
+three-point sweep evidence, a genuine fixed-request
+Optimization winner with independent root readback and selected diagram, and
+optional grid/listed-point evidence. The course web build launches no solver,
+Chapter 3 adds a named three-sample two-Port Direct Result plus certified
+standalone feedline and readout illustrations. Its complete Plan's Default
+diagram remains a typed `schematic_layout` failure, so those distinct
+illustration Plans are not represented as a successful projection of it.
+Chapter 4 adds the certified explicit four-Port capstone, separately labeled
+raw and PTC Direct core Results, and optional transformed-view scalar-response,
+Direct, and pump-off HB
+evidence. Direct and HB preserve their separately declared grids without
+interpolation. Chapter 5 adds one certified reusable-Composite occurrence whose
+public surface includes both physical parameter refs, equivalent ordinary
+Pins, and one explicitly published Coordinate. Chapter 6 adds certified
+Default, T, Cross, and exact-Plan reuse diagrams without changing the Plan to
+satisfy presentation. Chapter 7 records typed authoring and compiled diagram
+limitations alongside three successful Direct points and all sixteen labeled
+four-Port channels; its plotted `[0,0]` trace is identified only as one
+reflection example. Chapter 8 records two distinct Jupyter kernel sessions:
+the first persists Direct/root Results and a Report, and the second reconstructs
+the exact declaration and calls only `resolve()` while leaving the shared
+workspace bytes unchanged. These assets do not establish execution of every
+compiled projection. The [figure inventory](../../examples/README.md) records
+the current source-bound evidence and typed layout limitations. The sixteen
+former Chapter URLs are short migration guides; superseded executable bodies,
+Notebooks, and checkpoint figures remain in Git history.
+
+Retained tests have three distinct evidence roles: current runnable checks;
+numerical and integrity regressions blocked by superseded authoring fixtures;
+and superseded historical expectations that are not current product authority.
+Old-fixture failures do not invalidate downstream numerical assertions, and
+historical expectations do not decide the unaccepted replacement semantics.
+Their bodies remain historical evidence pending authorized stabilization; no
+full historical-suite pass or whole-course execution is claimed. No release,
+consumer migration, or scientific acceptance follows from this evidence.
+

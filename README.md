@@ -1,251 +1,180 @@
 # SCNSim
 
-**Author one superconducting circuit, then ask typed network and quantity
-questions against it.**
+**SCNSim is under heavy development.**
 
-[![CI](https://github.com/OrPenStrike/scnsim/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/OrPenStrike/scnsim/actions/workflows/ci.yml?query=branch%3Adevelop)
+**Describe a superconducting circuit, choose what to observe, and calculate the response or physical quantity you need.**
+
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python requirement: >=3.12](https://img.shields.io/badge/python-%3E%3D3.12-blue.svg)](pyproject.toml)
-[![Tutorial: Engineer course](https://img.shields.io/badge/tutorial-Engineer%20course-blue.svg)](docs/index.qmd)
+[![Engineer course](https://img.shields.io/badge/tutorial-Engineer%20course-blue.svg)](https://ncuphy-ltlab.github.io/scnsim/)
 
-![Conceptual SCNSim branding: an orca and penguin beside circuit schematics and network diagrams.](docs/assets/readme-hero-orca-penguin.png)
+![SCNSim orca and penguin branding.](docs/assets/readme-hero-orca-penguin.png)
 
-SCNSim is a notebook-first Python package for reproducible superconducting
-circuit-network analysis. A `CircuitPlan` owns physical components, wiring,
-ground, Ports, and reusable Subsystems; a `CircuitRun` solves explicit
-requests and returns typed Results with request and evidence identities.
+SCNSim is a Python package for superconducting circuit-network analysis. Build an explicit `CircuitPlan`, choose an analysis boundary with a `View`, and ask `CircuitRun` for responses or physical quantities.
 
-`1.0.0a1` is the first public Alpha for trial use. The package's newer
-semantics and this documentation remain `CONVERGING`; Alpha is neither a
-stable release nor a new scientific-validation claim. Public API and saved
-workspace compatibility may change before a stable release.
+## What you can do
 
-The current release candidate is Alpha `1.0.0a2`, requiring Python 3.12. Normal
-`CircuitRun.solve`, `evaluate` and `optimize` default to same-process JAX CPU
-Float64/Complex128; Float32/Complex64 and explicit Julia are selectable.
-[Operation Benchmark](docs/guides/benchmark.qmd) reads recorded operations from
-the current Plan leaf without executing another calculation. Generation
-checkpoints and boundary diagnostics preserve recovery and numerical evidence.
-JAX Optimization defaults to `commit_every_generations=10`; explicit positive
-integers select a different group size in the Plan leaf’s SQLite store. Omitted
-intervals with explicit Julia keep its existing native value of 1. See the
-guide for recovery, durability and recomputation limits.
-This candidate is `CONVERGING` and does not replace the immutable Alpha trial
-snapshot; no performance or numerical acceptance is implied.
+- [Compose a physical Plan](docs/concepts/physical-authority-and-reusable-composition.qmd) — Connect components in a `CircuitPlan` and group reusable physical units inside `Subsystem` boundaries.
+- [Choose a View and retain coordinates](docs/concepts/compilation-coordinates-and-network-views.qmd) — Select the network to observe with a `View`; `retain()` chooses the coordinates kept for its calculation.
+- [Calculate responses, roots, sensitivity and optimization](docs/guides/roots-and-branch-selection.qmd) — Request S, Y or Z response, evaluate characteristic quantities, calculate local sensitivity, or optimize a declared objective.
+- [Keep results in memory or a Workspace](docs/concepts/requests-execution-and-result-ownership.qmd) — Use in-memory results for interactive work or a Workspace for supported persistence, exact readback and continuation.
+- [Nonlinear Josephson circuits — under design](docs/component-authoring.qmd) — The current Josephson-junction primitive is linearized. A complete nonlinear Josephson-circuit workflow is under design.
 
-## Alpha 1.0.0a2 release notes
+## Install
 
-This candidate retains `CONVERGING` semantics; it is not a stable release or a
-claim of new numerical certainty. Publication and its exact tag remain separate
-delivery steps. The immutable `v1.0.0a1` snapshot and historical course outputs
-keep their original identities.
+Install a prebuilt CPython 3.12 wheel from [GitHub Releases](https://github.com/NCUPHY-LTLab/scnsim/releases/tag/v1.0.0a3).
 
-Python 3.12 or newer and pinned CPU JAX/CMA dependencies supply the default
-same-process JAX path. Julia is optional and explicitly selected; Julia-only
-features require the extra and a manually provided compatible executable.
-JAX Optimization now defaults to committing every 10 completed generations;
-explicit positive intervals remain available, and omitted Julia intervals retain
-its existing native value of 1. A larger interval trades fewer commits for more
-buffered evidence and possible recomputation after interruption.
+From an empty folder, initialize a project, then run the command for your platform:
 
-Current JAX operation evidence uses a Plan-leaf SQLite store. Same-version exact
-checkpoint references resume only committed full CMA/RNG state; checkpoint off
-creates no resumable state. Readonly access never repairs a hot journal: recovery
-is explicit on the bound Run. Historical workspaces remain readonly without
-migration. Public interfaces and saved workspace compatibility may change before
-a stable release; pin exact versions and preserve their environments.
+```sh
+uv init --python 3.12
+```
 
-## A first Direct S11 result
+<details>
+<summary>Windows x86_64 (AMD64)</summary>
 
-This Chapter 1 example builds a grounded parallel LC resonator, couples it to
-one terminated 50 Ω measurement Port, and requests a named reflection trace.
-The physical model and 110 fF / 120 fF values follow the Engineer course.
+```powershell
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-win_amd64.whl"
+```
+
+</details>
+
+<details>
+<summary>macOS arm64</summary>
+
+```sh
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-macosx_12_0_arm64.whl"
+```
+
+</details>
+
+<details>
+<summary>Linux x86_64</summary>
+
+```sh
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
+```
+
+</details>
+
+| Python | Platform and architecture | Prebuilt wheel |
+|---|---|---|
+| CPython 3.12 | Windows x86_64 (AMD64) | [GitHub Release wheel](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-win_amd64.whl) |
+| CPython 3.12 | macOS arm64 (Apple Silicon) | [GitHub Release wheel](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-macosx_12_0_arm64.whl) |
+| CPython 3.12 | Linux x86_64 | [GitHub Release wheel](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl) |
+
+These prebuilt wheels do not require a C++ compiler. For other Python versions or platforms, see the [Contribution guide](docs/contribute.qmd#build-from-source) for source-build instructions. The [setup guide](examples/engineer/setup.qmd) covers optional Jupyter and course requirements.
+
+## A first circuit
+
+Chapter 1 builds a grounded LC resonator inside a `Subsystem`, then connects a coupling capacitor and terminated measurement Port at the parent level. The same Plan supports a one-port response and a loaded root.
+
+![Chapter 1 Plan: a parent-owned coupler and terminated Port connected to a grounded LC resonator Subsystem.](examples/engineer/figures/chapter1-plan.light.svg)
+
+A `Subsystem` can contain another `Subsystem`. The boundary makes ownership visible while the parent connects through the child’s exposed Pins.
+
+![A parent module contains an LC cell with its capacitor, inductor, and local ground.](examples/engineer/figures/nested-subsystems.light.svg)
+
+## Inspect the differential mode with a View
+
+For the two node-flux coordinates, the differential coordinate is `Phi_a - Phi_b`. `transform_pair()` changes basis and `retain()` selects the differential coordinate for the View. A retained View eliminates the common coordinate through the Schur complement and evaluates the requested root in the differential coordinate.
+
+![Two-node floating LC with Ca and Cb to ground, and Cm and L connected in parallel between Phi_a and Phi_b.](examples/engineer/figures/floating-simple.light.svg)
+
+The [documentation overview](https://ncuphy-ltlab.github.io/scnsim/) includes the complete View example.
+
+See the full [floating model](examples/engineer/figures/floating_model_simple.py) and [View example](examples/engineer/figures/floating_view_simple.py).
+
+## Chapter 1 S11 response
+
+Port 1 is `signal_in`; S11 is reflection at that same measurement Port. The ideal lossless one-port model stays near 0 dB in magnitude across the requested frequency grid, while phase shows the response feature.
+
+![S11 magnitude (dB) for Port 1, `signal_in`.](examples/engineer/figures/chapter1-s11-magnitude.svg)
+
+![S11 phase (degrees) for Port 1, `signal_in`.](examples/engineer/figures/chapter1-s11-phase.svg)
+
+Open the [documentation site](https://ncuphy-ltlab.github.io/scnsim/) for the interactive magnitude and phase plots.
+
+<details>
+<summary>Show the complete model, solve, and S11 plotting code</summary>
 
 ```python
 import numpy as np
-
+from IPython.display import display
 from scnsim import (
-    CircuitPlan,
-    CircuitRun,
-    DirectSolveSpec,
-    ParameterDefinitions,
-    ParameterSet,
-    ParameterSpec,
-    SParameterTrace,
-    components,
-    units as u,
+    CircuitPlan, CircuitRun, DirectSolveSpec, ParameterSet, components, units as u,
 )
 
-inputs = ParameterDefinitions(id="readme_lc")
-capacitance = inputs.parameter(
-    id="capacitance",
-    baseline=110.0 * u.fF,
-    spec=ParameterSpec(unit=u.fF),
-)
-
-plan = CircuitPlan(id="readme_coupled_lc")
+plan = CircuitPlan(id="overview_coupled_lc")
 resonator = plan.subsystem(id="resonator")
-capacitor = resonator.add(
-    components.capacitor(id="capacitor", capacitance=capacitance)
-)
-inductor = resonator.add(
-    components.inductor(id="inductor", inductance=5.8 * u.nH)
-)
+capacitor = resonator.add(components.capacitor(
+    id="capacitor", capacitance=110.0*u.fF,
+))
+inductor = resonator.add(components.inductor(
+    id="inductor", inductance=5.8*u.nH,
+))
 resonator_bus = resonator.bus(id="signal")
 resonator.parallel(
-    id="parallel_lc",
-    start=resonator_bus,
-    branches=((capacitor,), (inductor,)),
-    end=resonator.ground,
+    id="parallel_lc", start=resonator_bus,
+    branches=((capacitor,), (inductor,)), end=resonator.ground,
 )
-resonator_pin = resonator.expose_pin(id="terminal", at=resonator_bus)
-
+terminal = resonator.expose_pin(id="terminal", at=resonator_bus)
 signal_bus = plan.bus(id="signal_boundary")
-coupling = plan.add(
-    components.capacitor(id="coupling_capacitor", capacitance=6.0 * u.fF)
-)
-plan.series(
-    id="coupling", start=signal_bus, elements=(coupling,), end=resonator_pin
-)
+coupler = plan.add(components.capacitor(
+    id="coupling_capacitor", capacitance=6.0*u.fF,
+))
+plan.series(id="coupling", start=signal_bus, elements=(coupler,), end=terminal)
 plan.add_port(
-    id="signal_in",
-    at=signal_bus,
-    role="terminated",
-    reference_impedance=50.0 * u.ohm,
+    id="signal_in", at=signal_bus, role="terminated",
+    reference_impedance=50.0*u.ohm,
 )
-
-run = CircuitRun(plan=plan, workspace="workspaces/readme_lc")
-reflection = SParameterTrace(
-    id="reflection",
-    input_port="signal_in",
-    input_mode=(),
-    output_port="signal_in",
-    output_mode=(),
-)
-direct_spec = DirectSolveSpec(
-    frequencies=np.linspace(5.75, 6.25, 401) * u.GHz,
-    traces=(reflection,),
-)
-baseline = run.solve(run.original, direct_spec, parameters=ParameterSet())
-selected = run.solve(
-    run.original,
-    direct_spec,
-    parameters=ParameterSet({capacitance: 120.0 * u.fF}),
-)
-baseline_s11 = baseline.traces["reflection"]
-selected_s11 = selected.traces["reflection"]
-baseline_s11.show(component="magnitude", magnitude="db")
-selected_s11.show(component="magnitude", magnitude="db")
+frequencies = np.linspace(5.75, 6.25, 401)*u.GHz
+run = CircuitRun(plan=plan, storage="memory")
+try:
+    baseline_response = run.solve(
+        run.original, DirectSolveSpec(frequencies=frequencies),
+        parameters=ParameterSet(),
+    )
+    magnitude_plot = baseline_response.s.plot(component="magnitude", magnitude="db")
+    phase_plot = baseline_response.s.plot(component="phase")
+    for figure, component, unit in (
+        (magnitude_plot, "magnitude", "dB"),
+        (phase_plot, "phase", "deg"),
+    ):
+        figure.update_layout(
+            template="plotly_white", autosize=True, height=340, showlegend=False,
+            title={"text": f"S11 {component}", "x": 0.02, "xanchor": "left", "font": {"size": 18}},
+            font={"family": "Arial, sans-serif", "size": 14, "color": "#243344"},
+            margin={"l": 78, "r": 24, "t": 55, "b": 62},
+            paper_bgcolor="white", plot_bgcolor="white",
+        )
+        figure.update_xaxes(
+            title_text="Frequency (GHz)", ticks="outside", showline=True,
+            linecolor="#6f7b85", gridcolor="#e5e9ed", zeroline=False,
+            automargin=True, title_standoff=12,
+        )
+        figure.update_yaxes(
+            title_text=f"{component.capitalize()} ({unit})", ticks="outside",
+            showline=True, linecolor="#6f7b85", gridcolor="#e5e9ed",
+            zeroline=False, automargin=True, title_standoff=12,
+        )
+    magnitude_plot.update_yaxes(range=[-0.05, 0.05])
+    display(magnitude_plot)
+    display(phase_plot)
+finally:
+    run.close()
 ```
+</details>
 
-The example uses the default same-process JAX backend and does not require
-Julia. Explicit `backend="julia"` execution requires the optional Julia support
-and an already installed Julia 1.12.6; it may prepare the committed native
-project dependencies. The figures below are previously published Chapter 1
-Julia results—not generated by this example or the website build—and show the
-same model, sample grid, and `signal_in ← signal_in` channel. The figures present
-the complete S11 magnitude and phase; the named
-`reflection` trace above is a typed projection of that Direct result.
+## Agent knowledge start
 
-![Certified Chapter 1 authoring projection of the grounded LC, coupler, and terminated Port.](examples/engineer/figures/01-authoring.svg)
+<!-- agent-knowledge-start:begin -->
+SCNSim describes a physical circuit with a `CircuitPlan`; a `View` selects the analysis boundary, and a `Spec` names the requested quantity. Start with the [Engineer course](docs/index.qmd), then use the [Concept overview](docs/concepts/index.qmd) for circuit composition and analysis Views.
+<!-- agent-knowledge-start:end -->
 
-*Authoring projection of the physical Plan; it is not a numerical result.*
+## Continue
 
-![Previously published baseline S11 for 110 fF on the 401-point 5.75–6.25 GHz grid.](examples/engineer/figures/01-s11-baseline.svg)
-
-*Stored Chapter 1 baseline Result: 110 fF. The magnitude axis uses a fixed ±0.05 dB display range; the wrapped phase discontinuity is presentation, not solver failure. [Exact complex samples](examples/engineer/figures/01-s11-data.csv).*
-
-![Previously published selected S11 for 120 fF on the same grid.](examples/engineer/figures/01-s11-selected.svg)
-
-*Stored Chapter 1 selected Result: 120 fF, with the same 5.8 nH inductor, 6 fF coupler, 50 Ω Port, and 401-point grid. No dip or resonance is inferred from this plot. [Exact complex samples](examples/engineer/figures/01-s11-data.csv).*
-
-Continue with the [Alpha Tutorial — Engineer course](docs/index.qmd).
-
-## What the model can answer
-
-- **Direct responses:** full finite-grid S, Y, and Z matrices, with named
-  channel traces projected from the same Result.
-- **Direct quantities:** loaded roots, coupled poles, transfer zeros, and
-  residue-normalized couplings without requiring a fitted external model.
-- **Views and Optimization:** Views select a derived analysis network without
-  changing physical ownership. Optimization binds declared parameters and
-  compares typed scalar objectives; a lower cost does not guarantee every
-  target, improvement, or a global optimum.
-- **Harmonic balance:** explicit pump, drive, operating-point, and response
-  requests return their own typed outcomes. Direct and HB traces are comparable
-  only when their selected boundary, channel, work point, pump state, and
-  linearization agree.
-
-These are research-model results, not universal accuracy or performance
-guarantees. Fitting remains useful for measurements and model identification;
-SCNSim does not claim automatic global root search or independent model
-validation. Physical layout and electromagnetic simulation are SCGSim
-responsibilities.
-
-## Install and learn
-
-After the `v1.0.0a2` Alpha tag is published, install the current Alpha with
-Python 3.12 or newer and retain the resulting lockfile and environment for
-reproducibility:
-
-```bash
-uv add "scnsim @ git+https://github.com/OrPenStrike/scnsim.git@v1.0.0a2"
-uv run python -c "import scnsim; print(scnsim.__version__)"
-```
-
-The immutable first-Alpha [`v1.0.0a1` snapshot](https://github.com/OrPenStrike/scnsim/tree/v1.0.0a1)
-remains available for historical trial use; its original outputs retain their
-original identities.
-
-For the current development checkout, `uv sync --locked` installs the pinned CPU
-JAX/CMA runtime on Python 3.12. The default JAX path does not install JuliaPkg,
-discover Julia or launch a numerical child process. Configure its CPU pool before
-first execution with `configure_runtime(cpu_threads=...)`; per-call `backend`
-and `precision` override the Run defaults. `run.benchmark()` and `resolve()` are
-read-only. See the [operation guide](docs/guides/benchmark.qmd).
-
-Explicit Julia execution, HB and the other Julia-only quantity families, compiler
-preflight (`run.explain()`) and compiled schematics require
-`uv sync --locked --extra julia` and manually provided Julia 1.12.6 on PATH or
-`PYTHON_JULIAPKG_EXE`. Feature calls never download Julia or change backends.
-Historical Engineer-course execution sources explicitly select Julia so their
-original outputs retain their original numerical authority.
-
-The Engineer-course generators use repository-local Jupyter tooling and an
-optional static-export extra:
-
-```bash
-uv sync --locked --group course-generation --extra static-export --extra julia
-```
-
-The site uses the vendored, unmodified Askr v0.4.0 `askr-html` format with
-the Quiet Quartz light/dark theme. To build it, use Quarto 1.10.18 or later and run
-`quarto render --no-execute --no-clean`. Start with the
-[Alpha Engineer course](docs/index.qmd); its aggregate Chapter notebooks are the
-execution units for Lessons 1–4, while Chapter 7 Lesson 5 has its own standalone
-notebook and result artifacts. The [documentation root](https://orpenstrike.github.io/scnsim/)
-opens the [1.0.0 development site](https://orpenstrike.github.io/scnsim/1.0.0-dev/).
-The version catalog follows one latest Alpha per release line. After the
-`v1.0.0a2` tag and its catalog deployment are published, Askr's version menu
-will select the separately rendered 1.0.0a2 Alpha site while preserving the
-page path when it exists. That deployment is a separate delivery step and is
-not claimed live here. Each site has branch-local search and shows its exact
-content source; the Alpha content comes from its immutable version tag, with
-only the reviewed Askr presentation and Pages profile overlaid at render time.
-Quarto's View source controls point to the content
-source. A missing page in a current version returns to that version's home;
-a retired Alpha URL explains its replacement rather than serving newer content
-under the old version. The former `/develop/` path redirects to the matching
-development path; `/main/` is not an Alpha alias. Main carries the same
-deployment configuration, not a third content version. The site executes no
-notebooks or solvers. Both source renders must validate before one Pages
-artifact is published. For a consuming
-repository preferring a reviewed commit over the Alpha tag, pin that commit
-in its `pyproject.toml` and lockfile:
-
-```bash
-uv add "scnsim @ git+https://github.com/OrPenStrike/scnsim.git@<reviewed-commit-sha>"
-```
+Read [Inputs and units](docs/tutorials/inputs-units.qmd), browse the [Engineer course](https://ncuphy-ltlab.github.io/scnsim/), or open the [Contribution area](docs/contribute.qmd) for source setup and developer guidance.
 
 ## License
 

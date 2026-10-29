@@ -1,0 +1,39 @@
+---
+title: "貢獻指南"
+description: "找到負責變更的來源、契約與檢查方式。"
+lang: zh-TW
+sidebar: contribution
+---
+
+請從負責該行為的來源開始修改，依公開契約維持呼叫者可見的行為，再依變更範圍閱讀相關檢查。契約與實作說明目前以英文提供。
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [測試與驗證](../tests/README.md) {.askr-card-title .unlisted}
+查找程式碼與文件變更所需的測試主題、本機檢查及證據慣例。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [公開契約](/en/docs/contracts/index.html) {.askr-card-title .unlisted}
+從契約索引了解支援的宣告、所有權、單位與失敗行為。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [實作說明](/en/docs/implementation/index.html) {.askr-card-title .unlisted}
+契約頁未說明系統如何實現某項行為時，請參閱負責該機制的頁面。
+:::
+::::
+
+## 從來源建置 {#build-from-source}
+
+目前的開發來源需使用 Python 3.12 與 C++17 工具鏈。請先複製 `develop` 分支，再同步鎖定環境並建置套件：
+
+{{< include ../_generated/canonical-code/docs/contribute.qmd/block-001.qmd >}}
+
+使用預建套件時，請依[README](../README.md)中的 GitHub Release 預建套件命令安裝。選用的 Jupyter 與課程需求請參閱[工程課程環境設定指南](../examples/engineer/setup.qmd)。
+
+公開元件模型請從英文[元件建立契約](/en/docs/component-authoring.html)開始；使用流程請閱讀[工程課程](index.qmd)。

@@ -1,0 +1,27 @@
+## 第 1 課 — 從明確配置開始 {#lesson-ch6-default}
+
+目前的程式區塊使用完整、明確的配置，並綁定至新準備的狀態。已保存的圖與 Notebook 輸出維持原有執行身分；本次來源更新不會重新產生它們。
+
+### 宣告固定的四臂 Plan
+
+明確配置只改變呈現方式，不改變電路。此插圖有一條中央 Bus、四個實際電容支路，以及四個 50 Ω 終端 Port。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-06/_01-default.qmd/block-001.qmd >}}
+
+支路標籤是識別名稱，不代表訊號流向。中央 Bus 不會構成第五個支路。
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-06/_01-default.qmd/block-002.qmd >}}
+
+::: {.content-visible when-format="html"}
+
+![四支路電路的預設固定配置。](../figures/06-four-arm-default.svg){#fig-ch6-four-arm-default .lightbox fig-alt="預設電路圖配置將四個電容支路與已終端的 Port 排列完成。"}
+
+{{< askr-image-view target="fig-ch6-four-arm-default" label="檢視電路（Inspect circuit）" >}}
+
+[開啟 SVG 圖](../figures/06-four-arm-default.svg)
+
+:::
+
+{{< include ../../../_generated/canonical-code/examples/engineer/chapter-06/_01-default.qmd/block-003.qmd >}}
+
+A/B 稽核會重建可見的電氣與結構證據。通過稽核不代表像素本身成為權威，也不會揭露隱藏的配置中繼資料。

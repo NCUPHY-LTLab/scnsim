@@ -1,0 +1,98 @@
+---
+title: "定義、綁定輸入、參數點（Parameter point）與最佳化（Optimization）"
+lang: zh-TW
+sidebar: concept
+---
+
+不需要改值時，直接使用帶單位的物理值；需要選點、掃描或最佳化時，再宣告獨立參數（Parameter）。參數的定義、實體綁定與每次操作的數值各自分開。
+
+::: {.callout-warning}
+## 仍在收斂的參數系統概念
+
+獨立定義、Plan 綁定、參數空間（Parameter space）、掃描結果與參數化圖形介面已有整合實作基準，但尚未獲使用者接受。[集中證據狀態（英文）](/en/docs/contracts/index.html#implementation-evidence-status)列出執行聲明的範圍。已接受的單位、物理模型、數值演算法與目標意義維持不變。
+:::
+
+## 數值、具名輸入與搜尋變數是不同事物
+
+`110 * u.fF` 等字面值已是完整物理值；沒有外部操作需改值時，應保留字面值。替數值命名不代表它是最佳化變數，選擇搜尋變數也不代表計算出的物理量是電路輸入。
+
+參數系統區分七層：
+
+| 層次 | 意義 |
+|---|---|
+| 基準值（Baseline value） | 定義的不可變預設物理值 |
+| `ParameterSpec` | 純量單位與因次驗證 |
+| `ParameterRef` | 一個輸入身分：定義集合 ID 加本地 ID |
+| 實體綁定 | 使用該 ref 的一個以上已登錄元件欄位 |
+| `ParameterSet` | 一份不可變操作時參數點 |
+| `ParameterSpace` | 有序笛卡兒網格或明確點清單 |
+| `OptimizationVariable` | 一個純量 ref，加有限邊界或一個具名開放定義域 |
+
+目標選取的輸出是具型別物理量，不是 `ParameterRef`。`root_hint` 仍是數值分支定位提示，不是參數值、目標、邊界或驗收條件。局部複數 Newton 求解不保證最低根；保留一個座標不證明只有一根；解析根或零點也不是取樣響應凹點。未來有界頻率初始定位器或許能更明確選擇首錨點，之後仍由延續處理同一選定分支；這不暗示隱藏搜尋或替代路徑。
+
+最佳化選擇器可用 `selector.on(view)` 附加至既有 View，不執行計算。它指定哪個保留網路提供該純量，不計算數值。同一有序運算式中，相同因次的不同葉項可指定同一擷取 Plan 的不同 View。運算式僅支援加總、左減右與絕對值。每個候選仍對整個運算式提供同一共用參數點；重複葉項仍保留重複證據位置，即使底層根已重用也相同。
+
+目標設定屬於請求宣告。改變目標、比較方式（`target` 或 `at_least`）、尺度、權重或運算式時，需建立新 `OptimizationSpec`，不修改已封存 Plan。At-least 表示單側成本貢獻，不是最大化，也不是硬性可行性驗收條件。
+
+## 定義獨立，實體欄位決定所屬 Plan
+
+`ParameterDefinitions(id="readout_design")` 持有命名空間。`parameter(id=..., baseline=..., spec=...)` 返回不可變 ref，不將它登錄至 Plan。只有真實元件欄位使用該 ref，且元件加入 Plan 或其所屬子系統後，它才成為該 Plan 的輸入。
+
+ref 身分鍵恰為定義集合 ID 加本地 ID。相同鍵重用時，結構與標準基準值必須相同；衝突會被拒絕，不會變成另一個同名參數。集合 ID 是穩定邏輯命名空間，不是筆記本標題或 Python 變數名。刻意重建相同相容的集合／本地 ID 鍵是合法用法；衝突定義在 Plan 或操作使用時被拒絕。不相關設計不宜隨意重用鍵，也沒有可變全域登錄表。
+
+{{< include ../../_generated/canonical-code/docs/concepts/units-parameters-and-optimization.qmd/block-001.qmd >}}
+
+僅建構定義、將 ref 放入 `ParameterSet`，或在筆記本使用同一 Python 物件，都不建立 Plan 綁定。Plan 只擷取其使用到的定義與綁定閉包；之後加入未用定義不改變該 Plan 快照。
+
+一個 ref 可供數個物理欄位或數份 Plan 使用，各 Plan 獨立檢視自己的使用者。反之，不同 ref 即使值相等，仍是獨立輸入。字面值不自動取得 ref，也沒有可變全域目前值。
+
+## 可重用元件公開邊界，不公開私有子項
+
+基本元件的 `parameter(field_name)` 返回精確原始綁定 ref，包括映射欄位的原始輸入 ref，並在 clone／add 間保留身分。字面值欄位引發 `KeyError`，不建立 ref。傳輸線長度與完整 RLGC 輸入遵循同一規則。
+
+元件庫工廠函式透過宣告輸入引數接受相容字面值或 ref，內部原生欄位再使用它們。`CompositePlan.expose_parameter(id=..., parameter=...)` 公開原始已綁定 ref；結果元件的 `parameter("capacitance")` 查詢返回同一公開 ref，不公開私有子項路徑。
+
+此邊界可表示刻意的一對多綁定或已接受的純量 `AffineMap`，不能將共用 ref 變成數個獨立變數、從字面值推論參數，或接受任意 Python 回呼運算式。
+
+## 參數點填入數值，空間排列參數點
+
+`ParameterSet` 提供一個點。已使用 ref 若未給值，使用擷取 Plan 的基準值。未知、未使用或因次不相容 ref 會被拒絕，不會被忽略。
+
+`ParameterSpace.grid(axes=..., fixed=...)` 建立笛卡兒積；軸順序依作者宣告，固定 ref 與軸 ref 必須互斥。`ParameterSpace.points(...)` 保留明確有序點清單，包括重複位置。傳入陣列與容器會複製並凍結，後續修改不能重寫請求身分。
+
+帶空間的操作返回 `ParameterSweepResult`。每點儲存完整有效 `ParameterSet`、成功狀態、具型別 Result 或失敗，以及精確批次／點身分。精確選取可用部分 `ParameterSet` 作篩選：提供的 ref 必須符合，未提供的 ref 是萬用條件。這刻意不同於操作時的基準填值。
+
+收集也是唯讀操作。具型別 `QuantitySelector` 只收集請求已計算的量，保留單位、軸、來源索引、重複點與失敗遮罩。固定其他軸後，單軸網格可畫曲線，雙軸網格可畫具標籤的取樣儲存格熱圖。空選擇保持空，重複值保留不同樣本位置；不完整或列舉樣本保持索引點，不暗中重塑、平均或插值。因數值失敗而缺少的物理量帶該失敗遮罩；Spec 未請求的量則被拒絕，不執行新計算。
+
+## 最佳化使用相同綁定邊界
+
+`OptimizationVariable` 對一個純量 ref 加入有限邊界（預設線性，可選正對數），或 `UNBOUNDED`、`NONNEGATIVE`、`NONPOSITIVE`、`POSITIVE`、`NEGATIVE` 其中一種定義域。線性開放定義域需要有限正物理尺度；帶符號對數定義域以非零有效初值作尺度。定義域固定轉換，不能以有限邊界覆寫。邊界不從參數空間網格推論。最佳化請求可接受非作用固定輸入的 `ParameterSet`；與作用變數重疊會被拒絕，省略的非作用輸入使用已封存基準值。
+
+每個候選及勝出者都記錄完整有效 `ParameterSet`。因此可明確重評或繪製勝出者，不改 Plan 基準值。`ParameterSpace` 不是隱式的最佳化批次，低成本也不代表科學或使用者接受。
+
+`OptimizationProgress` 是選用、經驗證的程序本地遙測，透過 `on_progress` 傳遞。它報告初始評估、續接邊界、新完整世代、完成及快取結果重用，不是 Result、計算身分、科學驗收條件或耐久性保證。
+
+完整明確形式對每個選擇器葉項使用 `.on(view)`。便利形式只替仍未綁定的葉項提供預設 View。有效葉項綁定相同時，兩者是同一正規化請求的不同寫法；未用預設值不進入身分。
+
+## 結構化 RLGC 值有明確支援範圍
+
+`RLGCParameterSpec` 描述完整、固定基底的 R/L/G/C 值。導體標籤、參考導體、矩陣（Matrix）形狀、因次與來源均明確保留。矩陣列欄不是掃描軸，`n_sections` 仍是宣告元件結構。
+
+此候選功能支援宣告 Direct 與適用算子計算的相容完整 RLGC 值，不支援連續全矩陣最佳化、隱式插值，或跨 RLGC 矩陣改變追蹤一個基準根。這是目前支援邊界，不宣稱其他數學方法不可能。固定基準 RLGC 的純量掃描與根追蹤仍是另外支援的用途。
+
+## 電路圖顯示一個選定物理點
+
+參數化電路圖接受一份 `ParameterSet`，不接受空間。它從該精確點衍生原生值、編譯（Compilation）展開、標籤與稽核證據。Plan 身分不變，但展開與數值身分可能改變。稽核區分基準與選定值，並綁定基準填值後完整有效點的 `parameters_sha256`，不認證 View、求解器 Result 或最佳化。
+
+## 閱讀路線與權威來源
+
+- [工程師第 1 章](../../examples/engineer/chapter-01/01-build.qmd)示範獨立電容定義、實體欄位綁定、基準評估與同一 Plan 的選點。
+- [工程師第 2 章](../../examples/engineer/chapter-02/01-build.qmd)在一份重建 Plan 上應用有序網格、列舉空間、具型別點結果、唯讀收集與既有最佳化流程。
+- [第 2 章：選用 C/L 空間](../../examples/engineer/chapter-02/04-optional-spaces.qmd)區分笛卡兒網格與明確列舉點空間。
+- [第 2 章：最佳化與驗證](../../examples/engineer/chapter-02/03-optimize.qmd)固定非作用輸入，讀回勝出的有效點，再繪圖而不改 Plan 基準。
+- [工程師第 5 章](../../examples/engineer/chapter-05/01-library.qmd)經可重用元件公開原始已綁定 C、L ref，字面工廠輸入仍固定。
+- [工程師第 7 章](../../examples/engineer/chapter-07/01-rlgc.qmd)先介紹完整固定基底 RLGC，再選擇全值參數點。
+- [工程師第 4 章](../../examples/engineer/chapter-04/01-physical-plan.qmd)在 Plan 稽核中呈現進階饋線、讀出與浮接子系統綁定。
+- [參數系統契約（英文）](/en/docs/contracts/parameter-system.html)規定精確簽章、身分、支援值、Result 介面及失敗。
+- [元件宣告](../component-authoring.qmd#pins-and-public-parameters)規定可重用公開邊界的配置。
+- [執行期契約（英文）](/en/docs/v1-runtime-contract.html#optimization-and-numerical-scaling)保留已接受的數值演算法與目標語意。

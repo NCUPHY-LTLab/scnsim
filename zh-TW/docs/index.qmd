@@ -1,0 +1,219 @@
+---
+title: "工程課程"
+description: "建立明確電路、檢視其電路圖與響應，再逐步學習 SCNSim 工程流程。"
+anchor-sections: false
+lang: zh-TW
+---
+
+工程課程（Tutorial）分為八個完整章節。第 1–4 章是主線，第 5–8 章是選讀延伸。第 1–7 章各自在乾淨核心（Kernel）中執行；第 8 章則刻意使用兩個獨立核心與同一個保留的 Workspace。原先十六個章節網址目前指向簡短的遷移指南，不再構成另一套現行課程。
+
+課程現有圖表是原章節計算所記錄的輸出。概念與 API 指南說明套件的使用方式；閱讀或繪製本課程不會重新計算這些圖表。開始章節前，可先閱讀[概念總覽](concepts/index.qmd)，了解模型、View 與物理量的選擇方式。
+
+解讀複數響應（Response）前，請閱讀[模擬慣例](concepts/simulation-conventions.qmd)，了解相量（Phasor）正負號、電流方向、波參考（Wave reference）、選定負載與線寬（Linewidth）單位。
+請使用[根與分支選擇指南](guides/roots-and-branch-selection.qmd)，區分 Hint、明確搜尋、追蹤分支與局部導數。
+
+## 第 1 章 — 耦合接地 LC
+
+建立 110 fF／5.8 nH 接地諧振器，透過 6 fF 耦合器連接至 50 Ω 終端 Port，檢視電路圖、讀取單埠 S11 與負載根，最後在同一 Plan 上選取 120 fF。
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 1 課 — 建立電路](../examples/engineer/chapter-01/01-build.qmd) {.askr-card-title .unlisted}
+定義獨立電容、建立子層 LC、公開 Pin 與 Coordinate，並組裝 root 耦合器及 Port。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 2 課 — 電路圖](../examples/engineer/chapter-01/02-diagram.qmd) {.askr-card-title .unlisted}
+繪製建立後的 Plan 並獨立稽核，不需選取分析 View。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 3 課 — S11](../examples/engineer/chapter-01/03-s11.qmd) {.askr-card-title .unlisted}
+請求精確的 401 點單埠響應，並從具型別的 Direct Result 讀取振幅與相位。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 4 課 — 負載根](../examples/engineer/chapter-01/04-root.qmd) {.askr-card-title .unlisted}
+保留公開的子層 Coordinate，並使用 6 GHz root Hint 評估其負載頻率與線寬。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 5 課 — 改變電容](../examples/engineer/chapter-01/05-change-capacitance.qmd) {.askr-card-title .unlisted}
+選取 120 fF 而不修改 Plan，再重複相同的響應與 root 請求。
+:::
+::::
+
+[完整章節來源](../examples/engineer/chapter-01/chapter.qmd)是依序編排的單一 QMD 匯總。請下載[零輸出 Notebook（英文）](/en/examples/engineer/chapter-01/chapter.ipynb)，在乾淨核心中閱讀並按 **Run All**。
+
+## 第 2 章 — 掃描與最佳化
+
+以獨立 C、L 輸入重建耦合接地 LC，在 L 固定 5.8 nH 時依序評估 100／110／120 fF 掃描，接著可選擇執行已宣告的電容最佳化，並探索完整網格與列舉 C/L 參數空間。
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 1 課 — 建立電路](../examples/engineer/chapter-02/01-build.qmd) {.askr-card-title .unlisted}
+將 C 與 L 綁定至實際子層欄位，公開同一匯流排上的 Pin 與 Coordinate，並將固定的 root 耦合器直接連至該 Pin。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 2 課 — 掃描電容](../examples/engineer/chapter-02/02-sweep.qmd) {.askr-card-title .unlisted}
+依作者指定順序評估三個電容點，並讀取具型別結果與負載頻率欄位。本課程主線到此為止。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 3 課 — 最佳化與驗證](../examples/engineer/chapter-02/03-optimize.qmd) {.askr-card-title .unlisted}
+以固定 seed 17 執行請求，再獨立評估並繪製回傳的最佳 `ParameterSet`，不改變 Plan 基準值。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 4 課 — 選讀 C/L 參數空間](../examples/engineer/chapter-02/04-optional-spaces.qmd) {.askr-card-title .unlisted}
+沿用同一 Plan 評估完整 3 × 2 網格與兩個明確列舉點，不會重塑資料、插值或重建模型。
+:::
+::::
+
+[第 2 章完整來源](../examples/engineer/chapter-02/chapter.qmd)是依序編排的 QMD 匯總。請下載[零輸出 Notebook（英文）](/en/examples/engineer/chapter-02/chapter.ipynb)，在新的核心中執行；它不會延續第 1 章狀態。執行任一章前請先閱讀[共用環境設定](../examples/engineer/setup.qmd)。
+
+## 第 3 章 — CPW 饋線與讀出 S21
+
+建立有序的兩節純量 RLGC 饋線，耦合接地讀出電路，並檢視三個明確宣告頻率上的具名雙埠 S21 響應。
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 1 課 — 建立電路](../examples/engineer/chapter-03/01-build.qmd) {.askr-card-title .unlisted}
+宣告兩段實體饋線及其公開邊界、讀出電路、耦合電容與兩個終端 Port。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 2 課 — 電路圖證據與限制](../examples/engineer/chapter-03/02-diagram.qmd) {.askr-card-title .unlisted}
+宣告完整 Plan 的手動配置並檢視其對應關係。請區分先前配置結果、分別宣告的子電路插圖，以及完整 Plan 目前的來源配置。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 3 課 — 具名 S21](../examples/engineer/chapter-03/03-s21.qmd) {.askr-card-title .unlisted}
+執行一個 Direct 請求，並讀取精確位於 5.5／6.0／6.5 GHz 取樣網格上的 `transmission` 軌跡；不會進行插值或諧振估計。
+:::
+::::
+
+[第 3 章完整來源](../examples/engineer/chapter-03/chapter.qmd)是依序編排的匯總。其[零輸出 Notebook（英文）](/en/examples/engineer/chapter-03/chapter.ipynb)是獨立的乾淨核心執行單位。
+
+## 第 4 章 — 四埠完整範例
+
+重建原始四埠探針電路，並檢視通過證明的明確組成。主線先讀取原始四埠饋線響應，再套用 PTC 並保留兩個饋線 Port，取得另行標示的響應。座標轉換與單一響應矩陣元素是選讀延伸。
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 1 課 — 實體 Plan](../examples/engineer/chapter-04/01-physical-plan.qmd) {.askr-card-title .unlisted}
+宣告饋線、讀出電路、浮接支路、三個耦合器與四個邏輯 Port，不在分析階段重新配線。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 2 課 — 明確完整電路圖](../examples/engineer/chapter-04/02-explicit-capstone.qmd) {.askr-card-title .unlisted}
+套用既有的明確探針 T 接點組成，並檢視經證明的電路圖投影。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 3 課 — PTC 主線](../examples/engineer/chapter-04/03-ptc-core.qmd) {.askr-card-title .unlisted}
+讀取原始四埠饋線軌跡、補償兩個探針 Port、保留饋線配對，並讀取另行標示的三點 PTC Direct S21 Result。這是本章主線的結束點。
+:::
+::::
+
+:::: {.askr-card}
+::: {.askr-card-body}
+### [第 4–5 課 — 選讀分析](../examples/engineer/chapter-04/04-optional-transform.qmd) {.askr-card-title .unlisted}
+沿用相同 Plan，選讀轉換成對座標、直接查詢 6.2 GHz 響應矩陣元素，以及獨立的 Direct Result。
+:::
+::::
+
+[第 4 章完整來源](../examples/engineer/chapter-04/chapter.qmd)是依序編排的匯總。請下載[零輸出 Notebook（英文）](/en/examples/engineer/chapter-04/chapter.ipynb)，在新的核心中執行全部課程。
+
+## 第 5 章 — 元件庫與可重用複合元件
+
+透過 Library 工廠封裝接地 LC，只公開 C、L、兩個等效 Pin 與同一匯流排的 Coordinate，再由父層以 6 fF 耦合器及 50 Ω Port 重用此邊界。
+
+- [第 1 課 — 元件庫邊界](../examples/engineer/chapter-05/01-library.qmd)
+- [第 2 課 — 公開實例](../examples/engineer/chapter-05/02-instance.qmd)
+- [第 3 課 — 父層重用](../examples/engineer/chapter-05/03-reuse.qmd)
+- [第 5 章完整來源](../examples/engineer/chapter-05/chapter.qmd)與
+  [零輸出 Notebook（英文）](/en/examples/engineer/chapter-05/chapter.ipynb)
+
+## 第 6 章 — 電路圖自訂
+
+保持 Plan 不變，檢視 Default 配置、八種有效 Port 姿態、真正的 T 形與十字接點請求、A/B 稽核證據，以及在完全相同 Plan 上重用配置。
+
+- [第 1 課 — 預設配置](../examples/engineer/chapter-06/01-default.qmd)
+- [第 2 課 — Port 姿態](../examples/engineer/chapter-06/02-port-poses.qmd)
+- [第 3 課 — T 形與十字接點](../examples/engineer/chapter-06/03-junctions.qmd)
+- [第 4 課 — 重用配置](../examples/engineer/chapter-06/04-reuse.qmd)
+- [第 6 章完整來源](../examples/engineer/chapter-06/chapter.qmd)與
+  [零輸出 Notebook（英文）](/en/examples/engineer/chapter-06/chapter.ipynb)
+
+## 第 7 章 — 有序多導體 RLGC
+
+建立一個有序 N=2 線段本體，包含精確完整 RLGC 矩陣、八個有限 π 節段與四個 50 Ω 訊號 Port。以單一三頻率 Direct 請求評估基準點、1.8 mm 長度點與完整 C 矩陣乘以 170/175 的參數點。
+
+- [第 1 課 — 有序 RLGC](../examples/engineer/chapter-07/01-rlgc.qmd)
+- [第 2 課 — 四個訊號 Port](../examples/engineer/chapter-07/02-ports.qmd)
+- [第 3 課 — 宣告電路圖](../examples/engineer/chapter-07/03-diagrams.qmd)
+- [第 4 課 — 參數點](../examples/engineer/chapter-07/04-parameter-points.qmd)
+- [第 7 章完整來源](../examples/engineer/chapter-07/chapter.qmd)與
+  [零輸出 Notebook（英文）](/en/examples/engineer/chapter-07/chapter.ipynb)
+- [第 5 課 — 位置與電氣解析度](../examples/engineer/chapter-07/05-position-electrical-resolution.qmd)
+  是可獨立執行的延伸課程，並有自己的
+  [零輸出 Notebook（英文）](/en/examples/engineer/chapter-07/05-position-electrical-resolution.ipynb).
+  它不會改動原本四課的章節匯總。
+
+保留的原始四埠電路圖匯出記錄具型別的固定接點配置失敗。它不會取代模型或完整十六通道 Direct Result，也不是手動後續配置的執行結果。
+
+## 第 8 章 — 報告與讀回
+
+在一個核心中儲存 Direct 與負載根 Result，並建立報告。接著啟動第二個獨立核心，在相同保留的 Workspace 中重建精確的 Plan／View／Spec，並只對 root 呼叫 `resolve()`。
+
+- [第 1 課 — 儲存 Result](../examples/engineer/chapter-08/01-persist.qmd)
+- [第 2 課 — 重啟並讀回](../examples/engineer/chapter-08/02-resolve.qmd)
+- [第 8 章完整來源](../examples/engineer/chapter-08/chapter.qmd)與
+  [零輸出 Notebook（英文）](/en/examples/engineer/chapter-08/chapter.ipynb)
+
+## 八章課程路線
+
+| 章節 | 學習成果 | 課程內容 |
+|---|---|---|
+| 1. 耦合接地 LC | 建立電路圖、S11、負載根與選定電容 | 現行五課章節 |
+| 2. 掃描與最佳化 | 輸入、綁定、參數點、空間及既有最佳化流程 | 現行四課章節 |
+| 3. CPW 饋線／讀出 S21 | 有序雙節 CPW、耦合讀出與雙埠響應 | 現行三課章節；保留的原始電路圖結果是具型別的固定配置失敗 |
+| 4. 四埠完整範例 | 原始實體 Plan 與 PTC 主線，以及選讀轉換和量值 | 現行五課章節 |
+| 5. 元件庫 | 建立、公開、實例化並重用 Composite | 現行三課章節 |
+| 6. 電路圖自訂 | 明確配置宣告與實際場景 A/B 檢視 | 現行四課章節 |
+| 7. MTL | 有序多導體 RLGC、明確電路圖配置與歷史有限 π 證據 | 現行四課章節；原始電路圖結果保留其執行身分 |
+| 8. 報告與讀回 | 精確請求、Result、Workspace、報告與重啟後讀回 | 現行雙課、雙核心章節 |
+
+英文[課程遷移圖](/en/docs/implementation/engineer-course-migration-map.html)記錄舊章節的去向，以及仍具權威性的概念、契約或實作文件。
+
+## 舊章節網址導覽
+
+原先十六個 QMD 網址保留為簡短、沒有程式碼的[遷移指南](../examples/tutorials/01_author_primitive.qmd)。被取代的可執行內容、Notebook 與檢查點圖保留於 Git 歷史，不會形成第二套現行課程。五個歷史固定範例是實作基準證據，現行章節不會載入它們。
+
+響應慣例請先閱讀[模擬慣例](concepts/simulation-conventions.qmd)。
+建模原則請閱讀[實體權威與可重用組成](concepts/physical-authority-and-reusable-composition.qmd)。
+精確簽章、方程式、不變條件、身分與失敗行為請參閱英文[契約索引](/en/docs/contracts/index.html)。
