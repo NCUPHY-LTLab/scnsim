@@ -1,10 +1,12 @@
 # SCNSim
 
+**SCNSim is under heavy development.**
+
 **Describe a superconducting circuit, choose what to observe, and calculate the response or physical quantity you need.**
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python requirement: >=3.12](https://img.shields.io/badge/python-%3E%3D3.12-blue.svg)](pyproject.toml)
-[![Engineer course](https://img.shields.io/badge/tutorial-Engineer%20course-blue.svg)](docs/index.qmd)
+[![Engineer course](https://img.shields.io/badge/tutorial-Engineer%20course-blue.svg)](https://ncuphy-ltlab.github.io/scnsim/)
 
 ![SCNSim orca and penguin branding.](docs/assets/readme-hero-orca-penguin.png)
 
@@ -12,121 +14,35 @@ SCNSim is a Python package for superconducting circuit-network analysis. Build a
 
 ## What you can do
 
-:::: {.askr-card}
-::: {.askr-card-body}
-### [Compose a physical Plan](docs/concepts/physical-authority-and-reusable-composition.qmd) {.askr-card-title .unlisted}
-Connect components in a `CircuitPlan` and group reusable physical units inside `Subsystem` boundaries.
-:::
-::::
-
-:::: {.askr-card}
-::: {.askr-card-body}
-### [Choose a View and retain coordinates](docs/concepts/compilation-coordinates-and-network-views.qmd) {.askr-card-title .unlisted}
-Select the network to observe with a `View`; `retain()` chooses the coordinates kept for its calculation.
-:::
-::::
-
-:::: {.askr-card}
-::: {.askr-card-body}
-### [Calculate responses, roots, sensitivity and optimization](docs/guides/roots-and-branch-selection.qmd) {.askr-card-title .unlisted}
-Request S, Y or Z response, evaluate characteristic quantities, calculate local sensitivity, or optimize a declared objective.
-:::
-::::
-
-:::: {.askr-card}
-::: {.askr-card-body}
-### [Keep results in memory or a Workspace](docs/concepts/requests-execution-and-result-ownership.qmd) {.askr-card-title .unlisted}
-Use in-memory results for interactive work or a Workspace for supported persistence, exact readback and continuation.
-:::
-::::
-
-:::: {.askr-card}
-::: {.askr-card-body}
-### [Nonlinear Josephson circuits — under design](docs/component-authoring.qmd) {.askr-card-title .unlisted}
-The current Josephson-junction primitive is linearized. A complete nonlinear Josephson-circuit workflow is under design.
-:::
-::::
+- [Compose a physical Plan](docs/concepts/physical-authority-and-reusable-composition.qmd) — Connect components in a `CircuitPlan` and group reusable physical units inside `Subsystem` boundaries.
+- [Choose a View and retain coordinates](docs/concepts/compilation-coordinates-and-network-views.qmd) — Select the network to observe with a `View`; `retain()` chooses the coordinates kept for its calculation.
+- [Calculate responses, roots, sensitivity and optimization](docs/guides/roots-and-branch-selection.qmd) — Request S, Y or Z response, evaluate characteristic quantities, calculate local sensitivity, or optimize a declared objective.
+- [Keep results in memory or a Workspace](docs/concepts/requests-execution-and-result-ownership.qmd) — Use in-memory results for interactive work or a Workspace for supported persistence, exact readback and continuation.
+- [Nonlinear Josephson circuits — under design](docs/component-authoring.qmd) — The current Josephson-junction primitive is linearized. A complete nonlinear Josephson-circuit workflow is under design.
 
 ## Install
 
-This page describes SCNSim `1.0.0.dev42`; the PyPI package is pending publication. After the official release, install it with:
+See the [setup guide](examples/engineer/setup.qmd) for installation instructions and supported environments. For source builds, see the [Contribution guide](docs/contribute.qmd#build-from-source).
 
-```bash
-uv add scnsim
-```
-
-| Python | Platform | Current-version wheel status |
-| --- | --- | --- |
-| CPython 3.12 | Linux x86_64 | Built; not publicly available |
-| CPython 3.12 | macOS arm64 | Verification and publication pending |
-| CPython 3.12 | Windows AMD64 | Verification and publication pending |
-| Other Python versions or architectures | — | No current-version prebuilt package |
-
-For environments without a prebuilt package, see [Build from source](docs/contribute.qmd#build-from-source) in the Contribution guide.
-
-
+See the [documentation overview and examples](https://ncuphy-ltlab.github.io/scnsim/).
 
 ## A first circuit
 
 Chapter 1 builds a grounded LC resonator inside a `Subsystem`, then connects a coupling capacitor and terminated measurement Port at the parent level. The same Plan supports a one-port response and a loaded root.
 
-::: {.light-content}
-![Chapter 1 Plan: a parent-owned coupler and terminated Port connected to a grounded LC resonator Subsystem.](examples/engineer/figures/chapter1-plan.light.svg){#img-overview-ch1-light .lightbox}
-{{< askr-image-view target="img-overview-ch1-light" label="Open the Chapter 1 circuit" >}}
-:::
-
-::: {.dark-content}
-![Chapter 1 Plan: a parent-owned coupler and terminated Port connected to a grounded LC resonator Subsystem.](examples/engineer/figures/chapter1-plan.dark.svg){#img-overview-ch1-dark .lightbox}
-{{< askr-image-view target="img-overview-ch1-dark" label="Open the Chapter 1 circuit" >}}
-:::
+![Chapter 1 Plan: a parent-owned coupler and terminated Port connected to a grounded LC resonator Subsystem.](examples/engineer/figures/chapter1-plan.light.svg)
 
 A `Subsystem` can contain another `Subsystem`. The boundary makes ownership visible while the parent connects through the child’s exposed Pins.
 
-::: {.light-content}
-![A parent module contains an LC cell with its capacitor, inductor, and local ground.](examples/engineer/figures/nested-subsystems.light.svg){#img-overview-nested-light .lightbox}
-{{< askr-image-view target="img-overview-nested-light" label="Open the nested Subsystem diagram" >}}
-:::
-
-::: {.dark-content}
-![A parent module contains an LC cell with its capacitor, inductor, and local ground.](examples/engineer/figures/nested-subsystems.dark.svg){#img-overview-nested-dark .lightbox}
-{{< askr-image-view target="img-overview-nested-dark" label="Open the nested Subsystem diagram" >}}
-:::
+![A parent module contains an LC cell with its capacitor, inductor, and local ground.](examples/engineer/figures/nested-subsystems.light.svg)
 
 ## Inspect the differential mode with a View
 
 For the two node-flux coordinates, the differential coordinate is `Phi_a - Phi_b`. `transform_pair()` changes basis and `retain()` selects the differential coordinate for the View. A retained View eliminates the common coordinate through the Schur complement and evaluates the requested root in the differential coordinate.
 
-::: {.light-content}
-![Two-node floating LC with Ca and Cb to ground, and Cm and L connected in parallel between Phi_a and Phi_b.](examples/engineer/figures/floating-simple.light.svg){#img-overview-floating-light .lightbox}
-{{< askr-image-view target="img-overview-floating-light" label="Open the floating LC diagram" >}}
-:::
+![Two-node floating LC with Ca and Cb to ground, and Cm and L connected in parallel between Phi_a and Phi_b.](examples/engineer/figures/floating-simple.light.svg)
 
-::: {.dark-content}
-![Two-node floating LC with Ca and Cb to ground, and Cm and L connected in parallel between Phi_a and Phi_b.](examples/engineer/figures/floating-simple.dark.svg){#img-overview-floating-dark .lightbox}
-{{< askr-image-view target="img-overview-floating-dark" label="Open the floating LC diagram" >}}
-:::
-
-This continuation builds the View and requests its differential-coordinate frequency:
-
-```python
-from scnsim import CircuitRun, DiagonalRootSpec, ReductionPipeline, units as u
-from floating_model_simple import build_model
-
-plan, plus, minus = build_model()
-run = CircuitRun(plan=plan, storage="memory")
-try:
-    view = run.original.reduce(
-        ReductionPipeline()
-        .transform_pair(plus.node, minus.node, id="floating")
-        .retain("floating.differential")
-    )
-    root = run.evaluate(view, DiagonalRootSpec(
-        coordinate="floating.differential", root_hint=10.0*u.GHz,
-    ))
-    frequency = root.frequency.to("GHz")
-finally:
-    run.close()
-```
+The [documentation overview](https://ncuphy-ltlab.github.io/scnsim/) includes the complete View example.
 
 See the full [floating model](examples/engineer/figures/floating_model_simple.py) and [View example](examples/engineer/figures/floating_view_simple.py).
 
@@ -134,20 +50,16 @@ See the full [floating model](examples/engineer/figures/floating_model_simple.py
 
 Port 1 is `signal_in`; S11 is reflection at that same measurement Port. The ideal lossless one-port model stays near 0 dB in magnitude across the requested frequency grid, while phase shows the response feature.
 
-<iframe class="w-100" height="400" src="examples/engineer/figures/chapter1-s11-magnitude.html" title="Interactive S11 magnitude" loading="lazy"></iframe>
+![S11 magnitude (dB) for Port 1, `signal_in`.](examples/engineer/figures/chapter1-s11-magnitude.svg)
 
-{{< askr-image-view src="examples/engineer/figures/chapter1-s11-magnitude.svg" label="Open the S11 magnitude plot" >}}
+![S11 phase (degrees) for Port 1, `signal_in`.](examples/engineer/figures/chapter1-s11-phase.svg)
 
-<iframe class="w-100" height="400" src="examples/engineer/figures/chapter1-s11-phase.html" title="Interactive S11 phase" loading="lazy"></iframe>
+Open the [documentation site](https://ncuphy-ltlab.github.io/scnsim/) for the interactive magnitude and phase plots.
 
-{{< askr-image-view src="examples/engineer/figures/chapter1-s11-phase.svg" label="Open the S11 phase plot" >}}
+<details>
+<summary>Show the complete model, solve, and S11 plotting code</summary>
 
-Expand the complete model, solve, and separate magnitude/phase plots:
-
-```{python}
-#| eval: false
-#| code-fold: true
-#| code-summary: "Show the complete model, solve, and plot code"
+```python
 import numpy as np
 from IPython.display import display
 from scnsim import (
@@ -213,6 +125,7 @@ try:
 finally:
     run.close()
 ```
+</details>
 
 ## Agent knowledge start
 
@@ -222,7 +135,7 @@ SCNSim describes a physical circuit with a `CircuitPlan`; a `View` selects the a
 
 ## Continue
 
-Read [Inputs and units](docs/tutorials/inputs-units.qmd), browse the [Engineer course](docs/index.qmd), or open the [Contribution area](docs/contribute.qmd) for source setup and developer guidance.
+Read [Inputs and units](docs/tutorials/inputs-units.qmd), browse the [Engineer course](https://ncuphy-ltlab.github.io/scnsim/), or open the [Contribution area](docs/contribute.qmd) for source setup and developer guidance.
 
 ## License
 

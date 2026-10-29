@@ -24,8 +24,9 @@ SHA = re.compile(r"[0-9a-f]{40}\Z")
 RELEASE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:(?P<alpha>a\d+)|(?P<beta>b\d+))?\Z")
 DEVELOPMENT = re.compile(r"(?P<line>\d+\.\d+\.\d+) dev\Z")
 DEVELOPMENT_SOURCE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:a\d+|b\d+|\.dev\d+)?\Z")
-# The 40 unmodified files in the selected Askr v0.12.1 vendor tree.
-ASKR_SHA256 = "c2ead1a3539c004abdc6441ba6a65be65e535a7956c7e121ea1f9c33548a3c9d"
+# The 43 unmodified files in the selected Askr v0.13.3 vendor tree.
+ASKR_SHA256 = "655c5192a7aa8091fd063c9fa59a408b2df6490f33cc7ddbe0170c5e562d6f09"
+RETIRED_MATH_COPY_SHA256 = "eef80d12320268417f06f8e567cedde0cd89c419ee990dc8b0623e61a58ef95c"
 
 
 class References(HTMLParser):
@@ -139,7 +140,7 @@ def _vendor_digest(root: Path) -> str:
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in root.rglob("*") if path.is_file()
     }
-    if len(rows) != 40:
+    if len(rows) != 43:
         raise ValueError("Pages Askr vendor does not have the reviewed file set")
     return hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -202,13 +203,18 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
     if profile.exists():
         raise ValueError("Pages render profile already exists in exported source")
     if _vendor_digest(vendor) != ASKR_SHA256:
-        raise ValueError("Pages presentation vendor differs from Askr 0.12.1")
+        raise ValueError("Pages presentation vendor differs from Askr 0.13.3")
     destination = source / "_extensions/arfiligol/askr"
     if destination.exists():
         _regular_tree(destination)
+        retired_math_copy = destination / "math-copy.html"
+        if retired_math_copy.exists():
+            if not retired_math_copy.is_file() or hashlib.sha256(retired_math_copy.read_bytes()).hexdigest() != RETIRED_MATH_COPY_SHA256:
+                raise ValueError("Pages source Askr overlay contains an unrecognized math-copy.html")
+            retired_math_copy.unlink()
     shutil.copytree(vendor, destination, dirs_exist_ok=True)
     if _vendor_digest(destination) != ASKR_SHA256:
-        raise ValueError("Pages presentation overlay is not exact Askr 0.12.1")
+        raise ValueError("Pages presentation overlay is not exact Askr 0.13.3")
     version_url = SITE + _slug(entry) + "/"
     bilingual = (source / 'zh-TW/_quarto.yml').is_file()
     site_url = version_url + ('en/' if bilingual else '')
