@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -46,10 +47,10 @@ class PagesAskrVendorTests(unittest.TestCase):
         )
         return source
 
-    def _install_destination(self, source: Path, *, old_version: bool = False) -> Path:
+    def _install_destination(self, source: Path, *, old_layout: bool = False, subset_size: int | None = None) -> Path:
         destination = source / "_extensions" / "arfiligol" / "askr"
         shutil.copytree(ASKR_VENDOR, destination)
-        if old_version:
+        if old_layout:
             extension = destination / "_extension.yml"
             text = extension.read_text(encoding="utf-8")
             self.assertIn("version: 0.13.3\n", text)
@@ -57,9 +58,23 @@ class PagesAskrVendorTests(unittest.TestCase):
                 text.replace("version: 0.13.3\n", "version: 0.12.1\n", 1),
                 encoding="utf-8",
             )
-            for name in ("chart-view.lua", "chart-viewer.css", "chart-viewer.js"):
+            for name in ("chart-view.lua", "chart-viewer.css", "chart-viewer.js", "copy-controls.html"):
                 (destination / name).unlink()
+            fixture = Path(__file__).parent / "fixtures/pages/askr-0.12.1-math-copy.html"
+            shutil.copyfile(fixture, destination / "math-copy.html")
             self.assertEqual(len([path for path in destination.rglob("*") if path.is_file()]), 40)
+            self.assertEqual(
+                hashlib.sha256((destination / "math-copy.html").read_bytes()).hexdigest(),
+                pages_site.RETIRED_MATH_COPY_SHA256,
+            )
+        elif subset_size is not None:
+            files = sorted(path for path in destination.rglob("*") if path.is_file())
+            keep = {path.relative_to(destination) for path in files[:subset_size]}
+            keep.add(Path("_extension.yml"))
+            for path in files:
+                if path.relative_to(destination) not in keep:
+                    path.unlink()
+            self.assertEqual(len([path for path in destination.rglob("*") if path.is_file()]), subset_size)
         return destination
 
     def _prepare(self, source: Path, vendor: Path = ASKR_VENDOR) -> None:
@@ -72,16 +87,21 @@ class PagesAskrVendorTests(unittest.TestCase):
         self.assertEqual(len(rows), 43)
         self.assertEqual(pages_site._vendor_digest(ASKR_VENDOR), pages_site.ASKR_SHA256)
 
-    def test_prepare_accepts_official_vendor_and_overlays_empty_exact_or_old_destination(self) -> None:
-        for destination_kind in ("empty", "exact", "old"):
+    def test_prepare_overlays_empty_exact_older40_and_older25_destinations(self) -> None:
+        for destination_kind in ("empty", "exact", "older40", "older25"):
             with self.subTest(destination=destination_kind), tempfile.TemporaryDirectory() as temp:
                 source = self._source(Path(temp))
-                if destination_kind != "empty":
-                    self._install_destination(source, old_version=destination_kind == "old")
+                if destination_kind == "exact":
+                    self._install_destination(source)
+                elif destination_kind == "older40":
+                    self._install_destination(source, old_layout=True)
+                elif destination_kind == "older25":
+                    self._install_destination(source, subset_size=25)
                 self._prepare(source)
                 destination = source / "_extensions" / "arfiligol" / "askr"
                 self.assertEqual(pages_site._vendor_digest(destination), pages_site.ASKR_SHA256)
                 self.assertTrue((destination / "chart-view.lua").is_file())
+                self.assertFalse((destination / "math-copy.html").exists())
                 self.assertTrue((source / "_quarto-pages.yml").is_file())
 
     def test_rejects_modified_missing_extra_renamed_and_symlink_vendor_files(self) -> None:
@@ -111,7 +131,7 @@ class PagesAskrVendorTests(unittest.TestCase):
                     self._prepare(source, vendor)
                 self.assertFalse((source / "_quarto-pages.yml").exists())
 
-    def test_rejects_existing_destination_with_unexpected_file_without_cleanup(self) -> None:
+    def test_rejects_unexpected_file_and_preserves_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             source = self._source(Path(temp))
             destination = self._install_destination(source)
@@ -120,6 +140,17 @@ class PagesAskrVendorTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self._prepare(source)
             self.assertEqual(unexpected.read_text(encoding="utf-8"), "preserve and reject")
+            self.assertFalse((source / "_quarto-pages.yml").exists())
+
+    def test_rejects_unrecognized_math_copy_and_preserves_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            source = self._source(Path(temp))
+            destination = self._install_destination(source)
+            legacy_name = destination / "math-copy.html"
+            legacy_name.write_text("unrecognized bytes", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "unrecognized math-copy.html"):
+                self._prepare(source)
+            self.assertEqual(legacy_name.read_text(encoding="utf-8"), "unrecognized bytes")
             self.assertFalse((source / "_quarto-pages.yml").exists())
 
 

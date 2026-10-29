@@ -26,6 +26,7 @@ DEVELOPMENT = re.compile(r"(?P<line>\d+\.\d+\.\d+) dev\Z")
 DEVELOPMENT_SOURCE = re.compile(r"(?P<line>\d+\.\d+\.\d+)(?:a\d+|b\d+|\.dev\d+)?\Z")
 # The 43 unmodified files in the selected Askr v0.13.3 vendor tree.
 ASKR_SHA256 = "655c5192a7aa8091fd063c9fa59a408b2df6490f33cc7ddbe0170c5e562d6f09"
+RETIRED_MATH_COPY_SHA256 = "eef80d12320268417f06f8e567cedde0cd89c419ee990dc8b0623e61a58ef95c"
 
 
 class References(HTMLParser):
@@ -206,6 +207,11 @@ def _prepare(source: Path, vendor: Path, catalog: dict[str, object], label: str,
     destination = source / "_extensions/arfiligol/askr"
     if destination.exists():
         _regular_tree(destination)
+        retired_math_copy = destination / "math-copy.html"
+        if retired_math_copy.exists():
+            if not retired_math_copy.is_file() or hashlib.sha256(retired_math_copy.read_bytes()).hexdigest() != RETIRED_MATH_COPY_SHA256:
+                raise ValueError("Pages source Askr overlay contains an unrecognized math-copy.html")
+            retired_math_copy.unlink()
     shutil.copytree(vendor, destination, dirs_exist_ok=True)
     if _vendor_digest(destination) != ASKR_SHA256:
         raise ValueError("Pages presentation overlay is not exact Askr 0.13.3")
