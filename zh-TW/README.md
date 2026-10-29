@@ -1,5 +1,7 @@
 # SCNSim
 
+**SCNSim 正在密集開發中。**
+
 **描述超導電路、選擇觀測網路，並計算所需的響應或物理量。**
 
 [![Apache-2.0 授權](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -49,20 +51,7 @@ SCNSim 是用於超導電路網路分析的 Python 套件。先建立明確的�
 
 ## 安裝
 
-本頁說明 SCNSim `1.0.0.dev42`；PyPI 套件尚待發佈。正式發佈後，請使用以下指令安裝：
-
-{{< include _generated/canonical-code/README.md/block-001.qmd >}}
-
-| Python | 平台 | 本版預建套件狀態 |
-| --- | --- | --- |
-| CPython 3.12 | Linux x86_64 | 已建置，尚未公開 |
-| CPython 3.12 | macOS arm64 | 待確認與發佈 |
-| CPython 3.12 | Windows AMD64 | 待確認與發佈 |
-| 其他 Python 版本或架構 | — | 尚無本版預建套件 |
-
-沒有預建套件的環境，請參閱貢獻指南（Contribution）的[從來源建置](docs/contribute.qmd#build-from-source)。
-
-
+安裝方式與支援環境請參閱[環境設定指南](examples/engineer/setup.qmd)；從來源建置的方法請參閱[貢獻指南](docs/contribute.qmd#build-from-source)。
 
 ## 從第 1 個電路開始
 
@@ -106,7 +95,7 @@ SCNSim 是用於超導電路網路分析的 Python 套件。先建立明確的�
 
 此延伸範例建立 View，並請求差模座標的頻率：
 
-{{< include _generated/canonical-code/README.md/block-002.qmd >}}
+{{< include _generated/canonical-code/README.md/block-001.qmd >}}
 
 完整內容請見[浮接模型](examples/engineer/figures/floating_model_simple.py)與 [View 範例](examples/engineer/figures/floating_view_simple.py)。
 
@@ -124,7 +113,7 @@ Port 1 是 `signal_in`；S11 表示同一量測 Port 的反射。此理想無損
 
 展開完整模型、求解與分開呈現的振幅／相位程式碼：
 
-{{< include _generated/canonical-code/README.md/block-003.qmd >}}
+{{< include _generated/canonical-code/README.md/block-002.qmd >}}
 
 ## 套件內建知識入口
 

@@ -1,5 +1,7 @@
 # SCNSim
 
+**SCNSim is under heavy development.**
+
 **Describe a superconducting circuit, choose what to observe, and calculate the response or physical quantity you need.**
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -49,22 +51,7 @@ The current Josephson-junction primitive is linearized. A complete nonlinear Jos
 
 ## Install
 
-This page describes SCNSim `1.0.0.dev42`; the PyPI package is pending publication. After the official release, install it with:
-
-```bash
-uv add scnsim
-```
-
-| Python | Platform | Current-version wheel status |
-| --- | --- | --- |
-| CPython 3.12 | Linux x86_64 | Built; not publicly available |
-| CPython 3.12 | macOS arm64 | Verification and publication pending |
-| CPython 3.12 | Windows AMD64 | Verification and publication pending |
-| Other Python versions or architectures | — | No current-version prebuilt package |
-
-For environments without a prebuilt package, see [Build from source](docs/contribute.qmd#build-from-source) in the Contribution guide.
-
-
+See the [setup guide](examples/engineer/setup.qmd) for installation instructions and supported environments. For source builds, see the [Contribution guide](docs/contribute.qmd#build-from-source).
 
 ## A first circuit
 
