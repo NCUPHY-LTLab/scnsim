@@ -30,10 +30,10 @@ sidebar: contribution
 
 ## 從來源建置 {#build-from-source}
 
-目前的開發來源需使用 Python 3.12 與 C++17 工具鏈。請先複製開發分支，再同步鎖定環境並建置套件：
+目前的開發來源需使用 Python 3.12 與 C++17 工具鏈。請先複製 `develop` 分支，再同步鎖定環境並建置套件：
 
 {{< include ../_generated/canonical-code/docs/contribute.qmd/block-001.qmd >}}
 
-套件正式發佈後，使用者可執行 `uv add scnsim` 安裝。Notebook 環境與平台細節請參閱[工程課程環境設定指南](../examples/engineer/setup.qmd)。
+使用預建套件時，請依[README](../README.md)中的 GitHub Release 預建套件命令安裝。選用的 Jupyter 與課程需求請參閱[工程課程環境設定指南](../examples/engineer/setup.qmd)。
 
 公開元件模型請從英文[元件建立契約](/en/docs/component-authoring.html)開始；使用流程請閱讀[工程課程](index.qmd)。

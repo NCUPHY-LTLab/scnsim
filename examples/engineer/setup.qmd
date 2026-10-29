@@ -1,113 +1,66 @@
 ---
 title: "Engineer course setup"
-subtitle: "One locked environment and one clean kernel per Chapter"
+subtitle: "Install a released wheel and prepare an optional Jupyter environment"
 ---
 
-## Install a matching published wheel
+## Install a released wheel
 
-`1.0.0.dev40` is an unreleased development candidate, and the 1.0 beta remains
-held. The exact-version CPython 3.12 development wheels delivered for
-`1.0.0.dev39` are historical and do not provide a dev40 installation. That
-prior wheel cohort targeted Linux x86_64 (`manylinux_2_28`), macOS arm64
-(minimum deployment target macOS 12), and Windows x86_64 (AMD64). These tags
-identify binary targets; they do not imply coverage of every operating-system
-version or circuit workload. Use a wheel from
-[GitHub Releases](https://github.com/NCUPHY-LTLab/scnsim/releases) only when an
-exact matching version has been published.
+Install the CPython 3.12 prebuilt wheel from [GitHub Releases](https://github.com/NCUPHY-LTLab/scnsim/releases/tag/v1.0.0a3). Start in an empty folder and initialize a project:
 
-For a Windows CPython 3.12 AMD64 consumer repository, its maintainer configures
-the exact matching prebuilt SCNSim wheel as the package source and commits the
-matching `uv.lock`. Once that source and lock are configured, run this from the
-consumer repository root:
+```sh
+uv init --python 3.12
+```
+
+Choose the command matching your operating system and architecture:
+
+<details>
+<summary>Windows x86_64 (AMD64)</summary>
 
 ```powershell
-uv sync
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-win_amd64.whl"
 ```
 
-The prior dev39 Windows CPU-JAX wheel evidence covered in-memory and Workspace
-operations. That historical evidence does not establish dev40 behavior.
+</details>
 
-```bash
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python /path/to/scnsim-wheel.whl
-uv pip install --python .venv/bin/python jupyterlab ipykernel
-.venv/bin/python -m jupyterlab
+<details>
+<summary>macOS arm64</summary>
+
+```sh
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-macosx_12_0_arm64.whl"
 ```
 
-Use a fresh environment rather than installing over a running notebook kernel.
-Select that environment's Python kernel. A matching SCNSim wheel needs no C++
-compiler. Compatible dependencies install normally; a pure-Python dependency
-build is different from compiling a native extension. If a native dependency
-must be built from source on an unsupported platform, that installation is not
-covered by the compiler-free wheel path.
+</details>
 
-The manual diagram display uses the notebook's IPython rich-display support.
-It does not require a separate GUI figure manager.
+<details>
+<summary>Linux x86_64</summary>
 
-## Work from the course source
-
-The `v1.0.0b1` beta course remains held; it is not a current install target. The
-`develop` branch follows ongoing development and can differ from a release. A
-source installation builds SCNSim's native extension and requires a C++17
-compiler; it is separate from installing a prebuilt wheel.
-
-From the selected source checkout, install the existing locked course tools
-and start Jupyter from the repository root:
-
-```bash
-uv sync --locked --group course-generation
-uv run --locked --with jupyterlab jupyter lab
+```sh
+uv add "scnsim @ https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
 ```
 
-The `jupyterlab` package is ephemeral tooling for that command; it is not added
-to SCNSim or its lock. An editor-provided Jupyter frontend may instead open the
-Chapter Notebook after the locked sync. Select the repository's `.venv` Python
-kernel, restart it, and use **Run All**. The course source also contains the
-manual layout helpers used by its diagram cells; these are ordinary Example
-code, not an automatically installed layout service.
+</details>
 
-Read the [Simulation conventions](../../docs/concepts/simulation-conventions.qmd)
-before interpreting S/Y/Z, phase, PTC, or loaded roots. The explicit selected
-View governs all three matrix surfaces.
+| Python | Platform and architecture | Wheel |
+|---|---|---|
+| CPython 3.12 | Windows x86_64 (AMD64) | [Release wheel](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-win_amd64.whl) |
+| CPython 3.12 | macOS arm64 (Apple Silicon) | [Release wheel](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-macosx_12_0_arm64.whl) |
+| CPython 3.12 | Linux x86_64 | [Release wheel](https://github.com/NCUPHY-LTLab/scnsim/releases/download/v1.0.0a3/scnsim-1.0.0a3-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl) |
 
-Chapters 1–4 form the mainline course; Chapters 5–8 are optional
-continuations. Chapters 1–7 are separate clean-kernel execution units.
-Chapter 8 instead has
-an explicit two-kernel procedure: execute Lesson 1, stop that kernel, then use
-a second fresh kernel to run only Lesson 2 against the same preserved working
-directory. The shorter web Lessons are reading views over ordered source
-fragments and are not independently runnable.
+These prebuilt wheels do not require a C++ compiler. For other Python versions or platforms, follow the [Contribution guide's source-build instructions](../../docs/contribute.qmd#build-from-source).
 
-Chapters 1–7 use `CircuitRun(plan=plan, storage="memory")`. Results remain
-available to the caller in the current Python process; these lessons create no
-persistent Workspace. A cold request can include JAX CPU preparation and
-compilation. Keep each Run open while reading or exporting its Results, then
-call `run.close()`.
+## Optional Jupyter setup
 
-Chapter 8 is the advanced persistence lesson. It uses an explicit Workspace
-and two independent kernels to save Results and resolve them after restart.
-Preserve that lesson's Workspace bytes for the second kernel.
+Add Jupyter to the project only if you want to run notebooks:
 
-For ordinary design iteration, classify the change before reusing a Run.
-A new `ParameterSet` reuses the same captured Plan, Run, and Views. Changing an
-objective expression, comparison, target, scale, or weight constructs a new
-`OptimizationSpec` on those same objects. Changing model defaults, topology,
-Ports, or a captured parameter definition requires rebuilding the inputs,
-Plan, Run, Views, and Specs. A newly rebuilt Plan's old View or ParameterRef is
-foreign even when a Python name or printed declaration looks the same.
-That rebuild may happen in the same kernel, but it must use the newly returned
-ParameterRef, Plan, Run, View, and Spec handles together; never mix a handle
-retained from the earlier Plan into the rebuilt object graph.
+```sh
+uv add --dev jupyterlab ipykernel
+uv run jupyter lab
+```
 
-For the advanced Workspace workflow, see [Chapter 8](chapter-08/01-persist.qmd).
-Its storage and versioning rules do not change the beginner in-memory examples.
+Use the course notebooks from a full source checkout, which provides `examples.engineer.diagram_layouts`. See the [Contribution guide](../../docs/contribute.qmd) for checkout and build instructions.
 
-- [Begin Chapter 1](chapter-01/01-build.qmd)
-- [Begin Chapter 2](chapter-02/01-build.qmd)
-- [Begin Chapter 3](chapter-03/01-build.qmd)
-- [Begin Chapter 4](chapter-04/01-physical-plan.qmd)
-- [Begin Chapter 5](chapter-05/01-library.qmd)
-- [Begin Chapter 6](chapter-06/01-default.qmd)
-- [Begin Chapter 7](chapter-07/01-rlgc.qmd)
-- [Begin Chapter 8](chapter-08/01-persist.qmd)
-- [Course map](../../docs/index.qmd)
+## Continue
+
+- [Engineer course map](../../docs/index.qmd)
+- [Chapter 1: build a circuit](chapter-01/01-build.qmd)
+- [Simulation conventions](../../docs/concepts/simulation-conventions.qmd)
