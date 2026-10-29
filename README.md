@@ -15,45 +15,7 @@ circuit-network analysis. A `CircuitPlan` owns physical components, wiring,
 ground, Ports, and reusable Subsystems; a `CircuitRun` solves explicit
 requests and returns typed Results with request and evidence identities.
 
-`1.0.0a1` is the first public Alpha for trial use. The package's newer
-semantics and this documentation remain `CONVERGING`; Alpha is neither a
-stable release nor a new scientific-validation claim. Public API and saved
-workspace compatibility may change before a stable release.
-
-The current release candidate is Alpha `1.0.0a2`, requiring Python 3.12. Normal
-`CircuitRun.solve`, `evaluate` and `optimize` default to same-process JAX CPU
-Float64/Complex128; Float32/Complex64 and explicit Julia are selectable.
-[Operation Benchmark](docs/guides/benchmark.qmd) reads recorded operations from
-the current Plan leaf without executing another calculation. Generation
-checkpoints and boundary diagnostics preserve recovery and numerical evidence.
-JAX Optimization defaults to `commit_every_generations=10`; explicit positive
-integers select a different group size in the Plan leaf’s SQLite store. Omitted
-intervals with explicit Julia keep its existing native value of 1. See the
-guide for recovery, durability and recomputation limits.
-This candidate is `CONVERGING` and does not replace the immutable Alpha trial
-snapshot; no performance or numerical acceptance is implied.
-
-## Alpha 1.0.0a2 release notes
-
-This candidate retains `CONVERGING` semantics; it is not a stable release or a
-claim of new numerical certainty. Publication and its exact tag remain separate
-delivery steps. The immutable `v1.0.0a1` snapshot and historical course outputs
-keep their original identities.
-
-Python 3.12 or newer and pinned CPU JAX/CMA dependencies supply the default
-same-process JAX path. Julia is optional and explicitly selected; Julia-only
-features require the extra and a manually provided compatible executable.
-JAX Optimization now defaults to committing every 10 completed generations;
-explicit positive intervals remain available, and omitted Julia intervals retain
-its existing native value of 1. A larger interval trades fewer commits for more
-buffered evidence and possible recomputation after interruption.
-
-Current JAX operation evidence uses a Plan-leaf SQLite store. Same-version exact
-checkpoint references resume only committed full CMA/RNG state; checkpoint off
-creates no resumable state. Readonly access never repairs a hot journal: recovery
-is explicit on the bound Run. Historical workspaces remain readonly without
-migration. Public interfaces and saved workspace compatibility may change before
-a stable release; pin exact versions and preserve their environments.
+**SCNSim is under heavy development.**
 
 ## A first Direct S11 result
 
@@ -159,7 +121,7 @@ the complete S11 magnitude and phase; the named
 
 *Stored Chapter 1 selected Result: 120 fF, with the same 5.8 nH inductor, 6 fF coupler, 50 Ω Port, and 401-point grid. No dip or resonance is inferred from this plot. [Exact complex samples](examples/engineer/figures/01-s11-data.csv).*
 
-Continue with the [Alpha Tutorial — Engineer course](docs/index.qmd).
+Continue with the [Engineer course](docs/index.qmd).
 
 ## What the model can answer
 
@@ -184,68 +146,9 @@ responsibilities.
 
 ## Install and learn
 
-After the `v1.0.0a2` Alpha tag is published, install the current Alpha with
-Python 3.12 or newer and retain the resulting lockfile and environment for
-reproducibility:
-
-```bash
-uv add "scnsim @ git+https://github.com/OrPenStrike/scnsim.git@v1.0.0a2"
-uv run python -c "import scnsim; print(scnsim.__version__)"
-```
-
-The immutable first-Alpha [`v1.0.0a1` snapshot](https://github.com/OrPenStrike/scnsim/tree/v1.0.0a1)
-remains available for historical trial use; its original outputs retain their
-original identities.
-
-For the current development checkout, `uv sync --locked` installs the pinned CPU
-JAX/CMA runtime on Python 3.12. The default JAX path does not install JuliaPkg,
-discover Julia or launch a numerical child process. Configure its CPU pool before
-first execution with `configure_runtime(cpu_threads=...)`; per-call `backend`
-and `precision` override the Run defaults. `run.benchmark()` and `resolve()` are
-read-only. See the [operation guide](docs/guides/benchmark.qmd).
-
-Explicit Julia execution, HB and the other Julia-only quantity families, compiler
-preflight (`run.explain()`) and compiled schematics require
-`uv sync --locked --extra julia` and manually provided Julia 1.12.6 on PATH or
-`PYTHON_JULIAPKG_EXE`. Feature calls never download Julia or change backends.
-Historical Engineer-course execution sources explicitly select Julia so their
-original outputs retain their original numerical authority.
-
-The Engineer-course generators use repository-local Jupyter tooling and an
-optional static-export extra:
-
-```bash
-uv sync --locked --group course-generation --extra static-export --extra julia
-```
-
-The site uses the vendored, unmodified Askr v0.4.0 `askr-html` format with
-the Quiet Quartz light/dark theme. To build it, use Quarto 1.10.18 or later and run
-`quarto render --no-execute --no-clean`. Start with the
-[Alpha Engineer course](docs/index.qmd); its aggregate Chapter notebooks are the
-execution units for Lessons 1–4, while Chapter 7 Lesson 5 has its own standalone
-notebook and result artifacts. The [documentation root](https://orpenstrike.github.io/scnsim/)
-opens the [1.0.0 development site](https://orpenstrike.github.io/scnsim/1.0.0-dev/).
-The version catalog follows one latest Alpha per release line. After the
-`v1.0.0a2` tag and its catalog deployment are published, Askr's version menu
-will select the separately rendered 1.0.0a2 Alpha site while preserving the
-page path when it exists. That deployment is a separate delivery step and is
-not claimed live here. Each site has branch-local search and shows its exact
-content source; the Alpha content comes from its immutable version tag, with
-only the reviewed Askr presentation and Pages profile overlaid at render time.
-Quarto's View source controls point to the content
-source. A missing page in a current version returns to that version's home;
-a retired Alpha URL explains its replacement rather than serving newer content
-under the old version. The former `/develop/` path redirects to the matching
-development path; `/main/` is not an Alpha alias. Main carries the same
-deployment configuration, not a third content version. The site executes no
-notebooks or solvers. Both source renders must validate before one Pages
-artifact is published. For a consuming
-repository preferring a reviewed commit over the Alpha tag, pin that commit
-in its `pyproject.toml` and lockfile:
-
-```bash
-uv add "scnsim @ git+https://github.com/OrPenStrike/scnsim.git@<reviewed-commit-sha>"
-```
+See the [setup guide](examples/engineer/setup.qmd) for installation and notebook
+environment instructions. Start with the [Engineer course](docs/index.qmd), or
+browse the [documentation](https://ncuphy-ltlab.github.io/scnsim/).
 
 ## License
 
