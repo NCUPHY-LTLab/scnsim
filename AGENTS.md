@@ -1,7 +1,8 @@
 # Working on SCNSim
 
 Use `$github-flow` for ownership, branches, allowed paths, review, CI and
-delivery; auto-merge squashes after CI and `cross-review-gate` pass.
+delivery. Until `cross-review-gate` is verified and required by the `develop`
+ruleset, do not enable per-PR auto-merge.
 
 ## Maintain behavior and its documentation together
 
