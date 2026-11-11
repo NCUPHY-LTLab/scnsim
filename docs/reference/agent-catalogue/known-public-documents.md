@@ -13,6 +13,7 @@ These public source paths are known from `_quarto.yml` project.render plus READM
 - [`docs/contracts/index.qmd`](../../contracts/index.qmd)
 - [`docs/contracts/static-capacitance.qmd`](../../contracts/static-capacitance.qmd)
 - [`docs/contracts/workspace-evidence-v3.qmd`](../../contracts/workspace-evidence-v3.qmd)
+- [`docs/contribute.qmd`](../../contribute.qmd)
 - [`docs/guides/benchmark.qmd`](../../guides/benchmark.qmd)
 - [`docs/implementation/benchmark-and-backends.qmd`](../../implementation/benchmark-and-backends.qmd)
 - [`docs/implementation/canonical-identities-and-schemas.qmd`](../../implementation/canonical-identities-and-schemas.qmd)
@@ -33,6 +34,7 @@ These public source paths are known from `_quarto.yml` project.render plus READM
 - [`docs/implementation/view-lineage-and-selected-networks.qmd`](../../implementation/view-lineage-and-selected-networks.qmd)
 - [`docs/implementation/workspace-attempts-and-artifacts.qmd`](../../implementation/workspace-attempts-and-artifacts.qmd)
 - [`docs/index.qmd`](../../index.qmd)
+- [`docs/tutorials/inputs-units.qmd`](../../tutorials/inputs-units.qmd)
 - [`docs/v1-runtime-contract.qmd`](../../v1-runtime-contract.qmd)
 - [`examples/README.md`](../../../examples/README.md)
 - [`examples/engineer/chapter-01/01-build.qmd`](../../../examples/engineer/chapter-01/01-build.qmd)
@@ -89,10 +91,19 @@ These public source paths are known from `_quarto.yml` project.render plus READM
 - [`examples/tutorials/13_compensate_probes.qmd`](../../../examples/tutorials/13_compensate_probes.qmd)
 - [`examples/tutorials/14_transform_retain.qmd`](../../../examples/tutorials/14_transform_retain.qmd)
 - [`index.qmd`](../../../index.qmd)
+- [`tests/README.md`](../../../tests/README.md)
+- [`tests/ci.md`](../../../tests/ci.md)
+- [`tests/circuit-data.md`](../../../tests/circuit-data.md)
+- [`tests/diagnostics.md`](../../../tests/diagnostics.md)
+- [`tests/evidence-readback.md`](../../../tests/evidence-readback.md)
+- [`tests/network-roots.md`](../../../tests/network-roots.md)
+- [`tests/numerical-checks.md`](../../../tests/numerical-checks.md)
+- [`tests/parameters-optimization.md`](../../../tests/parameters-optimization.md)
+- [`tests/portability-diagrams.md`](../../../tests/portability-diagrams.md)
 
 ## Source provenance
 
-- `_quarto.yml` — SHA-256 `8573ae9347c0ed463fa9d98e432eff3b3e3ba1613dfbd3c7a96cbe15ce217027`
+- `_quarto.yml` — SHA-256 `bd43e7f08a80ac032bf041c8bd47e9edf570d9089f37e32022dbfed0cc86dbb5`
 - `docs/agent-catalogue-cases.json` — SHA-256 `32d37ca52c5b4560a6c4b76467e94078a73658d25343a379a904722f82be8413`
 - `docs/agent-usage-inventory.json` — SHA-256 `c2ea004a3d7db6cd97defb6d3415795999928c48570bbde898cae3ef6a485448`
 - `scripts/generate_agent_catalogue.py` — SHA-256 `040d05273dc882d2f645ab1cac13e37e878901925ba234c67e1933b439d69c9d`

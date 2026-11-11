@@ -52,7 +52,7 @@ This page records the declared API; it does not construct this class or execute 
 ## Source provenance
 
 - `docs/agent-catalogue-cases.json` — SHA-256 `32d37ca52c5b4560a6c4b76467e94078a73658d25343a379a904722f82be8413`
-- `docs/concepts/compilation-coordinates-and-network-views.qmd` — SHA-256 `a8912459f0e66f8bbcacd9db233fc32f39b1ea9d38f79566ebdb609bf840ad42`
+- `docs/concepts/compilation-coordinates-and-network-views.qmd` — SHA-256 `d2859611bdd5a8cc8965defaab90354fdd572b15b5e81ed27d1bd376d9011b68`
 - `scripts/generate_agent_catalogue.py` — SHA-256 `040d05273dc882d2f645ab1cac13e37e878901925ba234c67e1933b439d69c9d`
 - `src/scnsim/__init__.py` — SHA-256 `2b3523836e4152aa0a836a8df1081eaff945458a5df34adac42e08688b970438`
 - `src/scnsim/runtime.py` — SHA-256 `1ac4ddfd9d1c156716bca0e3cfedaeb71f2eac7682acd206bd1d1fdaa121f12c`

@@ -114,7 +114,7 @@ sidebar: guides
 
 {{< include ../_generated/canonical-code/docs/component-authoring.qmd/block-008.qmd >}}
 
-`josephson_inductance` 一律表示每接面在穩定零相位、零偏壓工作點的小訊號 `L_J0`，SCNSim 不將它解讀成任意偏壓點電感。
+`josephson_inductance` 一律表示每接面在穩定零相位、零偏壓工作點的小訊號 `L_J0`，SCNSim 不將它解讀成任意偏壓點電感。Direct 將接面當作具有此值的固定電感求解；接面一旦載有電流，電感偏離此值的程度見 [Direct 中的約瑟夫森接面](concepts/direct-and-hb-realizations.qmd#josephson-junctions-in-direct)。
 
 非零 `junction_capacitance` 降階為理想約瑟夫森元件旁的獨立並聯電容；精確 `0 * u.F` 記錄模型省略該電容。SCNSim 不從 `Lj` 估計 `Cj`，加入 `Cj` 不增加電阻或將元件變成 RCSJ 模型。標準物理見[約瑟夫森電流、相位、能量與電感（英文）](https://github.com/arfiligol/SCQ_Design/blob/main/docs/knowledge/josephson-physics/josephson-current-phase-energy-and-inductance.qmd#independent-parallel-junction-capacitance)。
 

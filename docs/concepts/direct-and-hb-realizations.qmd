@@ -23,6 +23,40 @@ Use matrix families S, Y and Z for the declared boundary. Coordinate-selected
 quantities retain their own admissibility and failure contracts; a coordinate
 selection does not automatically define a realizable Port boundary.
 
+## Josephson junctions in Direct {#josephson-junctions-in-direct}
+
+Direct solves each Josephson junction as a fixed linear inductor whose value is
+the component's `josephson_inductance`. That is exact in the limit of no DC
+current and a vanishing signal. Once a junction carries current, its inductance
+is larger than that value by the amounts tabulated below.
+
+`josephson_inductance` is the junction's small-signal inductance at zero phase
+and zero bias:
+
+$$
+L_J=\frac{\varphi_0}{I_c},\qquad
+\varphi_0=\frac{\hbar}{2e}=\frac{\Phi_0}{2\pi}
+\approx3.291\times10^{-16}\,\mathrm{Wb}.
+$$
+
+Here $I_c$ is the junction's critical current, $\hbar$ the reduced Planck
+constant, $e$ the elementary charge and $\Phi_0=h/2e$ the magnetic flux quantum.
+The field therefore also fixes the critical current: $I_c=\varphi_0/L_J$, about
+329 nA for 1 nH. A SQUID component applies the same value to each of its two
+junctions.
+
+| The junction carries | Its inductance becomes | Departure from `josephson_inductance` |
+|---|---|---|
+| a DC current $I_{dc}$ | $L_J/\sqrt{1-(I_{dc}/I_c)^2}$ | 0.5 % at $0.1\,I_c$, 15 % at $0.5\,I_c$, unbounded as $I_{dc}\to I_c$ |
+| an oscillating current of peak $I$ | about $L_J\left(1+(I/I_c)^2/8\right)$ for that tone | 0.1 % at $0.1\,I_c$, 1.2 % at $0.3\,I_c$ |
+
+::: {.callout-important title="Direct does not detect a biased or strongly driven junction"}
+SCNSim 1.0 does not solve a biased or strongly driven junction. A Direct request
+carries no bias and no drive level, so Direct cannot detect either condition
+and gives no warning. Compare the DC and oscillating currents through each
+junction of your own device with $I_c$; the table gives the departure to expect.
+:::
+
 ## Diagrams and returned Results
 
 A caller-declared diagram presents the original authored Plan. It does not

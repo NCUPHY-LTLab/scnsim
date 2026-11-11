@@ -42,7 +42,22 @@ Public callable: `scnsim.components.josephson_junction`. Returns a factory-owned
 
 ## Description
 
-The canonical factory has no docstring; no description is inferred.
+Build one Josephson junction between ``terminal_1`` and ``terminal_2``.
+
+- ``id``: identifier of this component.
+- ``josephson_inductance``: the junction's small-signal inductance at zero
+  phase and zero bias, ``L_J = phi_0 / I_c``, with the reduced flux quantum
+  ``phi_0 = hbar / 2e = Phi_0 / 2pi``, about 3.291e-16 Wb; the field therefore
+  also fixes the critical current ``I_c = phi_0 / L_J``, about 329 nA for 1 nH.
+  Direct solves the junction as a fixed linear inductor of this value, which
+  is exact in the limit of no DC current and a vanishing signal.
+- ``junction_capacitance``: capacitance in parallel with the junction; the
+  default ``0 * farad`` omits it.
+
+How far the inductance departs from ``josephson_inductance`` once a junction
+carries current is tabulated under "Josephson junctions in Direct" on the
+documentation page "Linear Direct realization"
+(``docs/concepts/direct-and-hb-realizations.qmd``).
 
 ## Declared construction observations
 
@@ -110,11 +125,11 @@ Only these inputs were constructed. Pin names are not proof of independent elect
 ## Source provenance
 
 - `docs/agent-catalogue-cases.json` — SHA-256 `32d37ca52c5b4560a6c4b76467e94078a73658d25343a379a904722f82be8413`
-- `docs/component-authoring.qmd` — SHA-256 `e305be504c16a9008f35d0b95bcecef66c0a7096dbbc0542aeab8651aac7e7d8`
+- `docs/component-authoring.qmd` — SHA-256 `c6a61051d6bd15fc325ee98bf87fa40a9afe984bd117d6982c49b3a75bb3f129`
 - `scripts/generate_agent_catalogue.py` — SHA-256 `040d05273dc882d2f645ab1cac13e37e878901925ba234c67e1933b439d69c9d`
 - `src/scnsim/__init__.py` — SHA-256 `2b3523836e4152aa0a836a8df1081eaff945458a5df34adac42e08688b970438`
 - `src/scnsim/authoring/assembly.py` — SHA-256 `da95087557c8a623bbb60654957fb8b43a1d68a68f1cf2c695effe0ecee87aa2`
-- `src/scnsim/authoring/catalogs.py` — SHA-256 `7276b23d3aad359ae0baf4db60b95c5249ccc854bc937a74891baa7a7f543917`
+- `src/scnsim/authoring/catalogs.py` — SHA-256 `29563406e811d7a497e7002a667536a5d5c201fb19712c40f7477aa7cb66b582`
 - `src/scnsim/authoring/components.py` — SHA-256 `2b53329380ae89b0bc1594378b0c74ecbe533f6bb5b92e2dc1bb41f4295361c2`
 - `src/scnsim/authoring/factory_context.py` — SHA-256 `2241c6d5bf9c99ccac6360f08256be2b4603b7a7b1f8bf01310bfa28bf87015b`
 - `src/scnsim/authoring/handles.py` — SHA-256 `3901a301d2c75e23ea220e6d831944a51a1e37c6e1179818471dbc87c0ba0574`
