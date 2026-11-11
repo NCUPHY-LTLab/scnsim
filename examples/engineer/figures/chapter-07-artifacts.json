@@ -392,9 +392,9 @@
     ]
   },
   "publication_binding": {
-    "binding_sha256": "3d6c1b0ac3cdc780f37711654fed8f6a442e1a992c133b83163e6fd65f96ce9f",
+    "binding_sha256": "e8061e10d2f57f16374bfd680158f4efaa5140c6567a037545f1d89da5a26103",
     "generator_sha256": "cc5595987a70467155984d7c9046a171f35e05f804013d585ee883bc031b9554",
-    "source_tree_sha256": "0b9e97d815b84c86086ae471325a76f11cc7749543e1fdcbbba139894db3951f"
+    "source_tree_sha256": "e8d591b2fc2141fe941feb23e67daf33c69f75a79543bfe3b8feb63985350496"
   },
   "publication_rebind": {
     "deltas": {
@@ -424,25 +424,21 @@
           "ch7-show-named-reflection-examples"
         ]
       },
-      "cells": {
-        "ch7-show-named-reflection-examples": {
-          "after_sha256": "1fb153b344518c5a312e8246e057e92096de0632b13824f0cecf7873c9e01697",
-          "before_sha256": "2355b94eff2976153c2406c8f1905120dcd150f555aa7ce9dcb5ae363adbf068"
-        }
-      },
+      "cells": {},
       "generator": {
         "after_sha256": "cc5595987a70467155984d7c9046a171f35e05f804013d585ee883bc031b9554",
         "before_sha256": "cc5595987a70467155984d7c9046a171f35e05f804013d585ee883bc031b9554"
       },
-      "source_files": {},
+      "source_files": {
+        "src/scnsim/authoring/catalogs.py": {
+          "after_sha256": "29563406e811d7a497e7002a667536a5d5c201fb19712c40f7477aa7cb66b582",
+          "before_sha256": "7276b23d3aad359ae0baf4db60b95c5249ccc854bc937a74891baa7a7f543917"
+        }
+      },
       "teaching_sources": {
-        "examples/engineer/chapter-07/_04-parameter-points.qmd": {
-          "after_sha256": "e64d1cc63c01fd36d2a79459a82a0a5da69d018b7e7c04bb326113fa03d1a519",
-          "before_sha256": "fbb1d068731ca24e7f7c93b2a65e703a7cfd062eda8943758f1ffa1b6690bd27"
-        },
         "scripts/engineer_publication_binding.py": {
-          "after_sha256": "afac6117c63ddc68e57c766a3669e5863b9e1541ec44c8d66a3b8a38e601088b",
-          "before_sha256": "0f8b1eddb047377d49081c19be42915052bbf078a1b7dd71757a6525d9fcd78c"
+          "after_sha256": "689769680701da5fe106b22d1093f577261c2bfe94ee15f988d5fa9b242b4919",
+          "before_sha256": "afac6117c63ddc68e57c766a3669e5863b9e1541ec44c8d66a3b8a38e601088b"
         }
       }
     },
@@ -469,7 +465,7 @@
         "07-response-points.csv": "74b560bccb03d73d021d44d8149e9c84ce58222f65bc4910efd6e4b4842546f7",
         "07-response-points.md": "d6efb4a851e56d96c08b5c8668e8b18b222cce994791283eae26d445d54691be"
       },
-      "prior_publication_binding_sha256": "16cfbb633069d4d96cf0d02112219358024918dad78d8b83424b72e71e60198f",
+      "prior_publication_binding_sha256": "3d6c1b0ac3cdc780f37711654fed8f6a442e1a992c133b83163e6fd65f96ce9f",
       "prior_redrawn_artifacts": {
         "07-n2-authoring.md": {
           "execution_sha256": "56d5511bc91104238eb720661d9ca87eb6aa75aebd45f8392c41da943c8db62f",
@@ -484,9 +480,9 @@
     },
     "kind": "reviewed_source_only_transition",
     "numerical_evidence_reused": true,
-    "prior_manifest_sha256": "a3a2124b2412dfa64618bb1db88844ae9684987ecc3189c0b978bf196fbe919b",
-    "prior_publication_binding_sha256": "16cfbb633069d4d96cf0d02112219358024918dad78d8b83424b72e71e60198f",
-    "prior_publication_rebind_sha256": null,
+    "prior_manifest_sha256": "202913cb45a812017c49d02ab3e5e51e8e9c8783344c2f75a595482e89676895",
+    "prior_publication_binding_sha256": "3d6c1b0ac3cdc780f37711654fed8f6a442e1a992c133b83163e6fd65f96ce9f",
+    "prior_publication_rebind_sha256": "eaf57cfc3cac7bb779b550d65e51069e37baa9bef033cf16c4349ffa16adbadb",
     "prior_published_artifacts_retained": true,
     "publication_artifacts": {
       "07-baseline-reflection.svg": "e3fa42c894ec2b0b42795a5a78c72fa36963b62b68921800497e6e555a015f1e",
@@ -497,10 +493,10 @@
       "07-response-points.csv": "74b560bccb03d73d021d44d8149e9c84ce58222f65bc4910efd6e4b4842546f7",
       "07-response-points.md": "d6efb4a851e56d96c08b5c8668e8b18b222cce994791283eae26d445d54691be"
     },
-    "publication_binding_sha256": "3d6c1b0ac3cdc780f37711654fed8f6a442e1a992c133b83163e6fd65f96ce9f",
+    "publication_binding_sha256": "e8061e10d2f57f16374bfd680158f4efaa5140c6567a037545f1d89da5a26103",
     "redrawn_artifacts": {},
     "schema": "scnsim.engineer_publication_rebind.v3",
-    "transition_id": "scnsim.r2.course_presentation_namespace.992ca14.20261027"
+    "transition_id": "scnsim.docs44.junction_inductance_docstrings.5830579.20261111"
   },
   "results": {
     "batch": {
