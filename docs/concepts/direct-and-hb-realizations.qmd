@@ -48,7 +48,7 @@ junctions.
 | The junction carries | Its inductance becomes | Departure from `josephson_inductance` |
 |---|---|---|
 | a DC current $I_{dc}$ | $L_J/\sqrt{1-(I_{dc}/I_c)^2}$ | 0.5 % at $0.1\,I_c$, 15 % at $0.5\,I_c$, unbounded as $I_{dc}\to I_c$ |
-| an oscillating current of peak $I$ | about $L_J\left(1+(I/I_c)^2/8\right)$ for that tone | 0.1 % at $0.1\,I_c$, 1.2 % at $0.3\,I_c$ |
+| an oscillating current of peak $I$ | about $L_J\left(1+(I/I_c)^2/8\right)$ for that tone | 0.1 % at $0.1\,I_c$, 1 % at $0.3\,I_c$ |
 
 ::: {.callout-important title="Direct does not detect a biased or strongly driven junction"}
 SCNSim 1.0 does not solve a biased or strongly driven junction. A Direct request
