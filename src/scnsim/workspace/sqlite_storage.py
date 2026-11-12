@@ -24,6 +24,7 @@ from .binary_blocks import record_bytes, record_document
 from .evidence_version import EVIDENCE_VERSION
 from ..numeric_encoding import record_bytes as numerical_record_bytes
 from .operation_scratch import cleanup_inactive_operation_scratch
+from .sweep_evidence import stored_sweep_evidence
 
 _ACTIVE: ContextVar[tuple[Path, Snapshot] | None] = ContextVar('operation_sql_snapshot', default=None)
 _MARKER = '$scnsim_benchmark_journal'
@@ -1514,7 +1515,7 @@ def _complete_chunked_operation(binding, *, domain, operation_id, task_id, attem
             **identity, "request_ref": dict(request_ref), "metadata": dict(metadata),
         }
         manifest_ref = tx.put_object(record_bytes(manifest_body), role=f"{domain}_manifest")
-        for ordinal, source_chunk in enumerate(chunks(tx) if callable(chunks) else chunks):
+        for ordinal, source_chunk in enumerate(chunks):
             if not isinstance(source_chunk, Mapping):
                 raise _error("Chunk source is malformed.", domain=domain, ordinal=ordinal)
             count = source_chunk.get("point_count")
@@ -1721,13 +1722,13 @@ def _complete_chunked_operation(binding, *, domain, operation_id, task_id, attem
 def _externalize_sweep_point(tx, point):
     """Store immutable dependency/evidence bodies once, leaving point locators.
 
-    The public fixed reader hydrates these exact references when a single point
-    is selected. Compact sweep indexes never read or duplicate numerical bodies.
+    The chunk keeps the locators and never a second copy of a body. The public
+    fixed reader hydrates these exact references when a single point is
+    selected. Compact sweep indexes never read or duplicate numerical bodies.
     """
     if not isinstance(point, Mapping):
         raise _error("Sweep point is malformed while externalizing its bodies.")
-    stored = dict(point)
-    _externalize_sweep_record(tx, stored)
+    stored = _externalize_sweep_record(tx, point)
     continuations = stored.get("continuations")
     if continuations is not None:
         if not isinstance(continuations, list):
@@ -1765,7 +1766,10 @@ def _externalize_sweep_record(tx, record):
         evidence = stored.pop("evidence")
         if not isinstance(evidence, Mapping):
             raise _error("Sweep evidence body is malformed.")
-        stored["evidence_ref"] = tx.put_object(record_bytes(evidence), role="benchmark_value")
+        # Work rows are stored as columnar runs; the reader returns the rows.
+        stored["evidence_ref"] = tx.put_object(
+            record_bytes(stored_sweep_evidence(evidence)), role="benchmark_value"
+        )
     if "dependencies" in stored:
         if "dependency_refs" in stored:
             raise _error("Sweep point repeats inline and referenced dependencies.")
@@ -3677,40 +3681,3 @@ def find_operation_success(binding,request_sha256,*,projection_consumer=None):
     if legacy_path.exists():
         raise _unsupported_old_record(legacy_path)
     return None
-
-
-
-
-class _ChunkReference:
-    """One verified immutable staging object; it owns no execution lifetime."""
-    __slots__ = ("reference", "byte_length")
-
-    def __init__(self, reference):
-        self.reference = dict(reference)
-        self.byte_length = reference["byte_length"]
-
-
-class ChunkStorage:
-    """Same-call Sweep staging in checked SQLite objects, without spool.
-
-    A Direct call does not use it: its rows stay in memory until the terminal
-    publisher writes them. Chunk writes cannot publish completion. The terminal
-    publisher consumes the references through its own transaction snapshot, so
-    it never nests a reader lock inside the final writer lock.
-    """
-    def __init__(self, binding):
-        self.binding = binding
-        self.store = _bound(binding)
-
-    def put_record(self, value):
-        payload = record_bytes(value)
-        with self.binding.writer():
-            with self.store.transaction(str(uuid4()), expected_revisions={}) as tx:
-                reference = tx.put_object(payload, role="chunk_staging")
-        return _ChunkReference(reference)
-
-    def get_record(self, reference, *, snapshot=None):
-        if snapshot is not None:
-            return _decode(snapshot, reference.reference)
-        with _snapshot(self.store) as reader:
-            return _decode(reader, reference.reference)

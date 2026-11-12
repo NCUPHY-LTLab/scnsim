@@ -1347,14 +1347,9 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
             from .policy import ExecutionPolicy
 
             policy = ExecutionPolicy() if execution_policy is None else execution_policy
-            if chunk_domain == "direct":
-                # Direct rows stay in this process until terminal publication.
-                staging = None
-            else:
-                from ..workspace.sqlite_storage import ChunkStorage
-                staging = ChunkStorage(binding)
+            # Direct and Sweep rows stay in this process until terminal publication.
             result_sink = ChunkedResultSink(
-                staging, domain=chunk_domain,
+                domain=chunk_domain,
                 scratch_budget_bytes=policy.scratch_budget_bytes,
                 sweep_grid_shape=(
                     request["parameter_source"]["shape"]
@@ -1433,7 +1428,7 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
                         publication = publish(
                             binding, operation_id=trace.operation_id,
                             task_id=task_id, attempt_id=attempt_id,
-                            metadata=result_sink.metadata, chunks=result_sink.chunks,
+                            metadata=result_sink.metadata, chunks=result_sink.chunks(),
                             summary=result_sink.summary(),
                         )
                     if result_sink is None:
