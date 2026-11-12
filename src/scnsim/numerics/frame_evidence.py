@@ -201,8 +201,10 @@ def raise_foreign(evidence, *, frame: FrameKind) -> None:
 def raise_any_failure(evidence) -> None:
     """Raise the first failure of a frame, an equation failure included.
 
-    For a frame without lanes that is not expected to fail at all. The
-    exception is JAX's ``JaxRuntimeError`` with the message of the failure.
+    For the two frames, both without lanes, whose every failure stops the
+    caller: the candidate linearization and the polynomial coefficients of a
+    root search. The exception is JAX's ``JaxRuntimeError`` with the message
+    of the failure.
     """
     if evidence.get_exception() is not None:
         evidence.throw()
