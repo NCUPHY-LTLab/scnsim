@@ -111,7 +111,10 @@ order, with every dtype, shape and bit unchanged. `workspace/sweep_evidence.py`
 defines both directions: `stored_sweep_evidence` gathers the rows and
 `read_sweep_evidence` returns them. A root sweep solves no frequency row; its
 points keep their root packet with one array per field, as a single-point root
-call does.
+call does. The evidence of a residue-normalised coupling point names its two
+branch roots in `branches`: each entry holds the branch's `role`, its `binding`
+and the `body_id` of its root body, which is one of the point's
+`dependency_refs`. A single-point coupling names its branches the same way.
 
 ## Publication and lifetime
 

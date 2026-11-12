@@ -18,11 +18,12 @@ from unittest.mock import patch
 
 import numpy as np
 
-from scnsim import (CircuitRun, DirectResponseFormationError, DirectSolveSpec,
-                    EvidenceIntegrityError, ExecutionPolicy,
-                    DiagonalRootSpec, JVP, OperatorSpec, ParameterSpace, ReductionPipeline,
+from scnsim import (CircuitPlan, CircuitRun, DirectResponseFormationError, DirectSolveSpec,
+                    EvidenceIntegrityError, ExecutionPolicy, HybridizedPoleSpec,
+                    DiagonalRootSpec, JVP, OperatorSpec, ParameterDefinitions, ParameterSpace,
+                    ParameterSpec, ReductionPipeline, ResidueNormalizedCouplingSpec,
                     ResponseElementSpec, SensitivitySpec, TransferZeroSpec,
-                    UnsupportedEvidenceVersionError, units as u)
+                    UnsupportedEvidenceVersionError, components, units as u)
 from scnsim.numeric_encoding import array_from_record, array_record
 from scnsim.results.memory_analysis import InMemoryAnalysisResult
 from scnsim.results.matrix import OperatorResult
@@ -51,6 +52,8 @@ def _tree(value):
         return [_tree(child) for child in value]
     if isinstance(value, np.ndarray):
         return _bits(value)
+    if isinstance(value, u.Quantity):
+        return {"unit": str(value.units), "magnitude": _bits(value.magnitude)}
     if isinstance(value, (float, np.floating)):
         return {"f64": struct.pack(">d", float(value)).hex()}
     if isinstance(value, np.generic):
@@ -892,11 +895,41 @@ def _fresh_partial(workspace):
 _SWEEP_ROW_CONSTANTS = ("view_index", "demand")
 
 
+# Root-type sweep families. Their points solve no frequency row.
+_ROOT_SWEEPS = ("root", "root_failure", "pole", "transfer_zero", "coupling")
+
+# The public evidence of these families differs between the storages for single
+# points and sweeps alike: Memory exposes no evidence, a Workspace exposes the
+# stored record. Which form both should expose is open on
+# https://github.com/NCUPHY-LTLab/scnsim/issues/58#issuecomment-6825469879,
+# so Memory and Workspace are compared on every other public value.
+_STORAGE_SPECIFIC_EVIDENCE = ("pole", "transfer_zero", "coupling")
+
+
+def _coupled_plan():
+    """Two LC tanks joined by a small capacitor; the first tank's capacitance is swept."""
+    inputs = ParameterDefinitions(id="coupled_inputs")
+    capacitance = inputs.parameter(id="capacitance", baseline=80.0*u.fF, spec=ParameterSpec(unit=u.fF))
+    plan = CircuitPlan(id="coupled_tanks")
+    a, b = plan.bus(id="a"), plan.bus(id="b")
+    tank_a = (plan.add(components.capacitor(id="c_a", capacitance=capacitance)),
+              plan.add(components.inductor(id="l_a", inductance=8.0*u.nH)))
+    plan.parallel(id="lc_a", start=a, branches=((tank_a[0],), (tank_a[1],)), end=plan.ground)
+    tank_b = (plan.add(components.capacitor(id="c_b", capacitance=82.0*u.fF)),
+              plan.add(components.inductor(id="l_b", inductance=8.0*u.nH)))
+    plan.parallel(id="lc_b", start=b, branches=((tank_b[0],), (tank_b[1],)), end=plan.ground)
+    cross = plan.add(components.capacitor(id="cross", capacitance=2.0*u.fF))
+    plan.series(id="cross_branch", start=a, elements=(cross,), end=b)
+    return plan, (a.node, b.node), capacitance
+
+
 def _sweep_fixture(family):
-    """Return the Plan of one sweep family, its retained coordinate and its swept parameter."""
+    """Return the Plan of one sweep family, its retained coordinate(s) and its swept parameter."""
     if family == "affine":
         plan, length = _affine_plan()
         return plan, None, length
+    if family in ("pole", "coupling"):
+        return _coupled_plan()
     return _primitive_plan()
 
 
@@ -907,6 +940,15 @@ def _sweep_request(run, family, coordinate, parameter):
         # points carry public affine evidence; the second point carries none.
         return run.original, DirectSolveSpec(frequencies=[5.0, 5.5]*u.GHz), _affine_grid(parameter)
     capacitance = parameter
+    if family in ("pole", "coupling"):
+        view = run.original.reduce(ReductionPipeline().retain(*coordinate))
+        parameters = ParameterSpace.grid(axes={capacitance: [78.0, 80.0, 78.0]*u.fF})
+        if family == "pole":
+            return view, HybridizedPoleSpec(coordinates=coordinate, anchor=6.1*u.GHz), parameters
+        return view, ResidueNormalizedCouplingSpec(
+            branch_a=DiagonalRootSpec(coordinate=coordinate[0], root_hint=6.2*u.GHz),
+            branch_b=DiagonalRootSpec(coordinate=coordinate[1], root_hint=6.2*u.GHz),
+            frequency=5.5*u.GHz), parameters
     view = run.original.reduce(ReductionPipeline().retain(coordinate))
     parameters = ParameterSpace.grid(axes={capacitance: [100.0, 110.0, 100.0]*u.fF})
     if family == "direct":
@@ -919,6 +961,14 @@ def _sweep_request(run, family, coordinate, parameter):
                                          output_coordinate=coordinate, frequency=6.0*u.GHz), parameters
     if family == "root":
         return view, DiagonalRootSpec(coordinate=coordinate, root_hint=6.0*u.GHz), parameters
+    if family == "root_failure":
+        # The third capacitance makes the root's eliminated block singular; the
+        # fourth repeats the first.
+        return view, DiagonalRootSpec(coordinate=coordinate, root_hint=6.0*u.GHz), \
+            ParameterSpace.grid(axes={capacitance: [100.0, 110.0, 1e308, 100.0]*u.fF})
+    if family == "transfer_zero":
+        return run.original, TransferZeroSpec(anchor=6.0*u.GHz, family="S", input_coordinate="signal_in",
+                                              output_coordinate="signal_in"), parameters
     raise ValueError(family)
 
 
@@ -934,10 +984,26 @@ def _sweep_point_values(family, result):
         return _saved(result)
     if family == "operator":
         return {"points": _operator_saved(result), "evidence": _tree(result.evidence)}
-    names = (("value", "magnitude", "real", "imag") if family == "response"
-             else ("root", "frequency", "linewidth", "slope"))
+    names = {"response": ("value", "magnitude", "real", "imag"),
+             "transfer_zero": ("zero", "frequency", "numerator_slope", "denominator", "family"),
+             "coupling": ("coupling", "value", "magnitude", "real", "imag", "branch_a_residue",
+                          "branch_b_residue", "evaluation_omega")}.get(
+        family, ("root", "frequency", "linewidth", "slope"))
     return {**{name: _saved_values(getattr(result, name)) for name in names},
             "evidence": _tree(result.evidence)}
+
+
+def _storage_comparable(family, rows):
+    """Public sweep values without the evidence whose form is specific to the storage."""
+    rows = json.loads(json.dumps(rows))
+    for row in rows:
+        if family in _STORAGE_SPECIFIC_EVIDENCE and row["succeeded"]:
+            del row["result"]["evidence"]
+        if not row["succeeded"]:
+            # A Workspace keeps the selected-state arrays of the root packet in
+            # the failure evidence, as a single-point Workspace failure does.
+            row["failure"]["evidence"].pop("selected_state", None)
+    return rows
 
 
 def _sweep_saved(family, result):
@@ -994,11 +1060,11 @@ def _observed_sweep_work():
 
 def _native_sweep_rows(family, staged):
     """The work evidence each requested point must hold, from its own native rows."""
-    if family == "root":
+    if family in _ROOT_SWEEPS:
         # A root sweep solves no frequency row; its certificates are in the root packet.
         if set(staged) - {"baseline"}:
             raise AssertionError("root sweep staged frequency rows for a requested point")
-        return [None, None, None]
+        return [None] * (4 if family == "root_failure" else 3)
     if set(staged) != {0, 1}:
         raise AssertionError("sweep points 0 and 1 each run once; point 2 repeats point 0")
     names = (*_WORK_COUNTERS, "certificates") + (
@@ -1676,20 +1742,28 @@ class EvidenceV4Tests(unittest.TestCase):
                 anchor=6.0*u.GHz, family="Y", input_coordinate="signal_in", output_coordinate="signal_in"),
                 parameters=ParameterSpace.grid(axes={capacitance: [100.0, 120.0]*u.fF}))
 
+        def root_type(family):
+            return lambda run, coordinate, capacitance: _run_sweep(run, family, coordinate, capacitance)
+
+        succeeded_points = {"partial": [True, False, True], "completed_root_failure": [True, True, False, True]}
         for case, call, attempt_status in (
                 ("completed_direct", direct, "success"), ("completed_root", root, "success"),
+                ("completed_root_failure", root_type("root_failure"), "success"),
+                ("completed_pole", root_type("pole"), "success"),
+                ("completed_transfer_zero", root_type("transfer_zero"), "success"),
+                ("completed_coupling", root_type("coupling"), "success"),
                 ("partial", partial, "success"), ("failed", failing, "failure"),
                 ("interrupted_while_solving", direct, "interrupted"),
                 ("interrupted_while_sealing", direct, "interrupted")):
             with self.subTest(case=case), TemporaryDirectory() as directory:
-                plan, coordinate, capacitance = _primitive_plan()
+                plan, coordinate, capacitance = _sweep_fixture(case.removeprefix("completed_"))
                 run = CircuitRun(plan=plan, workspace=Path(directory), precision="float64",
                                  execution_policy=policy)
                 try:
                     if attempt_status == "success":
                         result = call(run, coordinate, capacitance)
                         succeeded = [point.succeeded for point in result.points]
-                        self.assertEqual(succeeded, [True, False, True] if case == "partial" else [True]*3)
+                        self.assertEqual(succeeded, succeeded_points.get(case, [True]*3))
                     elif case == "failed":
                         with self.assertRaises(DirectResponseFormationError):
                             call(run, coordinate, capacitance)
@@ -1716,13 +1790,21 @@ class EvidenceV4Tests(unittest.TestCase):
                 if attempt_status == "success":
                     self.assertLessEqual(result_roles, roles)
                     chunks = [bodies[digest] for digest, role in objects if role == "sweep_chunk"]
-                    self.assertEqual(sorted(chunk["ordinal"] for chunk in chunks), [0, 1, 2])
+                    self.assertEqual(sorted(chunk["ordinal"] for chunk in chunks),
+                                     list(range(len(succeeded))))
                     for chunk in chunks:
                         for point in chunk["points"]:
                             # A point's bodies are stored once, behind locators.
                             self.assertIn("evidence_ref", point)
                             self.assertIn("dependency_refs", point)
                             self.assertFalse({"evidence", "dependencies"} & set(point))
+                            if case == "completed_coupling":
+                                # The coupling names its two branch roots among the
+                                # point's own dependency bodies.
+                                branches = bodies[point["evidence_ref"]["sha256"]]["branches"]
+                                self.assertEqual([branch["role"] for branch in branches], ["a", "b"])
+                                self.assertEqual({branch["body_id"] for branch in branches},
+                                                 set(point["dependency_refs"]))
                             if point["status"] == "failure":
                                 self.assertIn("evidence_ref", point["failure"])
                                 self.assertNotIn("evidence", point["failure"])
@@ -1760,15 +1842,25 @@ class EvidenceV4Tests(unittest.TestCase):
                 saved[storage] = _sweep_saved(family, result)
                 native[storage] = _native_sweep_rows(family, staged)
                 _assert_same(self, key + "/postclose_public", before_close, saved[storage])
-                self.assertEqual([row["succeeded"] for row in saved[storage]], [True, True, True])
-                self.assertEqual(saved[storage][0]["result"], saved[storage][2]["result"])
+                self.assertEqual([row["succeeded"] for row in saved[storage]],
+                                 [True, True, False, True] if family == "root_failure" else [True, True, True])
+                self.assertEqual(saved[storage][0]["result"], saved[storage][-1]["result"])
                 if family == "affine":
                     # The public evidence under comparison is not empty.
                     evidence = [row["result"]["evidence"] for row in saved[storage]]
                     self.assertTrue(evidence[0]["affine_evidence"])
                     self.assertEqual(evidence[1], {})
             _assert_same(self, "sweep/" + family + "/memory_workspace_values",
-                         saved["memory"], saved["workspace"])
+                         _storage_comparable(family, saved["memory"]),
+                         _storage_comparable(family, saved["workspace"]))
+            # The evidence left out above differs as it does for a single point.
+            for memory, workspace in zip(saved["memory"], saved["workspace"]):
+                if family in _STORAGE_SPECIFIC_EVIDENCE:
+                    self.assertEqual(memory["result"]["evidence"], {})
+                    self.assertTrue(workspace["result"]["evidence"])
+                if not memory["succeeded"]:
+                    self.assertNotIn("selected_state", memory["failure"]["evidence"])
+                    self.assertIn("selected_state", workspace["failure"]["evidence"])
             _assert_same(self, "sweep/" + family + "/memory_workspace_native",
                          native["memory"], native["workspace"])
             # The fixed reader expands the stored columnar runs into the rows
@@ -1799,6 +1891,19 @@ class EvidenceV4Tests(unittest.TestCase):
 
     def test_sweep_memory_workspace_postclose_and_fresh_process_exact_bits_root(self):
         self._assert_sweep_storage_exact_bits("root")
+
+    def test_sweep_memory_workspace_postclose_and_fresh_process_exact_bits_root_failure(self):
+        self._assert_sweep_storage_exact_bits("root_failure")
+
+    def test_sweep_memory_workspace_postclose_and_fresh_process_exact_bits_hybridized_pole(self):
+        self._assert_sweep_storage_exact_bits("pole")
+
+    def test_sweep_memory_workspace_postclose_and_fresh_process_exact_bits_transfer_zero(self):
+        self._assert_sweep_storage_exact_bits("transfer_zero")
+
+    def test_sweep_memory_workspace_postclose_and_fresh_process_exact_bits_residue_coupling(self):
+        # On develop f3ef584 reading a Workspace point raised KeyError: 'branches'.
+        self._assert_sweep_storage_exact_bits("coupling")
 
     def _assert_family_storage_exact_bits(self, family):
         self.observations = {}
