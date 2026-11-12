@@ -49,22 +49,12 @@ def _frame_key(jax, frame):
     return jax.tree.structure(frame)
 
 
-def _checked_failure(error):
-    exception = error.get_exception()
-    if exception is not None:
-        error.throw()
-
-
-def _lane_error(jax, error, index):
-    import numpy as np
-    return jax.tree.map(lambda value: np.asarray(value)[index], error)
-
-
-def _append_value_error_frames(jax, frames, error, rows):
+def _append_value_error_frames(frames, error, rows):
+    from ..numerics import frame_evidence
     from ..numerics.evidence import MappedNativeErrorFrame
     for lane, row in enumerate(rows):
         frames.append(MappedNativeErrorFrame(
-            _lane_error(jax, error, lane), row['work_index'], row['source_index'],
+            frame_evidence.lane(error, lane), row['work_index'], row['source_index'],
         ))
 
 
@@ -78,13 +68,15 @@ def _append_response_error_frames(frames, result, rows, *, basis_kind, basis_ind
 
 
 def _candidate_frame(native, theta, *, backend, owner):
+    from ..numerics import frame_evidence
     variant = candidate_ad_variant(native, theta, device=backend.device)
     error, frame = backend.execute_native(
         variant.function, theta,
         precision=backend.precision, compile_key=variant.key,
         owner=owner, phase='native_ad_candidate_frame',
     )
-    _checked_failure(error)
+    # Every failure of this frame is raised, an equation failure included.
+    frame_evidence.raise_any_failure(error)
     return frame
 
 
@@ -140,9 +132,9 @@ def candidate_ad_variant(native, theta, *, device):
 def branch_ad_variant(native, candidate, omega, seeds, check_status,
                       certificate_status, *, device, completed_branches=None, completed_branch_errors=None):
     """Return the exact checked joint-branch frame recipe shared with warmup."""
+    from ..numerics import frame_evidence
     from ..numerics.native_sparse import checked_native
     from .variant_plan import ExecutionVariant
-    import jax
 
     operands = candidate, omega, seeds, check_status, certificate_status
     if completed_branches is not None:
@@ -153,7 +145,7 @@ def branch_ad_variant(native, candidate, omega, seeds, check_status,
         'branch_ad', device=device, operands=operands,
         transform=('checked_joint_branch_linearization' if completed_branches is None
                    else ('checked_completed_branch_linearization',
-                         str(jax.tree.structure(completed_branch_errors)))),
+                         frame_evidence.structure(completed_branch_errors))),
     )
     return ExecutionVariant('branch_ad', key,
         checked_native(native.branch_ad_function), _abstract_operands(operands))
@@ -246,7 +238,7 @@ def _value_responses(native, candidate, omega, *, backend, owner, policy,
             # distinguish it from those ordered equation records.
             from ..numerics.evidence import MappedNativeErrorFrame
             frames.append(MappedNativeErrorFrame(error, None, None))
-            _append_value_error_frames(backend.jax, frames, result.errors, selected)
+            _append_value_error_frames(frames, result.errors, selected)
             families = tuple(sorted(demand))
             family_values = tuple(getattr(result.outcomes, family) for family in families)
             for family, value in zip(families, family_values, strict=True):

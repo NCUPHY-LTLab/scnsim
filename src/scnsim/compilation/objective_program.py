@@ -85,11 +85,11 @@ class ObjectiveProgram:
         # immutable plan; compilation has no upward execution dependency.
         transform = 'vjp' if derivative else 'checked_value'
         if completed:
-            import jax
+            from ..numerics import frame_evidence
             from ..numerics.native_program import bind_completed_branches
             arguments = (arguments[0], arguments[1], bind_completed_branches(arguments[2]), *arguments[3:])
             transform = ('checked_completed_objective_vjp' if derivative else 'checked_completed_objective_value',
-                         str(jax.tree.structure(arguments[3])))
+                         frame_evidence.structure(arguments[3]))
         key = (native.variant_key('value', device=device, operands=arguments,
                                   transform=transform),
                ('objective_loss', self.loss.structural_record()))

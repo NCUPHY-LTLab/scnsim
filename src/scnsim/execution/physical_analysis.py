@@ -38,8 +38,9 @@ def _auxiliary_by_ordinal(rows):
 
 def execute_native_branch_packet(native, candidate, start_index, seed, *, backend,
                                  program_owner, operation_resources=None, compact_evidence=False):
-    from ..numerics.native_sparse import SparseEquationCheck, checked_native
-    from ..numerics.evidence import native_primal_exception, project_native_root
+    from ..numerics import frame_evidence
+    from ..numerics.native_sparse import checked_native
+    from ..numerics.evidence import project_native_root
 
     import jax.numpy as jnp
 
@@ -62,48 +63,11 @@ def execute_native_branch_packet(native, candidate, start_index, seed, *, backen
             compile_key=compile_key, owner=program_owner,
             phase='native_root_branch', details={'start_index': start_index},
         )
-    exception = native_primal_exception(error)
-    if exception is not None and not isinstance(exception, SparseEquationCheck):
-        error.throw()
+    frame_evidence.raise_foreign(error, frame=frame_evidence.FrameKind.SCALAR)
     row = next(row for row in native.root_layout if row['start_index'] == start_index)
     result = project_native_root(row['declaration'], packet, compact_evidence=compact_evidence)
     return result, packet, error
 
-
-
-def _native_chunk_sparse_exception(exception):
-    """Recognize only owned equation leaves; keep mixed batch errors throwable."""
-    from jax._src.checkify import BatchedError
-    from jax.tree_util import PyTreeDef
-    from ..numerics.native_sparse import ArchivedPrimalCheck, SparseEquationCheck
-
-    if isinstance(exception, SparseEquationCheck):
-        return True
-    if type(exception) is BatchedError:
-        rows = exception.error_mapping
-        return (type(rows) is dict and bool(rows)
-                and all(type(index) is tuple and all(type(i) is int and i >= 0 for i in index)
-                        and _native_chunk_sparse_exception(value)
-                        for index, value in rows.items()))
-    if type(exception) is ArchivedPrimalCheck:
-        if not isinstance(exception.original_tree, PyTreeDef) or len(exception.payload) < 2:
-            return False
-        try:
-            original = exception.original_tree.unflatten(exception.payload[:-2])
-        except (TypeError, ValueError):
-            return False
-        return _native_chunk_sparse_exception(original)
-    return False
-
-
-def _raise_unowned_native_chunk_error(error):
-    """Leave owned lane failures to the original ordered status reducers."""
-    from ..numerics.evidence import native_error_may_raise
-
-    if native_error_may_raise(error):
-        exception = error.get_exception()
-        if exception is not None and not _native_chunk_sparse_exception(exception):
-            error.throw()
 
 
 def acquire_native_root(program, native, candidate, row, seed, *, backend,
@@ -113,6 +77,7 @@ def acquire_native_root(program, native, candidate, row, seed, *, backend,
     from ..errors import RuntimePreparationError
     from ..numerics.root_search import complex_frequency, select_declared_root
     from ..numerics.native_polynomial import transmission_zero_spectrum
+    from ..numerics import frame_evidence
     from ..numerics.native_sparse import checked_native
     spec = row['spec']
     search = spec.get('search')
@@ -143,7 +108,7 @@ def acquire_native_root(program, native, candidate, row, seed, *, backend,
                 device=backend.device, operands=operands, view_index=view_index,
                 transform='checked_coefficients'), owner=program_owner,
             phase='native_root_search_coefficients')
-        error.throw()
+        frame_evidence.raise_any_failure(error)
         if int(np.asarray(coefficients[3])) != 0:
             from ..numerics.jax_core import FAILURES
             status = int(np.asarray(coefficients[3]))
@@ -806,13 +771,13 @@ class PhysicalAnalysis:
                     key = self._dependency_key(row)
                     initial = projected_by_start[start_index]
                     packet = packet_by_start[start_index]
-                    from ..numerics.native_sparse import root_error_frame
+                    from ..numerics import frame_evidence
                     declaration = row['declaration']
                     dependency = ('root_occurrence',row['view_index'],start_index,
                         (declaration.kind,declaration.coordinate_index,declaration.row_index,
                          declaration.column_index,declaration.family,declaration.output_index,
                          declaration.input_index))
-                    packet_error = root_error_frame(current_error,dependency)
+                    packet_error = frame_evidence.for_dependency(current_error,dependency)
                     if initial.failure is not None:
                         if initial.failure.kind != 'numerical_resolution_unresolved':
                             branch_results[start_index] = initial
@@ -1081,6 +1046,7 @@ class PhysicalAnalysis:
     def _execute_native_completed_value(self, program, point, completed_branches, *, completed_branch_errors, operation):
         """Finish one endpoint frame from actual continuation packets, without re-rooting."""
         import jax.numpy as jnp
+        from ..numerics import frame_evidence
         from ..numerics.native_sparse import checked_native
         from ..numerics.evidence import project_native_outcome
 
@@ -1109,7 +1075,7 @@ class PhysicalAnalysis:
         function = checked_native(complete)
         compile_key = native.variant_key(
             'value', device=self.backend.device, operands=operands,
-            transform=('checked_completed_value',str(self.backend.jax.tree.structure(errors))),
+            transform=('checked_completed_value',frame_evidence.structure(errors)),
         )
         candidate_scope = (nullcontext() if self.operation_resources is None else
                            self.operation_resources.candidate_compute())
@@ -1128,6 +1094,7 @@ class PhysicalAnalysis:
                               prior_check_status, prior_certificate_status,
                               operation):
         """Run one exact frequency bucket and return its synchronized outcome."""
+        from ..numerics import frame_evidence
         jnp = self.backend.jax.numpy
         view_index = rows[0]['view_index']
         demand = tuple(rows[0]['demand'])
@@ -1163,7 +1130,8 @@ class PhysicalAnalysis:
                          'first_source_index': rows[0]['source_index'],
                          **(self._native_slot_admission or {})},
             )
-        _raise_unowned_native_chunk_error(outcome.errors)
+        # Owned lane failures are left to the ordered status reducers.
+        frame_evidence.raise_foreign(outcome.errors, frame=frame_evidence.FrameKind.LANES)
         return outcome
 
     def _native_frequency_slots(self, native):
@@ -1230,7 +1198,7 @@ class PhysicalAnalysis:
                              frequency_slots=1, prepare_work=None,
                              raw_failure_certificates=False):
         """Execute one candidate and its ordered native frequency work once."""
-        from ..numerics.native_sparse import sparse_certificates
+        from ..numerics import frame_evidence
         from ..numerics.evidence import require_native_frequency
 
         program = self.program_at(point)
@@ -1292,7 +1260,7 @@ class PhysicalAnalysis:
 
                 for rows, outcome in zip(window, outcomes, strict=True):
                     certificates = (None if raw_failure_certificates else
-                                    sparse_certificates(outcome.errors))
+                                    frame_evidence.certificates(outcome.errors))
                     family_arrays = {}
                     local_check = np.asarray(outcome.outcomes.check_status)
                     local_certificate = np.asarray(outcome.outcomes.certificate_status)
@@ -1319,7 +1287,7 @@ class PhysicalAnalysis:
                         if raw_failure_certificates:
                             if lane_failed:
                                 if certificates is None:
-                                    certificates = sparse_certificates(outcome.errors)
+                                    certificates = frame_evidence.certificates(outcome.errors)
                                 certificate_rows = tuple(
                                     self._native_certificate_lane(certificate, lane)
                                     for certificate in certificates
@@ -1775,11 +1743,10 @@ class PhysicalAnalysis:
                     )
                 branch_errors = tuple(root_errors[index] for index in coupling['branch_indices'])
                 operands = (candidate, branch_packets, evaluation, branch_errors)
-                from ..numerics.native_sparse import (SparseEquationCheck, checked_native,
-                    archive_completed_primal_errors, sparse_certificates)
-                from ..numerics.evidence import (
-                    native_primal_exception, project_native_coupling,
-                )
+                from ..numerics import frame_evidence
+                from ..numerics.native_sparse import (checked_native,
+                    archive_completed_primal_errors)
+                from ..numerics.evidence import project_native_coupling
                 coupling_function = native.coupling_function(public['observable_index'])
                 def complete_coupling(point, packets, frequency, errors):
                     archive_completed_primal_errors(errors)
@@ -1788,7 +1755,7 @@ class PhysicalAnalysis:
                 compile_key = native.coupling_variant_key(
                     public['observable_index'], device=self.backend.device,
                     operands=operands, transform=('checked_completed_value',
-                        str(self.backend.jax.tree.structure(branch_errors))),
+                        frame_evidence.structure(branch_errors)),
                 )
                 candidate_scope = (nullcontext() if self.operation_resources is None else
                                    self.operation_resources.candidate_compute())
@@ -1802,14 +1769,12 @@ class PhysicalAnalysis:
                             details={'operation': 'evaluate',
                                      'observable_index': public['observable_index']},
                         )
-                exception = native_primal_exception(checked_error)
-                if exception is not None and not isinstance(exception, SparseEquationCheck):
-                    checked_error.throw()
+                frame_evidence.raise_foreign(checked_error, frame=frame_evidence.FrameKind.SCALAR)
                 selected = project_native_coupling(public['quantity_key'], packet)
                 from dataclasses import asdict
                 facts = record_document(selected.evidence_bytes)
                 facts['equation_certificates'] = tuple(asdict(value)
-                    for value in sparse_certificates(checked_error))
+                    for value in frame_evidence.certificates(checked_error))
                 selected = replace(selected,evidence_bytes=evidence_bytes(facts))
                 dependencies, body_ids = {}, {}
                 for row in program.observable_metadata():

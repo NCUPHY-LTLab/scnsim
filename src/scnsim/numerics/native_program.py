@@ -145,7 +145,7 @@ def _empty_chunk_outcome(function, candidate, omega, prior_check,
                          prior_certificate, jnp):
     """Build typed no-op outputs for one already-functionalized tail lane."""
     import jax
-    from jax._src import checkify
+    from . import frame_evidence
 
     def abstract(value):
         aval = native_operand_abstract(value)
@@ -163,23 +163,14 @@ def _empty_chunk_outcome(function, candidate, omega, prior_check,
             raise TypeError('ordered tail outcome must contain only typed array leaves')
         return jnp.zeros(value.shape, dtype=value.dtype)
 
-    def inactive_code(value):
-        if not isinstance(value, jax.ShapeDtypeStruct):
-            raise TypeError('ordered tail Error codes must contain only typed array leaves')
-        # Keep skipped lanes absent to the pinned sparse-certificate decoder.
-        return jnp.full(value.shape, checkify._INACTIVE_CODE, dtype=value.dtype)
-
-    empty_error = error_shape._replace(
-        _pred=jax.tree.map(zeros, error_shape._pred),
-        _code={effect: inactive_code(value)
-               for effect, value in error_shape._code.items()},
-        _payload=jax.tree.map(zeros, error_shape._payload),
-    )
+    # A skipped lane has no equation evidence: its rows read as not present.
+    empty_error = frame_evidence.absent(error_shape)
     return empty_error, jax.tree.map(zeros, outcome_shape)
 
 
 def _compile_chunk(function, bucket, *, ordered_tail=False):
     # Capture only the admitted immutable point equation and static bucket.
+    from . import frame_evidence
     from .native_sparse import checked_native
     if ordered_tail:
         # The tail retains the old one-row stop boundary. A checked scan carries
@@ -219,9 +210,7 @@ def _compile_chunk(function, bucket, *, ordered_tail=False):
                 certificates = first(prior_certificate,
                                      outcome.certificate_status != 0,
                                      outcome.certificate_status)
-                error_failed = jnp.asarray(False)
-                for predicate in error._pred.values():
-                    error_failed = error_failed | jnp.any(predicate)
+                error_failed = frame_evidence.any_failed(error)
                 next_active = (active & (checks == 0) & (certificates == 0)
                                & ~error_failed)
                 return (checks, certificates, next_active), (error, outcome, active)
