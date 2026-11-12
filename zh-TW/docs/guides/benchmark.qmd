@@ -29,7 +29,7 @@ sidebar: guides
 
 開啟 Workspace Benchmark 與 `resolve()` 都是唯讀，不遷移、修復或求解。目前證據需要復原時，明確呼叫 `run.recover_workspace()`。1.0 不支援較早開發版本的證據；請使用新 Workspace 重算。
 
-計時、進度與資源所有權見[執行期與基準量測（英文）](/en/docs/implementation/benchmark-and-backends.html)。必要結果發布與精確已存陣列見 [Workspace 證據 v3（英文）](/en/docs/contracts/workspace-evidence-v3.html)。
+計時、進度與資源所有權見[執行期與基準量測（英文）](/en/docs/implementation/benchmark-and-backends.html)。必要結果發布與精確已存陣列見 [Workspace 證據 v4（英文）](/en/docs/contracts/workspace-evidence-v4.html)。
 
 ## 英文歷史記錄：1.0 之前的執行期與儲存
 

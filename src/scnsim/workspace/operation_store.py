@@ -27,6 +27,7 @@ from ..errors import (
     WorkspaceRecoveryRequiredError,
 )
 from ..numeric_encoding import record_bytes, record_document
+from .evidence_version import EVIDENCE_VERSION
 from ._os_io import lock_fd, unlock_fd
 from .storage import _fsync_directory
 
@@ -108,7 +109,7 @@ def preflight_operation_store(root: Path) -> None:
         metadata = dict(connection.execute("SELECT key,value FROM metadata"))
         if metadata.get("schema_version") != str(_VERSION):
             raise _unsupported_version(metadata.get("schema_version"))
-        if metadata.get("evidence_version") != "3":
+        if metadata.get("evidence_version") != str(EVIDENCE_VERSION):
             raise _unsupported_version(metadata.get("evidence_version"))
     finally:
         _close(connection)
@@ -164,7 +165,8 @@ class OperationStore:
         self._phase_scope = phase_scope or (lambda name, details: nullcontext())
         self.root = Path(root)
         self.path = self.root / _DATABASE
-        self._metadata = {"schema_version": str(_VERSION), "evidence_version": "3", "plan_sha256": plan_sha256,
+        self._metadata = {"schema_version": str(_VERSION),
+                          "evidence_version": str(EVIDENCE_VERSION), "plan_sha256": plan_sha256,
                           "workspace_instance_id": workspace_instance_id}
 
     @contextmanager
@@ -207,7 +209,7 @@ class OperationStore:
                     raise _integrity("Operation database binding metadata is malformed.")
                 if metadata["schema_version"] != str(_VERSION):
                     raise _unsupported_version(metadata["schema_version"])
-                if metadata["evidence_version"] != "3":
+                if metadata["evidence_version"] != str(EVIDENCE_VERSION):
                     raise _unsupported_version(metadata["evidence_version"])
                 return cls(root, plan_sha256=metadata["plan_sha256"],
                            workspace_instance_id=metadata["workspace_instance_id"])

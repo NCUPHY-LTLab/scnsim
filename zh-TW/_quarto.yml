@@ -180,8 +180,8 @@ website:
         href: /en/docs/guides/static-capacitance.html
       - text: CPU 效能指南
         href: /en/docs/guides/benchmark.html
-      - text: Workspace 證據 v3
-        href: /en/docs/contracts/workspace-evidence-v3.html
+      - text: Workspace 證據 v4
+        href: /en/docs/contracts/workspace-evidence-v4.html
       - text: V1 執行期契約
         href: /en/docs/v1-runtime-contract.html
       - text: 歷史證據紀錄

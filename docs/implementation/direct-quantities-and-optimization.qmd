@@ -291,7 +291,7 @@ replaced by zero, finite differences or an earlier candidate's gradient.
 Each public stage history retains its saved starting baseline and ordered
 evaluations. Counter telemetry remains the actual optimizer iteration/evaluation
 count. For current publication and readback, use
-[Workspace evidence v3](../contracts/workspace-evidence-v3.qmd) and the
+[Workspace evidence v4](../contracts/workspace-evidence-v4.qmd) and the
 [Runtime contract](../v1-runtime-contract.qmd#memory-optimization-storage).
 
 ## History: Julia optimizer replay and continuation certificate

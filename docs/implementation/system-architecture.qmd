@@ -276,7 +276,7 @@ and View operands are runtime data rather than a second model.
 Plan/View/Spec and parameters
   -> immutable prepared request and physical program
   -> checked JAX/native CPU numerical primitives
-  -> RAM sink or SQLite v3 publication
+  -> RAM sink or SQLite evidence v4 publication
   -> detached values or fixed readonly Result selection
 ```
 

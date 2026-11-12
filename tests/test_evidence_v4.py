@@ -17,7 +17,8 @@ import unittest
 
 import numpy as np
 
-from scnsim import (CircuitRun, DirectSolveSpec, EvidenceIntegrityError,
+from scnsim import (CircuitRun, DirectResponseFormationError, DirectSolveSpec,
+                    EvidenceIntegrityError, ExecutionPolicy,
                     DiagonalRootSpec, JVP, OperatorSpec, ParameterSpace, ReductionPipeline,
                     ResponseElementSpec, SensitivitySpec,
                     UnsupportedEvidenceVersionError, units as u)
@@ -25,6 +26,7 @@ from scnsim.numeric_encoding import array_from_record, array_record
 from scnsim.results.memory_analysis import InMemoryAnalysisResult
 from scnsim.results.matrix import OperatorResult
 from scnsim.workspace.binary_blocks import MAGIC, record_bytes, record_document
+from scnsim.workspace.direct_summary import work_evidence_columns, work_evidence_rows
 from scnsim.workspace.operation_store import OperationStore
 from tests.test_workspace_readback import _primitive_plan
 from tests.test_workspace_optimization_readback import _fixture as _optimization_fixture, _saved_values
@@ -116,10 +118,44 @@ def _root_typed(value):
     return value
 
 
+_WORK_COUNTERS = ("work_index", "source_index", "check_status", "certificate_status",
+                  "check_position", "certificate_position")
+
+
+def _is_work_columns(value):
+    """Recognize a Direct chunk summary's work evidence: arrays over its work rows."""
+    return (set(value) == {*_WORK_COUNTERS, "certificates"}
+            and all(isinstance(value[name], Mapping) for name in _WORK_COUNTERS))
+
+
+def _work_column_certificates(columns):
+    # Independent of the product reader: slice every stored column at one work
+    # row and present it as the certificate record of that row. The result is
+    # ordered by work row, then by certificate, like the same-call lanes.
+    counters = {name: array_from_record(dict(columns[name])) for name in _WORK_COUNTERS}
+    row_count = counters["work_index"].shape[0]
+    for name, column in counters.items():
+        if column.dtype != np.dtype("int64") or column.shape != (row_count,):
+            raise AssertionError("Direct work counter " + name + " is not one integer per work row")
+    for position in range(row_count):
+        for certificate in columns["certificates"]:
+            if set(certificate) != {*_CERTIFICATE_META, *_CERTIFICATE_ARRAYS}:
+                raise AssertionError("Direct summary certificate has unexpected fields")
+            row = {name: certificate[name] for name in _CERTIFICATE_META}
+            for name in _CERTIFICATE_ARRAYS:
+                column = array_from_record(dict(certificate[name]))
+                if column.shape[:1] != (row_count,):
+                    raise AssertionError("Direct certificate field does not cover its work rows")
+                row[name] = array_record(column[position], exact_dtype=True)
+            yield row
+
+
 def _certificate_records(value):
     """Select actual certificate records without dropping their other fields."""
     if isinstance(value, Mapping):
-        if set(_ROOT_FIELDS) <= set(value):
+        if _is_work_columns(value):
+            yield from _work_column_certificates(value)
+        elif set(_ROOT_FIELDS) <= set(value):
             yield value
         elif set(_CERTIFICATE_ARRAYS) <= set(value) and set(_CERTIFICATE_META) <= set(value):
             yield value
@@ -157,8 +193,113 @@ def _saved_certificates(result):
                     raise AssertionError("Direct certificate belongs to another selected execution")
             if body["ordinal"] != row["ordinal"]:
                 raise AssertionError("Direct certificate chunk order changed")
-            rows.extend(_certificate_records(body["evidence"]))
+            sliced = list(_certificate_records(body["evidence"]))
+            # The product reader of the columnar layout must return the rows
+            # that the independent slicing above found, in the same order.
+            read = [certificate for work_row in work_evidence_rows(body["evidence"]["work_evidence"])
+                    for certificate in work_row["certificates"]]
+            if _tree(read) != _tree(sliced):
+                raise AssertionError("Direct summary reader differs from its stored columns")
+            rows.extend(sliced)
     return _tree(rows)
+
+
+def _direct_summary_blocks(result):
+    """Read each chunk summary's stored header through the fixed selection."""
+    reader = result.s.view._fixed_reader
+    blocks = []
+    with reader._store().reader() as snapshot:
+        _, _, _, index_root, _ = reader._selection_snapshot(snapshot)
+        for row in index_root["chunks"]:
+            payload = snapshot.get_object(row["summary_json"]["summary_ref"])
+            if not payload.startswith(MAGIC):
+                raise AssertionError("Direct chunk summary is not a numeric block")
+            header_length = struct.unpack("<Q", payload[8:16])[0]
+            header = json.loads(payload[16:16 + header_length])
+            blocks.append({"point_count": row["point_count"], "header": header,
+                           "byte_length": len(payload)})
+    return blocks
+
+
+_REFERENCE_KEYS = {"schema_version", "storage", "database", "role", "sha256", "byte_length"}
+
+
+def _stored_references(value, found):
+    if isinstance(value, Mapping):
+        if set(value) == _REFERENCE_KEYS:
+            found.add((value["sha256"], value["role"]))
+        else:
+            for child in value.values():
+                _stored_references(child, found)
+    elif isinstance(value, (tuple, list)):
+        for child in value:
+            _stored_references(child, found)
+
+
+def _database_census(workspace):
+    """List every stored object and those that pointers, streams and indexes reach.
+
+    A reference is followed into the object it names, so an object counts as
+    referenced when a chain of stored references leads to it from a pointer, a
+    stream entry, the operation index or a result index table.
+    """
+    paths = list(Path(workspace).rglob("operations.sqlite3"))
+    if len(paths) != 1:
+        raise AssertionError("fixture must have exactly one OperationStore")
+    connection = sqlite3.connect(paths[0].absolute().as_uri() + "?mode=ro", uri=True)
+    try:
+        bodies = {digest: record_document(bytes(payload))
+                  for digest, payload in connection.execute("SELECT sha256,payload FROM objects")}
+        objects = set(connection.execute("SELECT sha256,role FROM object_roles"))
+        pending = set()
+        for table in ("pointers", "entries", "operations"):
+            pending.update(connection.execute("SELECT sha256,role FROM " + table))
+        tables = [name for (name,) in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")]
+        for table in tables:
+            for column in [row[1] for row in connection.execute("PRAGMA table_info(" + table + ")")]:
+                if column.endswith(("_ref", "_json")):
+                    for (text,) in connection.execute(
+                            "SELECT " + column + " FROM " + table + " WHERE " + column + " IS NOT NULL"):
+                        _stored_references(json.loads(text), pending)
+        current_operations = {operation_id for (operation_id,) in connection.execute(
+            "SELECT operation_id FROM operations")}
+    finally:
+        connection.close()
+    reached = set()
+    while pending:
+        key = pending.pop()
+        if key in reached:
+            continue
+        if key not in objects:
+            raise AssertionError("stored reference names a missing object: " + repr(key))
+        reached.add(key)
+        found = set()
+        _stored_references(bodies[key[0]], found)
+        pending.update(found - reached)
+    return {"objects": objects, "reached": reached, "bodies": bodies,
+            "current_operations": current_operations}
+
+
+@contextmanager
+def _interrupted_at(owner, name, *, call, matches=lambda args, kwargs: True):
+    """Raise KeyboardInterrupt in place of one selected call; forward all others."""
+    original = getattr(owner, name)
+    seen = 0
+
+    def forwarded(*args, **kwargs):
+        nonlocal seen
+        if matches(args, kwargs):
+            seen += 1
+            if seen == call:
+                raise KeyboardInterrupt("interrupted at " + name)
+        return original(*args, **kwargs)
+
+    setattr(owner, name, forwarded)
+    try:
+        yield
+    finally:
+        setattr(owner, name, original)
 
 
 # The assigned private runner may persist these test observations immediately.
@@ -744,13 +885,16 @@ def _fresh_partial(workspace):
     return _partial_saved(result)
 
 
-class EvidenceV3Tests(unittest.TestCase):
+class EvidenceV4Tests(unittest.TestCase):
     def test_literal_columns_preserve_bits_and_reject_corruption(self):
         # Signed zero and a NaN payload are data, not normalization choices.
         source = np.array([0x8000000000000000, 0x7ff8000000000042], dtype="<u8").view("<f8")
         body = {"values": array_record(source, exact_dtype=True)}
         payload = record_bytes(body)
+        self.assertEqual(MAGIC, b"SCNSIMB4")
         self.assertTrue(payload.startswith(MAGIC))
+        header_length = struct.unpack("<Q", payload[8:16])[0]
+        self.assertEqual(json.loads(payload[16:16 + header_length])["schema_version"], 4)
         self.assertEqual(_bits(array_from_record(record_document(payload)["values"])), _bits(source))
         for offset in (0, 8, 16):
             damaged = bytearray(payload)
@@ -798,6 +942,160 @@ class EvidenceV3Tests(unittest.TestCase):
                 connection.close()
             with store.reader() as snapshot, self.assertRaises(EvidenceIntegrityError):
                 snapshot.get_object(reference)
+
+    def test_direct_work_evidence_columns_recover_their_rows_exactly(self):
+        # Signed zero, a NaN payload, infinity and a vector-valued field are
+        # data. The columnar layout may only rearrange them.
+        payload_nan = np.array([0x7ff8000000000042], dtype="<u8").view("<f8")[0]
+
+        def certificate(site, stage, values):
+            return {"site": site, "role": "primal", "stage": stage, "derivative_order": 0,
+                    **{name: array_record(np.asarray(value)) for name, value in values.items()}}
+
+        def work_row(index, scalar, vector):
+            return {"work_index": index, "source_index": 10 + index, "check_status": 0,
+                    "certificate_status": index % 2, "check_position": -1,
+                    "certificate_position": index,
+                    "certificates": (
+                        certificate((183,), 15, {
+                            "status": 0.0, "eta": scalar, "residual_numerator": -0.0,
+                            "residual_denominator": np.inf, "performed": 1.0, "present": 1.0}),
+                        certificate((7, ("rhs", 2)), 4, {
+                            "status": np.zeros(2), "eta": np.asarray(vector, dtype=np.float32),
+                            "residual_numerator": np.asarray(vector) * (1 + 2j),
+                            "residual_denominator": np.asarray(vector),
+                            "performed": np.ones(2), "present": np.ones(2)}))}
+
+        rows = [work_row(0, payload_nan, [1.5, -0.0]), work_row(1, 2.5e-17, [np.inf, 3.0]),
+                work_row(5, -0.0, [payload_nan, 4.0])]
+        columns = work_evidence_columns(rows)
+        self.assertEqual(set(columns), {*_WORK_COUNTERS, "certificates"})
+        self.assertEqual(columns["work_index"].tolist(), [0, 1, 5])
+        self.assertEqual(columns["certificates"][0]["eta"].shape, (3,))
+        self.assertEqual(columns["certificates"][1]["eta"].shape, (3, 2))
+        self.assertEqual(columns["certificates"][1]["eta"].dtype, np.dtype("float32"))
+        stored = record_document(record_bytes({"work_evidence": columns}))
+        self.assertEqual(_tree(work_evidence_rows(stored["work_evidence"])), _tree(rows))
+
+        other_site = [dict(rows[0]), dict(rows[1])]
+        other_site[1]["certificates"] = (dict(rows[1]["certificates"][0], site=(184,)),
+                                         rows[1]["certificates"][1])
+        other_shape = [dict(rows[0]), dict(rows[1])]
+        other_shape[1]["certificates"] = (
+            dict(rows[1]["certificates"][0], eta=array_record(np.zeros(2))), rows[1]["certificates"][1])
+        for label, mixed in (("site", other_site), ("shape", other_shape)):
+            with self.subTest(mixed=label), self.assertRaises(RuntimeError):
+                work_evidence_columns(mixed)
+        with self.assertRaises(TypeError):
+            work_evidence_columns([dict(rows[0], work_index=0.0)])
+
+        short = dict(stored["work_evidence"], check_status=array_record(
+            np.zeros(2, dtype=np.int64), exact_dtype=True))
+        truncated = dict(stored["work_evidence"])
+        truncated["certificates"] = [dict(truncated["certificates"][0], eta=array_record(np.zeros(2))),
+                                     truncated["certificates"][1]]
+        open_layout = dict(stored["work_evidence"], extra=1)
+        for label, damaged in (("counter", short), ("field", truncated), ("open", open_layout)):
+            with self.subTest(damaged=label), self.assertRaises(EvidenceIntegrityError):
+                work_evidence_rows(damaged)
+
+    def test_direct_summary_columns_do_not_depend_on_chunk_size(self):
+        frequencies = np.linspace(5.5, 6.5, 8)*u.GHz
+        blocks = []
+        # Chunk sizes 3 and 8 give summaries over 3, 3, 2 and 8 work rows.
+        for chunk_size in (3, 8):
+            with TemporaryDirectory() as directory:
+                plan, _, _ = _primitive_plan()
+                run = CircuitRun(plan=plan, workspace=Path(directory), precision="float64",
+                                 execution_policy=ExecutionPolicy(frequency_chunk_size=chunk_size))
+                try:
+                    result = run.solve(run.original, DirectSolveSpec(frequencies=frequencies))
+                    blocks.extend(_direct_summary_blocks(result))
+                finally:
+                    run.close()
+        self.assertEqual([block["point_count"] for block in blocks], [3, 3, 2, 8])
+        layouts = set()
+        for block in blocks:
+            header, row_count = block["header"], block["point_count"]
+            work = header["record"]["evidence"]["work_evidence"]
+            certificates = work["certificates"]
+            self.assertTrue(certificates, "Direct summary stored no certificate")
+            # One column per work counter and one per field of each certificate.
+            self.assertEqual(len(header["columns"]),
+                             len(_WORK_COUNTERS) + len(_CERTIFICATE_ARRAYS)*len(certificates))
+            for column in header["columns"]:
+                self.assertEqual(column["path"][:2], ["evidence", "work_evidence"])
+                self.assertEqual(column["shape"][0], row_count)
+            layouts.add(json.dumps([[column["path"], column["dtype"], column["shape"][1:]]
+                                    for column in header["columns"]]))
+        # The same columns whatever the chunk size; only their length differs.
+        self.assertEqual(len(layouts), 1)
+
+    def test_direct_calls_leave_no_staging_or_unreferenced_objects(self):
+        from scnsim.execution.physical_analysis import PhysicalAnalysis
+        from scnsim.workspace.operation_store import StoreTransaction
+        # Two chunks of two work rows each; 6.0 GHz is requested twice.
+        frequencies = [5.5, 6.0, 6.0, 6.5, 7.0]*u.GHz
+        # The last lane overflows after the first chunk's rows are already held.
+        overflowing = [5.5e9, 6.0e9, 6.5e9, 1.0e308]*u.Hz
+        result_roles = {"direct_chunk", "direct_chunk_summary", "direct_manifest", "direct_index_root",
+                        "direct_completion", "operation_result", "success_selection"}
+        for case, attempt_status in (("completed", "success"), ("failed", "failure"),
+                                     ("interrupted_while_solving", "interrupted"),
+                                     ("interrupted_while_sealing", "interrupted")):
+            with self.subTest(case=case), TemporaryDirectory() as directory:
+                plan, _, _ = _primitive_plan()
+                run = CircuitRun(plan=plan, workspace=Path(directory), precision="float64",
+                                 execution_policy=ExecutionPolicy(frequency_chunk_size=2))
+                try:
+                    if case == "completed":
+                        result = run.solve(run.original, DirectSolveSpec(frequencies=frequencies))
+                        chunk_count = result.s.view._fixed_reader.selection.chunk_count
+                    elif case == "failed":
+                        with self.assertRaises(DirectResponseFormationError):
+                            run.solve(run.original, DirectSolveSpec(frequencies=overflowing))
+                    elif case == "interrupted_while_solving":
+                        # The second native batch never runs; the first is already held.
+                        with _interrupted_at(PhysicalAnalysis, "_execute_native_chunk", call=2), \
+                                self.assertRaises(KeyboardInterrupt):
+                            run.solve(run.original, DirectSolveSpec(frequencies=frequencies))
+                    else:
+                        # The terminal transaction already holds one chunk, its
+                        # summary and the next chunk when it is interrupted.
+                        with _interrupted_at(
+                                StoreTransaction, "put_object", call=2,
+                                matches=lambda args, kwargs: kwargs.get("role") == "direct_chunk_summary"), \
+                                self.assertRaises(KeyboardInterrupt):
+                            run.solve(run.original, DirectSolveSpec(frequencies=frequencies))
+                finally:
+                    run.close()
+                census = _database_census(directory)
+                objects, reached, bodies = census["objects"], census["reached"], census["bodies"]
+                roles = {role for _, role in objects}
+                self.assertFalse({role for role in roles if "staging" in role}, roles)
+                if case == "completed":
+                    for role in ("direct_chunk", "direct_chunk_summary"):
+                        stored = {key for key in objects if key[1] == role}
+                        self.assertEqual(len(stored), chunk_count)
+                        self.assertLessEqual(stored, reached)
+                    self.assertLessEqual(result_roles, roles)
+                else:
+                    # Nothing of an unfinished result reaches the database.
+                    self.assertFalse(result_roles & roles, result_roles & roles)
+                attempts = [bodies[digest] for digest, role in reached if role == "attempt"]
+                self.assertEqual([attempt["status"] for attempt in attempts], [attempt_status])
+                # The store replaces two control records behind their pointers:
+                # the operation row and the attempt. Their earlier states stay
+                # as objects that nothing refers to. Every other object,
+                # including all numerical evidence, must be referenced.
+                for digest, role in objects - reached:
+                    body = bodies[digest]
+                    if role == "operation":
+                        self.assertIn(body["operation_id"], census["current_operations"])
+                    elif role == "attempt":
+                        self.assertEqual(body["attempt_id"], attempts[0]["attempt_id"])
+                    else:
+                        self.fail("unreferenced " + role + " object " + digest)
 
     def test_optimization_history_locator_storage_integrity(self):
         from scnsim.workspace.results import FixedPhysicalOptimizationReader
@@ -858,6 +1156,20 @@ class EvidenceV3Tests(unittest.TestCase):
         from scnsim.canonical import canonical_json_bytes
         with self.assertRaises(UnsupportedEvidenceVersionError):
             record_document(old_record_bytes({"values": array_record(np.array([1.0]))}))
+        # A numeric block of evidence version 3 (1.0.0a3) differs in its magic
+        # bytes and header version. Neither is read as current evidence.
+        current = record_bytes({"values": array_record(np.array([1.0]))})
+        with self.assertRaises(UnsupportedEvidenceVersionError) as rejected:
+            record_document(b"SCNSIMB3" + current[8:])
+        self.assertEqual(rejected.exception.evidence["supported_evidence_version"], 4)
+        header_length = struct.unpack("<Q", current[8:16])[0]
+        header = json.loads(current[16:16 + header_length])
+        old_header = canonical_json_bytes(dict(header, schema_version=3))
+        with self.assertRaises(EvidenceIntegrityError):
+            record_document(current[:8] + struct.pack("<Q", len(old_header)) + old_header
+                            + current[16 + header_length:])
+        with self.assertRaises(UnsupportedEvidenceVersionError):
+            record_document(record_bytes({"schema": "scnsim.direct_manifest", "evidence_version": 3}))
         for kind in ("empty_old_envelope", "requests", "zarr", "sqlite7"):
             with self.subTest(kind=kind), TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -888,6 +1200,58 @@ class EvidenceV3Tests(unittest.TestCase):
                         CircuitRun(plan=plan, workspace=root, precision="float64")
                 self.assertEqual(snapshot(), before)
                 self.assertFalse((root/".scnsim.lock").exists())
+
+    def test_evidence_version_3_workspace_is_rejected_before_any_mutation(self):
+        from scnsim.canonical import canonical_json_bytes
+
+        def tree(root):
+            return {str(path.relative_to(root)): ("directory" if path.is_dir() else path.read_bytes())
+                    for path in root.rglob("*")}
+
+        def declare_version_3(path):
+            document = json.loads(path.read_bytes())
+            self.assertEqual(document["evidence_version"], 4)
+            path.write_bytes(canonical_json_bytes(dict(document, evidence_version=3)))
+
+        # Each case starts from a complete current Workspace holding one saved
+        # Direct result, then declares evidence version 3 where 1.0.0a3 did:
+        # in the root envelope, in the leaf envelope and in the database.
+        for declared in ("root_envelope", "leaf_envelope", "database", "all"):
+            with self.subTest(declared=declared), TemporaryDirectory() as directory:
+                root = Path(directory)
+                plan, _, _ = _primitive_plan()
+                run = CircuitRun(plan=plan, workspace=root, precision="float64")
+                try:
+                    run.solve(run.original, DirectSolveSpec(frequencies=[5.5, 6.0]*u.GHz))
+                finally:
+                    run.close()
+                databases = list(root.rglob("operations.sqlite3"))
+                self.assertEqual(len(databases), 1)
+                leaf = databases[0].parent.parent
+                if declared in ("root_envelope", "all"):
+                    declare_version_3(root/"workspace.json")
+                if declared in ("leaf_envelope", "all"):
+                    declare_version_3(leaf/"workspace.json")
+                if declared in ("database", "all"):
+                    connection = sqlite3.connect(databases[0])
+                    try:
+                        connection.execute("UPDATE metadata SET value='3' WHERE key='evidence_version'")
+                        connection.commit()
+                    finally:
+                        connection.close()
+                before = tree(root)
+                plan, _, _ = _primitive_plan()
+                with self.assertRaises(UnsupportedEvidenceVersionError) as rejected:
+                    CircuitRun(plan=plan, workspace=root, precision="float64")
+                self.assertEqual(rejected.exception.kind, "unsupported_evidence_version")
+                if declared != "database":
+                    self.assertEqual(rejected.exception.evidence["found_evidence_version"], 3)
+                    self.assertEqual(rejected.exception.evidence["supported_evidence_version"], 4)
+                self.assertEqual(tree(root), before)
+                if declared in ("database", "all"):
+                    with self.assertRaises(UnsupportedEvidenceVersionError):
+                        OperationStore.open_readonly(databases[0].parent)
+                    self.assertEqual(tree(root), before)
 
     def test_partial_sweep_preserves_failure_and_repeated_source_order(self):
         # Retain the original operands. The existing scalar Z operation checks
@@ -920,7 +1284,7 @@ class EvidenceV3Tests(unittest.TestCase):
                 if storage == "workspace":
                     self.assertEqual(_fresh_partial(directory), row)
                     child = subprocess.run([sys.executable, "-c",
-                        "import json,sys; from tests.test_evidence_v3 import _fresh_partial; "
+                        "import json,sys; from tests.test_evidence_v4 import _fresh_partial; "
                         "print(json.dumps(_fresh_partial(sys.argv[1])))", directory],
                         capture_output=True, text=True, cwd=Path(__file__).parents[1])
                     self.assertEqual(child.returncode, 0, child.stderr)
@@ -1023,7 +1387,7 @@ class EvidenceV3Tests(unittest.TestCase):
                 _checkpoint(self)
                 _assert_same(self, key + "/reopen", original, _resolve_family(directory, family, archived))
                 command = [sys.executable, "-c",
-                    "import json,sys; from tests.test_evidence_v3 import _resolve_family; "
+                    "import json,sys; from tests.test_evidence_v4 import _resolve_family; "
                     "print(json.dumps(_resolve_family(sys.argv[1],sys.argv[2],json.load(sys.stdin))))",
                     directory, family]
                 child = subprocess.run(command, input=json.dumps(archived), capture_output=True,

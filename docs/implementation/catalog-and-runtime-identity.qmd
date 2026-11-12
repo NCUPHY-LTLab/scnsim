@@ -111,7 +111,7 @@ The current JAX runtime record binds backend `jax`, requested precision, that
 source digest, installed SciPy/JAX/jaxlib/cmaes versions and declared runtime
 resources. It does not discover an external executable. `compiled_graph_identity`
 uses its own schema 2 and binds the Plan and Python source identities; evidence
-v3 does not renumber it.
+v4 does not renumber it.
 
 Physical declarations, algorithm identity, selected precision and declared
 resources remain distinct from measured initialization, actual CPU usage and

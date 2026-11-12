@@ -1,4 +1,4 @@
-"""Evidence-v3 columnar records in immutable OperationStore byte objects.
+"""Columnar evidence records in immutable OperationStore byte objects.
 
 Only storage encoding lives here. The surrounding record binds ordered ports,
 coordinates, units and execution identities; each column also binds its exact
@@ -17,16 +17,29 @@ import numpy as np
 from ..canonical import canonical_json_bytes
 from ..errors import EvidenceIntegrityError, UnsupportedEvidenceVersionError
 from ..numeric_encoding import _ARRAY_DTYPES, record_data, decode_record
+from .evidence_version import EVIDENCE_VERSION
 
-MAGIC = b"SCNSIMB3"
-_COLUMN = "$scnsim_column_v3"
+# Eight bytes: the block family, then the evidence version as one digit.
+_MAGIC_FAMILY = b"SCNSIMB"
+MAGIC = _MAGIC_FAMILY + str(EVIDENCE_VERSION).encode("ascii")
+_COLUMN = f"$scnsim_column_v{EVIDENCE_VERSION}"
+# The stage label predates evidence version 4. It belongs to the typed error
+# surface, which a change of the stored format does not rename.
+_STAGE = "evidence_v3"
 _HEADER_KEYS = {"schema", "schema_version", "record", "columns", "context", "chunk_ordinal"}
 _COLUMN_KEYS = {"ordinal", "path", "dtype", "byte_order", "shape", "order",
                 "axes", "unit", "complex_representation", "offset", "byte_length", "representation"}
 
 
 def _error(message, **evidence):
-    return EvidenceIntegrityError(message, stage="evidence_v3", evidence=evidence)
+    return EvidenceIntegrityError(message, stage=_STAGE, evidence=evidence)
+
+
+def _unsupported(message):
+    return UnsupportedEvidenceVersionError(
+        message + " was written by a pre-1.0 development build that 1.0 does not support; "
+        "use a new Workspace and recompute.",
+        stage=_STAGE, evidence={"supported_evidence_version": EVIDENCE_VERSION})
 
 
 def _array(value):
@@ -107,7 +120,8 @@ def record_bytes(value):
     record = visit(value, [])
     if not columns:
         return canonical_json_bytes(record)
-    header = canonical_json_bytes({"schema": "scnsim.numeric_block", "schema_version": 3,
+    header = canonical_json_bytes({"schema": "scnsim.numeric_block",
+                                   "schema_version": EVIDENCE_VERSION,
                                    "record": record, "columns": columns,
                                    "context": _context(record),
                                    "chunk_ordinal": record.get("ordinal") if isinstance(record, dict) else None})
@@ -118,16 +132,17 @@ def _current_manifest(value):
     if (isinstance(value, dict) and value.get("schema") in {
             "scnsim.direct_manifest", "scnsim.sweep_manifest",
             "scnsim.sensitivity_manifest", "scnsim.optimization_manifest"}
-            and value.get("evidence_version") != 3):
-        raise UnsupportedEvidenceVersionError(
-            "Manifest evidence was written by a pre-1.0 development build that 1.0 does not support; use a new Workspace and recompute.",
-            stage="evidence_v3", evidence={"supported_evidence_version": 3})
+            and value.get("evidence_version") != EVIDENCE_VERSION):
+        raise _unsupported("Manifest evidence")
     return value
 
 
 def record_document(payload):
     """Verify framing and reconstruct the existing exact typed record leaves."""
     if not payload.startswith(MAGIC):
+        if payload.startswith(_MAGIC_FAMILY):
+            # A numeric block of another evidence version is recognized, not read.
+            raise _unsupported("Numeric block evidence")
         try:
             value = json.loads(payload)
         except (ValueError, UnicodeError) as error:
@@ -140,9 +155,7 @@ def record_document(payload):
                 return any(has_legacy_array(child) for child in item)
             return False
         if has_legacy_array(value):
-            raise UnsupportedEvidenceVersionError(
-                "JSON numerical array evidence was written by a pre-1.0 development build that 1.0 does not support; use a new Workspace and recompute.",
-                stage="evidence_v3", evidence={"supported_evidence_version": 3})
+            raise _unsupported("JSON numerical array evidence")
         return _current_manifest(decode_record(value))
     if len(payload) < 16:
         raise _error("Numeric block header is truncated.")
@@ -155,7 +168,8 @@ def record_document(payload):
     except (ValueError, UnicodeError) as error:
         raise _error("Numeric block header is malformed.") from error
     if (not isinstance(header, dict) or set(header) != _HEADER_KEYS
-            or header["schema"] != "scnsim.numeric_block" or header["schema_version"] != 3
+            or header["schema"] != "scnsim.numeric_block"
+            or header["schema_version"] != EVIDENCE_VERSION
             or canonical_json_bytes(header) != payload[16:boundary]
             or not isinstance(header["columns"], list) or not header["columns"]
             or (header["chunk_ordinal"] is not None and
@@ -163,7 +177,7 @@ def record_document(payload):
             or header["context"] != _context(header["record"])
             or header["chunk_ordinal"] != (header["record"].get("ordinal")
                                            if isinstance(header["record"], dict) else None)):
-        raise _error("Numeric block header is not a closed canonical v3 header.")
+        raise _error(f"Numeric block header is not a closed canonical v{EVIDENCE_VERSION} header.")
     columns, offset = header["columns"], 0
     arrays = []
     for ordinal, column in enumerate(columns):

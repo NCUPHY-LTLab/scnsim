@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:scnsim:schema:identity-v3",
-  "title": "SCNSim evidence-v3 storage documents",
-  "description": "Evidence binary framing/header and manifest/ref authority. OperationStore revision8 is distinct. Plan/Request/ParameterSet/authoring snapshot schema numbers and bytes remain unchanged in identity-v2. Workspace schema1 has required evidence_version3 in identity-common.",
+  "$id": "urn:scnsim:schema:identity-v4",
+  "title": "SCNSim evidence-v4 storage documents",
+  "description": "Evidence binary framing/header and manifest/ref authority. OperationStore revision8 is distinct. Plan/Request/ParameterSet/authoring snapshot schema numbers and bytes remain unchanged in identity-v2. Workspace schema1 has required evidence_version4 in identity-common.",
   "oneOf": [
     {
       "$ref": "#/$defs/numericBlockHeader"
@@ -42,7 +42,7 @@
           "const": "scnsim.numeric_block"
         },
         "schema_version": {
-          "const": 3
+          "const": 4
         },
         "record": {},
         "columns": {
@@ -223,7 +223,7 @@
           "const": 1
         },
         "evidence_version": {
-          "const": 3
+          "const": 4
         },
         "workspace_instance_id": {
           "type": "string"
@@ -280,7 +280,7 @@
           "const": 1
         },
         "evidence_version": {
-          "const": 3
+          "const": 4
         },
         "workspace_instance_id": {
           "type": "string"
@@ -339,7 +339,7 @@
           "const": 1
         },
         "evidence_version": {
-          "const": 3
+          "const": 4
         },
         "workspace_instance_id": {
           "type": "string"
@@ -399,7 +399,7 @@
           "const": 1
         },
         "evidence_version": {
-          "const": 3
+          "const": 4
         },
         "workspace_instance_id": {
           "type": "string"
@@ -488,10 +488,168 @@
           "minimum": 0
         },
         "evidence": {
-          "type": "object"
+          "type": "object",
+          "required": [
+            "terminal_ids",
+            "axes",
+            "realized_capabilities",
+            "work_evidence"
+          ],
+          "properties": {
+            "terminal_ids": {
+              "type": "array"
+            },
+            "axes": {
+              "type": "object"
+            },
+            "realized_capabilities": {
+              "type": "array",
+              "items": {
+                "type": "boolean"
+              }
+            },
+            "affine_evidence": {},
+            "work_evidence": {
+              "$ref": "#/$defs/directWorkEvidence"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
+    },
+    "directWorkEvidence": {
+      "description": "Work evidence of one Direct chunk as columns. Each counter and each certificate field is one array whose leading axis is the chunk's ordered work rows, so the number of arrays does not depend on the number of frequency points.",
+      "type": "object",
+      "required": [
+        "work_index",
+        "source_index",
+        "check_status",
+        "certificate_status",
+        "check_position",
+        "certificate_position",
+        "certificates"
+      ],
+      "properties": {
+        "work_index": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "source_index": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "check_status": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "certificate_status": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "check_position": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "certificate_position": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "certificates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/directCertificateColumns"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "directCertificateColumns": {
+      "description": "One checked equation of the chunk: its identity once, and each field over the work rows.",
+      "type": "object",
+      "required": [
+        "site",
+        "role",
+        "stage",
+        "derivative_order",
+        "status",
+        "eta",
+        "residual_numerator",
+        "residual_denominator",
+        "performed",
+        "present"
+      ],
+      "properties": {
+        "site": {
+          "type": "array"
+        },
+        "role": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "integer"
+        },
+        "derivative_order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "eta": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "residual_numerator": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "residual_denominator": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "performed": {
+          "$ref": "#/$defs/storedArray"
+        },
+        "present": {
+          "$ref": "#/$defs/storedArray"
+        }
+      },
+      "additionalProperties": false
+    },
+    "storedArray": {
+      "description": "A numeric array. Inside a stored block header it is the marker of its column; a reader returns the typed array.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "$scnsim_column_v4"
+          ],
+          "properties": {
+            "$scnsim_column_v4": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "dtype",
+            "shape",
+            "data_hex"
+          ],
+          "properties": {
+            "dtype": {
+              "type": "string"
+            },
+            "shape": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "data_hex": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{2})*$"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     }
   }
 }

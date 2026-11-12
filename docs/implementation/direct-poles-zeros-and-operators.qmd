@@ -298,7 +298,7 @@ $M$ and is not the source-resistor-de-embedded public Y matrix. Its canonical
 unit is `siemens / second`, equivalent to inverse henry under this convention.
 
 Operator values retain their actual requested dtype, terminal coordinate order
-and units. Workspace stores them with evidence-v3 binary columns and fixed
+and units. Workspace stores them with evidence-v4 binary columns and fixed
 manifest references; Memory retains detached arrays. The public readonly
 same-call evidence is available after close and through saved resolution.
 An operator matrix is inspectable output and cannot itself be one scalar objective.
@@ -432,7 +432,7 @@ that returned root; no second certificate evaluation supplies another field.
 
 The hybridized-pole Result retains the actual dtype-preserved dimensionless
 null-vector Quantity and exact ordered coordinate bindings in its readonly
-evidence. Workspace serializes those actual values through the v3 storage codec;
+evidence. Workspace serializes those actual values through the v4 storage codec;
 Memory retains their immutable backing. The canonical phase remains the one
 specified above.
 
@@ -830,7 +830,7 @@ Scientific bodies own their numerical evidence and dependencies; ordered
 occurrences reference those bodies. Public quantity evidence supplements the
 scalar fields with the recorded branch, vector, denominator, residue and
 coordinate bindings. An unrecorded transient diagnostic is not promised saved
-evidence. Workspace encoding uses evidence v3; it does not create Zarr files
+evidence. Workspace encoding uses evidence v4; it does not create Zarr files
 or a `result.json` scalar catalogue.
 
 ## JAX host and durable evidence ownership

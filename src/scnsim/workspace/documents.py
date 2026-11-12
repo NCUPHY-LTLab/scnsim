@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from ..canonical import _sha256, _validation, canonical_value
+from .evidence_version import EVIDENCE_VERSION
 from .validation.common import _UUID4
 
 
@@ -109,7 +110,7 @@ def versioned_workspace_document(
 
 
 def _workspace_document(fields: Mapping[str, object]) -> dict[str, object]:
-    return canonical_value({"schema": "scnsim.workspace", "schema_version": 1, "evidence_version": 3, **fields})  # type: ignore[return-value]
+    return canonical_value({"schema": "scnsim.workspace", "schema_version": 1, "evidence_version": EVIDENCE_VERSION, **fields})  # type: ignore[return-value]
 
 
 def _uuid(value: object) -> str:

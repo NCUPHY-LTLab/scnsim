@@ -27,7 +27,7 @@ class BilingualSiteReadmeTests(unittest.TestCase):
         for name in (
             "identity-common.schema.json",
             "identity-v2.schema.json",
-            "identity-v3.schema.json",
+            "identity-v4.schema.json",
         ):
             (schemas / name).write_text("{}\n", encoding="utf-8")
 

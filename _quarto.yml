@@ -6,7 +6,7 @@ project:
   resources:
     - tests/figures/**
     - src/scnsim/_schemas/identity-v2.schema.json
-    - src/scnsim/_schemas/identity-v3.schema.json
+    - src/scnsim/_schemas/identity-v4.schema.json
     - src/scnsim/_schemas/identity-common.schema.json
   render:
     - index.qmd
@@ -92,7 +92,7 @@ project:
     - docs/contracts/automatic-semantic-circuit-diagram-layout.qmd
     - docs/contracts/parameter-system.qmd
     - docs/contracts/static-capacitance.qmd
-    - docs/contracts/workspace-evidence-v3.qmd
+    - docs/contracts/workspace-evidence-v4.qmd
     - docs/component-authoring.qmd
     - docs/v1-runtime-contract.qmd
     - docs/guides/benchmark.qmd
@@ -205,8 +205,8 @@ website:
               href: docs/guides/static-capacitance.qmd
             - text: "CPU Benchmark guide"
               href: docs/guides/benchmark.qmd
-            - text: "Workspace evidence v3"
-              href: docs/contracts/workspace-evidence-v3.qmd
+            - text: "Workspace evidence v4"
+              href: docs/contracts/workspace-evidence-v4.qmd
             - text: "V1 Runtime Contract"
               href: docs/v1-runtime-contract.qmd
             - text: "Historical evidence record"

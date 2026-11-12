@@ -1343,13 +1343,18 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
                 task_id=task_id, attempt_id=attempt_id, diagnostics="boundary",
             )
         if chunk_domain is not None:
-            from ..workspace.sqlite_storage import ChunkStorage
             from .physical_analysis import ChunkedResultSink
             from .policy import ExecutionPolicy
 
             policy = ExecutionPolicy() if execution_policy is None else execution_policy
+            if chunk_domain == "direct":
+                # Direct rows stay in this process until terminal publication.
+                staging = None
+            else:
+                from ..workspace.sqlite_storage import ChunkStorage
+                staging = ChunkStorage(binding)
             result_sink = ChunkedResultSink(
-                ChunkStorage(binding), domain=chunk_domain,
+                staging, domain=chunk_domain,
                 scratch_budget_bytes=policy.scratch_budget_bytes,
                 sweep_grid_shape=(
                     request["parameter_source"]["shape"]
@@ -1370,9 +1375,6 @@ def _execute_with_backend(*, binding, plan_document, prepared_analysis, decoder,
             if result_sink is not None:
                 if kind == "baseline_ready":
                     result_sink.merge_summary({"root_anchor": payload})
-                    return None
-                if kind == "direct_chunk":
-                    result_sink.append_direct_record(payload)
                     return None
                 if kind == "evaluation":
                     if chunk_domain == "sweep":

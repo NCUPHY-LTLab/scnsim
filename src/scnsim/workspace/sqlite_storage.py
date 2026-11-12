@@ -16,9 +16,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import numpy as np
+
 from ..errors import EvidenceIntegrityError, UnsupportedEvidenceVersionError
 from .operation_store import OperationStore, Snapshot, _VERSION as _OPERATION_STORE_VERSION, _reference
 from .binary_blocks import record_bytes, record_document
+from .evidence_version import EVIDENCE_VERSION
 from ..numeric_encoding import record_bytes as numerical_record_bytes
 from .operation_scratch import cleanup_inactive_operation_scratch
 
@@ -1226,7 +1229,7 @@ def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id
         raise _error("Sensitivity equation evidence differs from its derivative declaration.")
     _valid_sha(equation_evidence["program_sha256"])
     manifest_body = {
-        "schema": "scnsim.sensitivity_manifest", "schema_version": 1, "evidence_version": 3,
+        "schema": "scnsim.sensitivity_manifest", "schema_version": 1, "evidence_version": EVIDENCE_VERSION,
         "workspace_instance_id": workspace_instance_id, "plan_sha256": plan_sha256,
         "request_sha256": request_sha256, "task_id": task_id, "attempt_id": attempt_id,
         "outcome": outcome, "request_ref": dict(request_ref),
@@ -1507,7 +1510,7 @@ def _complete_chunked_operation(binding, *, domain, operation_id, task_id, attem
             raise _error("Chunked result binding changed before terminal publication.",
                          operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
         manifest_body = {
-            "schema": f"scnsim.{domain}_manifest", "schema_version": 1, "evidence_version": 3,
+            "schema": f"scnsim.{domain}_manifest", "schema_version": 1, "evidence_version": EVIDENCE_VERSION,
             **identity, "request_ref": dict(request_ref), "metadata": dict(metadata),
         }
         manifest_ref = tx.put_object(record_bytes(manifest_body), role=f"{domain}_manifest")
@@ -1523,9 +1526,14 @@ def _complete_chunked_operation(binding, *, domain, operation_id, task_id, attem
                              domain=domain, ordinal=ordinal)
             first_point = point_count
             if domain == "direct":
-                if (not isinstance(payload.get("frequencies_hz"), Mapping)
-                        or not isinstance(payload.get("families"), Mapping)
-                        or set(payload["families"]) != {"S", "Y", "Z"}):
+                # A Direct chunk arrives as the call's own host arrays and is
+                # encoded exactly once, by the put_object calls below.
+                frequencies = payload.get("frequencies_hz")
+                families = payload.get("families")
+                if (not isinstance(frequencies, np.ndarray) or frequencies.shape != (count,)
+                        or not isinstance(families, Mapping) or set(families) != {"S", "Y", "Z"}
+                        or any(not isinstance(matrix, np.ndarray) or matrix.shape[:1] != (count,)
+                               for matrix in families.values())):
                     raise _error("Direct chunk payload lacks its three actual matrix families.",
                                  ordinal=ordinal)
             else:
@@ -3284,7 +3292,7 @@ def complete_optimization_operation(binding, *, operation_id, task_id, attempt_i
         return _physical_candidate_source_locator(selected)
 
     manifest_body = {
-        "schema": "scnsim.optimization_manifest", "schema_version": 1, "evidence_version": 3,
+        "schema": "scnsim.optimization_manifest", "schema_version": 1, "evidence_version": EVIDENCE_VERSION,
         **identity, "outcome": outcome,
         "request_ref": dict(request_ref), "declarations": dict(manifest),
         "stage_ids": list(stage_order),
@@ -3683,11 +3691,12 @@ class _ChunkReference:
 
 
 class ChunkStorage:
-    """Same-call Direct/Sweep staging in checked SQLite objects, without spool.
+    """Same-call Sweep staging in checked SQLite objects, without spool.
 
-    Chunk writes cannot publish completion. The terminal publisher consumes the
-    references through its own transaction snapshot, so it never nests a reader
-    lock inside the final writer lock.
+    A Direct call does not use it: its rows stay in memory until the terminal
+    publisher writes them. Chunk writes cannot publish completion. The terminal
+    publisher consumes the references through its own transaction snapshot, so
+    it never nests a reader lock inside the final writer lock.
     """
     def __init__(self, binding):
         self.binding = binding

@@ -22,14 +22,19 @@ iterations. Workspace location does not become the physical circuit identity.
 
 ## Immutable data and atomic completion
 
-Direct, including a parameter Sweep of Direct, writes the original call's
-synchronized host arrays directly to checked immutable objects. Its sink retains
-small references, not a spool or a second numerical result. Optimization keeps
-its operation spool and ordered lazy history.
+Direct keeps the original call's synchronized host arrays in memory. Its sink
+holds the work rows until the chunks are assembled, and the final transaction
+encodes each chunk and chunk summary once. A Direct call that fails or is
+interrupted leaves no result object and no staging object.
+
+A parameter Sweep, including a Sweep of Direct, stages its rows and points as
+checked immutable objects while it runs. Its sink retains small references, not
+a spool or a second numerical result. Optimization keeps its operation spool
+and ordered lazy history.
 
 A newly inserted object is read back and verified before `put_object` returns.
-Completed chunks may commit independently, but those chunks alone do not select
-a successful Result. The final revision-checked transaction publishes the
+Staged Sweep objects commit before completion, but those objects alone do not
+select a successful Result. The final revision-checked transaction publishes the
 manifest, result, completion, terminal attempt state and success selection
 atomically. Failed or interrupted attempts keep their actual evidence.
 
@@ -77,7 +82,7 @@ Readonly SQLite paths use `Path.as_uri()` with `mode=ro`, including Windows
 paths and Unicode. Lock success is separate from publication durability;
 filesystem and SQLite errors retain their original typed causes.
 
-See [Workspace evidence v3](../contracts/workspace-evidence-v3.qmd) for exact
+See [Workspace evidence v4](../contracts/workspace-evidence-v4.qmd) for exact
 columns and [the lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle)
 for operation and reader ownership.
 

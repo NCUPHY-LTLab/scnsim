@@ -39,7 +39,7 @@ matrix and trace projections use those saved axes; presentation does not infer
 connectivity, reshape a different physical boundary or execute a missing result.
 Direct and Operator readonly evidence belongs to the same numerical call and is
 also available for Sweep points and saved resolution. Conditional affine evidence
-is absent when unused. See [Workspace evidence v3](../contracts/workspace-evidence-v3.qmd).
+is absent when unused. See [Workspace evidence v4](../contracts/workspace-evidence-v4.qmd).
 
 ## Scalar Quantity presentation
 

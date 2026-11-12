@@ -19,6 +19,7 @@ from .documents import (
     replaceable_workspace_document,
     versioned_workspace_document,
 )
+from .evidence_version import EVIDENCE_VERSION
 from ._os_io import lock_fd, unlock_fd, replace_path, require_workspace_platform
 from .primitives import _relative_path, _inside
 from .storage import _LEAF_STAGING, _WorkspacePublishIndeterminate, _atomic_write, _decode_bytes, _fsync_directory, _fsync_tree, _load_canonical, _publish_workspace_state, _remove_leaf
@@ -30,12 +31,12 @@ def _old_evidence(path, found=None):
     return UnsupportedEvidenceVersionError(
         "Workspace evidence was written by a pre-1.0 development build that 1.0 does not support; use a new Workspace and recompute.",
         stage="workspace", evidence={"path": str(path), "found_evidence_version": found,
-                                     "supported_evidence_version": 3,
+                                     "supported_evidence_version": EVIDENCE_VERSION,
                                      "action": "use a new Workspace and recompute"})
 
 
 def _preflight_workspace(root: Path) -> None:
-    """Admit only v3 evidence before creating directories, locks or databases."""
+    """Admit only current evidence before creating directories, locks or databases."""
     from .operation_store import preflight_operation_store
 
     if not root.exists():
@@ -59,7 +60,7 @@ def _preflight_workspace(root: Path) -> None:
                     if child.is_symlink():
                         raise _integrity("Workspace leaf must not be symlinked.", path=str(child))
                     document = _load_canonical(child / "workspace.json")
-                    if document.get("evidence_version") != 3:
+                    if document.get("evidence_version") != EVIDENCE_VERSION:
                         raise _old_evidence(child, document.get("evidence_version"))
                     preflight_operation_store(child / "operations")
         return
@@ -79,7 +80,7 @@ def _preflight_workspace(root: Path) -> None:
         if leaf.is_symlink():
             raise _integrity("Workspace leaf must not be symlinked.", path=str(leaf))
         document = _load_canonical(leaf / "workspace.json")
-        if document.get("evidence_version") != 3:
+        if document.get("evidence_version") != EVIDENCE_VERSION:
             raise _old_evidence(leaf, document.get("evidence_version"))
         for name in ("requests", ".zgroup", ".zarray", "zarr.json", "benchmark.json"):
             legacy = leaf / name
@@ -221,7 +222,7 @@ class WorkspaceBinding:
             or
             leaf.get("schema") != "scnsim.workspace"
             or leaf.get("schema_version") != 1
-            or leaf.get("evidence_version") != 3
+            or leaf.get("evidence_version") != EVIDENCE_VERSION
             or leaf.get("kind") != "plan_workspace"
             or leaf.get("workspace_instance_id") != self.workspace_instance_id
             or leaf.get("plan_sha256") != self.plan_sha256
@@ -482,7 +483,7 @@ def _recover_leaf(root: Path, leaf_path: Path, plan_sha256: str, *, expected_dir
         set(leaf) != {"schema", "schema_version", "evidence_version", "kind", "workspace_instance_id", "plan_sha256"}
         or leaf.get("schema") != "scnsim.workspace"
         or leaf.get("schema_version") != 1
-            or leaf.get("evidence_version") != 3
+            or leaf.get("evidence_version") != EVIDENCE_VERSION
         or leaf.get("kind") != "plan_workspace"
         or leaf.get("plan_sha256") != plan_sha256
     ):
@@ -634,7 +635,7 @@ def _verified_unbound_leaf(root: Path, path: Path, expected_directory: str) -> W
     )
 
 def _assert_root_envelope(state: Mapping[str, object]) -> None:
-    if state.get("evidence_version") != 3:
+    if state.get("evidence_version") != EVIDENCE_VERSION:
         raise _old_evidence("workspace.json", state.get("evidence_version"))
     root_id = state.get("workspace_instance_id")
     kind = state.get("kind")
