@@ -18,7 +18,7 @@ reported on Issue 47 as a product finding.
 """
 from __future__ import annotations
 
-from decimal import Decimal, localcontext
+from decimal import localcontext
 import math
 import unittest
 
@@ -27,6 +27,7 @@ from scipy import linalg
 
 from scnsim import CircuitPlan, CircuitRun, HybridizedPoleSpec, ReductionPipeline, components, units as u
 from tests.analytic_conditions import assert_forward
+from tests.decimal_complex import DComplex as _D
 
 
 PRECISION = 60  # Oracle arithmetic precision, not a comparison tolerance.
@@ -72,36 +73,6 @@ def _matrices():
         target = {"C": c, "R": g, "L": k}[kind]
         target += stamp * (value if kind == "C" else 1 / value)
     return c, g, k
-
-
-class _D:
-    """Decimal complex number for the oracle's polishing arithmetic."""
-
-    __slots__ = ("re", "im")
-
-    def __init__(self, re, im=Decimal(0)):
-        self.re, self.im = Decimal(re), Decimal(im)
-
-    @staticmethod
-    def of(value):
-        value = complex(value)
-        return _D(Decimal.from_float(value.real), Decimal.from_float(value.imag))
-
-    def __add__(self, o):
-        return _D(self.re + o.re, self.im + o.im)
-
-    def __sub__(self, o):
-        return _D(self.re - o.re, self.im - o.im)
-
-    def __mul__(self, o):
-        return _D(self.re * o.re - self.im * o.im, self.re * o.im + self.im * o.re)
-
-    def __truediv__(self, o):
-        scale = o.re * o.re + o.im * o.im
-        return _D((self.re * o.re + self.im * o.im) / scale, (self.im * o.re - self.re * o.im) / scale)
-
-    def __complex__(self):
-        return complex(float(self.re), float(self.im))
 
 
 ZERO, ONE, MINUS_I = _D(0), _D(1), _D(0, -1)

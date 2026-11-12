@@ -11,7 +11,6 @@ derived only from those per-entry forward bounds.
 from __future__ import annotations
 
 from contextlib import contextmanager
-import math
 import unittest
 
 import numpy as np
