@@ -555,18 +555,34 @@ def project_primal_bodies(program, outcome, inputs, *, ephemeral=False):
     for row in metadata:
         if row['kind'] != 'residue_coupling':
             continue
-        dependencies = []
-        for role, spec in (('a', row['spec']['branch_a']), ('b', row['spec']['branch_b'])):
-            branch = next(item for item in metadata if item['start_index'] is not None
-                          and canonical_json_bytes(item['spec']) == canonical_json_bytes(spec)
-                          and canonical_json_bytes(item['view']) == canonical_json_bytes(row['view']))
-            dependencies.append({'role': role, 'binding': {'kind': spec['type'], 'spec': dict(spec), 'view': dict(row['view'])},
-                                 'body_id': quantity_body_id(bodies[branch['observable_index']])[0]})
         result = bodies[row['observable_index']]
-        evidence = record_document(result.evidence_bytes)
-        evidence['branches'] = dependencies
-        bodies[row['observable_index']] = replace(result, evidence_bytes=record_bytes(evidence))
+        bodies[row['observable_index']] = with_coupling_branches(
+            result, coupling_branches(metadata, row, lambda branch: quantity_body_id(
+                bodies[branch['observable_index']])[0]))
     return bodies
+
+
+def coupling_branches(metadata, row, body_id):
+    """Name the two branch-root bodies of one residue coupling, by role.
+
+    ``body_id(branch_row)`` returns the content identity of the stored body of
+    that branch's root. A stored coupling resolves its branches through these
+    rows; single points and sweep points name them the same way.
+    """
+    branches = []
+    for role, spec in (('a', row['spec']['branch_a']), ('b', row['spec']['branch_b'])):
+        branch = next(item for item in metadata if item['start_index'] is not None
+                      and canonical_json_bytes(item['spec']) == canonical_json_bytes(spec)
+                      and canonical_json_bytes(item['view']) == canonical_json_bytes(row['view']))
+        branches.append({'role': role, 'binding': {'kind': spec['type'], 'spec': dict(spec), 'view': dict(row['view'])},
+                         'body_id': body_id(branch)})
+    return branches
+
+
+def with_coupling_branches(result, branches):
+    evidence = record_document(result.evidence_bytes)
+    evidence['branches'] = branches
+    return replace(result, evidence_bytes=record_bytes(evidence))
 
 
 class PhysicalAnalysis:
@@ -1795,7 +1811,7 @@ class PhysicalAnalysis:
                 facts['equation_certificates'] = tuple(asdict(value)
                     for value in sparse_certificates(checked_error))
                 selected = replace(selected,evidence_bytes=evidence_bytes(facts))
-                dependencies = {}
+                dependencies, body_ids = {}, {}
                 for row in program.observable_metadata():
                     if not row['hidden']:
                         continue
@@ -1809,6 +1825,13 @@ class PhysicalAnalysis:
                         else:
                             body_id, body_bytes = quantity_body_id(body)
                             dependencies[body_id] = body_bytes
+                            body_ids[row['observable_index']] = body_id
+                if selected.failure is None and not self.ephemeral:
+                    # As for a single point, the stored coupling names its branch
+                    # bodies; reading it back resolves them through these rows.
+                    selected = with_coupling_branches(selected, coupling_branches(
+                        program.observable_metadata(), public,
+                        lambda branch: body_ids[branch['observable_index']]))
                 if selected.failure is not None:
                     raise EvaluationFailure(selected.failure, result=selected,
                                             dependencies=dependencies)
