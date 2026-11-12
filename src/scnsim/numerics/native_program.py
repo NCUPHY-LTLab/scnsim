@@ -64,8 +64,8 @@ def bind_completed_branches(branches):
 
 def native_operand_abstract(value):
     """Pinned JAX abstraction, including genuine weak Python scalar operands."""
-    from jax._src import core
-    return core.typeof(value)
+    import jax
+    return jax.typeof(value)
 
 
 class NativeCandidateState(NamedTuple):

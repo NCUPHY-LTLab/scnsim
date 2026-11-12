@@ -15,8 +15,9 @@ from typing import Any, NamedTuple
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax._src import core
-from jax._src.interpreters import ad, batching, mlir, partial_eval as pe
+from jax.core import ShapedArray
+from jax.extend.core import Primitive
+from jax.interpreters import ad, batching, mlir, partial_eval as pe
 
 from .native_sparse import NativeSparseAux, register_equation_certificate, equation_lowering
 from .sparse_solve import (PairSolveOutcome, PairDirectionalOutcome, SolveAux,
@@ -49,13 +50,13 @@ def _host_equation(pattern, ah, al, bh, bl, prior, *products,
                                ordering=ordering, stage=stage, mode=mode)
 
 
-_pair_p = core.Primitive('scnsim_checked_pair_equation')
+_pair_p = Primitive('scnsim_checked_pair_equation')
 _pair_p.multiple_results = True
-_batch_pair_p = core.Primitive('scnsim_checked_pair_equation_batch')
+_batch_pair_p = Primitive('scnsim_checked_pair_equation_batch')
 _batch_pair_p.multiple_results = True
-_residual_pair_p = core.Primitive('scnsim_checked_pair_residual_equation')
+_residual_pair_p = Primitive('scnsim_checked_pair_residual_equation')
 _residual_pair_p.multiple_results = True
-_batch_residual_pair_p = core.Primitive('scnsim_checked_pair_residual_equation_batch')
+_batch_residual_pair_p = Primitive('scnsim_checked_pair_residual_equation_batch')
 _batch_residual_pair_p.multiple_results = True
 
 
@@ -101,8 +102,8 @@ def _abstract(ah, al, bh, bl, prior, *products, equation, **params):
         if ch.shape != shape or cl.shape != shape or yh.shape != bh.shape or yl.shape != bh.shape:
             raise TypeError('pair derivative product shape disagrees with its equation')
     rd = np.empty((), dtype=bh.dtype).real.dtype
-    return (bh, bl, core.ShapedArray((), np.dtype('int32')),
-            *(core.ShapedArray((), rd) for _ in range(3)), core.ShapedArray((), np.dtype('bool')))
+    return (bh, bl, ShapedArray((), np.dtype('int32')),
+            *(ShapedArray((), rd) for _ in range(3)), ShapedArray((), np.dtype('bool')))
 
 
 _pair_p.def_abstract_eval(_abstract)
@@ -110,8 +111,8 @@ _pair_p.def_abstract_eval(_abstract)
 
 def _batch_abstract(*operands, **params):
     size = operands[0].shape[0]
-    avals = _abstract(*(core.ShapedArray(value.shape[1:], value.dtype) for value in operands), **params)
-    return tuple(core.ShapedArray((size,) + value.shape, value.dtype) for value in avals)
+    avals = _abstract(*(ShapedArray(value.shape[1:], value.dtype) for value in operands), **params)
+    return tuple(ShapedArray((size,) + value.shape, value.dtype) for value in avals)
 
 
 _batch_pair_p.def_abstract_eval(_batch_abstract)
@@ -136,9 +137,9 @@ def _batch_residual_callback(*operands, **params):
 
 def _batch_residual_abstract(*operands, **params):
     size = operands[0].shape[0]
-    result = _residual_abstract(*(core.ShapedArray(value.shape[1:], value.dtype)
+    result = _residual_abstract(*(ShapedArray(value.shape[1:], value.dtype)
                                   for value in operands), **params)
-    return tuple(core.ShapedArray((size,) + value.shape, value.dtype) for value in result)
+    return tuple(ShapedArray((size,) + value.shape, value.dtype) for value in result)
 
 
 for primitive, callback, abstract in (
@@ -151,13 +152,13 @@ for primitive, callback, abstract in (
 
 # A finite first jet keeps both actual solution certificates in one primitive.
 # Its next JVP can consume BOTH first-direction statuses before the mixed solve.
-_first_p = core.Primitive('scnsim_checked_pair_first_jet')
+_first_p = Primitive('scnsim_checked_pair_first_jet')
 _first_p.multiple_results = True
-_batch_first_p = core.Primitive('scnsim_checked_pair_first_jet_batch')
+_batch_first_p = Primitive('scnsim_checked_pair_first_jet_batch')
 _batch_first_p.multiple_results = True
-_linear_p = core.Primitive('scnsim_checked_pair_linear_tangent')
+_linear_p = Primitive('scnsim_checked_pair_linear_tangent')
 _linear_p.multiple_results = True
-_batch_linear_p = core.Primitive('scnsim_checked_pair_linear_tangent_batch')
+_batch_linear_p = Primitive('scnsim_checked_pair_linear_tangent_batch')
 _batch_linear_p.multiple_results = True
 
 
@@ -206,9 +207,9 @@ def _jet_batch_callback(*operands, callback, **params):
 
 def _jet_batch_abstract(*operands, abstract, **params):
     size = operands[0].shape[0]
-    result = abstract(*(core.ShapedArray(value.shape[1:], value.dtype)
+    result = abstract(*(ShapedArray(value.shape[1:], value.dtype)
                         for value in operands), **params)
-    return tuple(core.ShapedArray((size,) + value.shape, value.dtype) for value in result)
+    return tuple(ShapedArray((size,) + value.shape, value.dtype) for value in result)
 
 
 for primitive, callback, abstract in ((_first_p, _first_callback, _first_abstract),
@@ -244,7 +245,7 @@ def _jvp(primals, tangents, *, primitive=_pair_p, **params):
         derivative = primitive.bind(ah, al, b2h, b2l, primal[2],
             *derivative_products, **dict(_next(params), parameter_ad_depth=2))
         tangent = (*derivative[:2],
-                   *(ad.Zero(core.typeof(value).to_tangent_aval()) for value in primal[2:]))
+                   *(ad.Zero(jax.typeof(value).to_tangent_aval()) for value in primal[2:]))
         return primal, tangent
     ah, al, bh, bl, prior = primals
     a1h, a1l, b1h, b1l, _ = map(ad.instantiate_zeros, tangents)
@@ -252,7 +253,7 @@ def _jvp(primals, tangents, *, primitive=_pair_p, **params):
         ah, al, bh, bl, prior, a1h, a1l, b1h, b1l,
         **dict(params, parameter_ad_depth=params.get('parameter_ad_depth', 0) + 1))
     primal = *jet[:2], *jet[4:9]
-    tangent = *jet[2:4], *(ad.Zero(core.typeof(value).to_tangent_aval()) for value in primal[2:])
+    tangent = *jet[2:4], *(ad.Zero(jax.typeof(value).to_tangent_aval()) for value in primal[2:])
     return primal, tangent
 
 
@@ -277,7 +278,7 @@ def _jet_jvp(primals, tangents, *, primitive=_first_p, **params):
         a12h, a12l, *primal[:2], a1h, a1l, *second[:2], a2h, a2l, *primal[2:4],
         **dict(params, stage=4, role='mixed',
                derivative_order=params.get('derivative_order', 0) + 2, parameter_ad_depth=depth, frequency_jet=False))
-    derivatives = *second[:2], *mixed[:2], *(ad.Zero(core.typeof(value).to_tangent_aval())
+    derivatives = *second[:2], *mixed[:2], *(ad.Zero(jax.typeof(value).to_tangent_aval())
                                             for value in primal[4:])
     return primal, derivatives
 
@@ -401,7 +402,7 @@ def _residual_jvp(primals, tangents, *, primitive=_residual_pair_p, **params):
     derivative = primitive.bind(ah, al, b2h, b2l, primal[2], retained_prior,
         *derivative_products, **dict(_next(params), parameter_ad_depth=2))
     return primal, (*derivative[:2],
-                   *(ad.Zero(core.typeof(value).to_tangent_aval()) for value in primal[2:]))
+                   *(ad.Zero(jax.typeof(value).to_tangent_aval()) for value in primal[2:]))
 
 
 def _residual_transpose(cotangents, ah, al, bh, bl, prior, retained_prior, *products,

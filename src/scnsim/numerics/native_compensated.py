@@ -11,13 +11,14 @@ from functools import partial
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax._src import core
-from jax._src.interpreters import ad, batching, mlir
+from jax.core import ShapedArray
+from jax.extend.core import Primitive
+from jax.interpreters import ad, batching, mlir
 from . import compensated as cp
 
-_pair_p = core.Primitive('scnsim_physical_pair_arithmetic')
+_pair_p = Primitive('scnsim_physical_pair_arithmetic')
 _pair_p.multiple_results = True
-_batch_p = core.Primitive('scnsim_physical_pair_arithmetic_batch')
+_batch_p = Primitive('scnsim_physical_pair_arithmetic_batch')
 _batch_p.multiple_results = True
 
 
@@ -40,7 +41,7 @@ def _abstract(*parts, operation):
     if any(item.dtype != dtype for item in parts):
         raise TypeError('compensated channels require one selected dtype')
     shape = np.broadcast_shapes(*(item.shape for item in parts))
-    output = core.ShapedArray(shape, dtype)
+    output = ShapedArray(shape, dtype)
     return (output,) if operation == 'project' else (output, output)
 
 
@@ -55,9 +56,9 @@ def _batch_impl(*parts, operation):
 
 def _batch_abstract(*parts, operation):
     size = parts[0].shape[0]
-    shapes = _abstract(*(core.ShapedArray(item.shape[1:], item.dtype) for item in parts),
+    shapes = _abstract(*(ShapedArray(item.shape[1:], item.dtype) for item in parts),
                        operation=operation)
-    return tuple(core.ShapedArray((size,) + item.shape, item.dtype) for item in shapes)
+    return tuple(ShapedArray((size,) + item.shape, item.dtype) for item in shapes)
 
 
 _batch_p.def_impl(partial(jax.jit, static_argnames=('operation',))(_batch_impl))
