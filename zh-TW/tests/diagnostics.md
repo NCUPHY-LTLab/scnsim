@@ -38,6 +38,27 @@ SCNSim 求解的每個方程式都會回傳一份證書（certificate）：狀�
 
 另有一個獨立的測試記錄每一列的來源位置（site）標籤，以及各列回傳的順序。`site` 是方程式在追蹤程式中的位置，JAX 自身的方程式也計算在內，所以其他案例都不依賴它。來源：[test_certificate_transport.py](https://github.com/NCUPHY-LTLab/scnsim/blob/develop/tests/test_certificate_transport.py)。
 
+## 證書帳本（Certificate ledger）
+
+SCNSim 正把這些證書從 JAX 內部的檢查機制，移到自己的證書帳本（ledger）：它是已編譯程式的一般輸出，每個方程式在其中各有一筆紀錄。遷移完成之前，兩種回傳證書的方式並存，各項分析仍使用前者。帳本由兩組案例涵蓋。
+
+第一組把上一節的每一次呼叫都用兩種方式編譯，並要求結果相同：各列的數目、順序與標籤相同，每一列的六個陣列逐位元相同，回傳值相同，導數可用性的紀錄也相同。另外增加的呼叫，涵蓋循序映射的 Newton 迴圈位於自訂導數規則之下、位於分支之內、處於反向模式，以及位於另一個循序映射的迴圈之內。有兩種情形，兩者除了 `site` 之外完全相同：兩種機制在追蹤程式中各自加入的方程式數目不同，所以排在後面的方程式位置不同；這些案例同時記錄兩邊的標籤。來源：[test_certificate_transport_parity.py](https://github.com/NCUPHY-LTLab/scnsim/blob/develop/tests/test_certificate_transport_parity.py)。
+
+第二組涵蓋比對無法呈現的性質。
+
+| 案例 | 必須成立的事 |
+| --- | --- |
+| 公開介面 | 帳本所在的模組只匯入 JAX 的公開模組，不讀取任何私有屬性。 |
+| 帳本無法取得的方程式 | 方程式若位於帳本沒有規則的 JAX 基本運算（primitive）之內，或位於迴圈的判斷式之中，編譯會以具型別的錯誤停止；它的證書不會無聲遺失。 |
+| 每個方程式一筆紀錄 | 一筆紀錄保留第一次失敗；沒有失敗時，保留最後一次執行。 |
+| 未執行的程式 | 它的帳本只由形狀建立，每一筆紀錄都標示為不存在。不存在的導數可用性紀錄讀作「可用」，所以只有存在的紀錄才能使導數不可用。 |
+| 單精度 | complex64 方程式的紀錄維持 float32，不論存在與否。 |
+| 帳本作為資料 | 帳本經過後續的已編譯呼叫後內容不變；取出單一通道的切片，等於單獨計算該通道所得的帳本。 |
+| 不屬於 SCNSim 的檢查 | 這類檢查帶著原本的訊息回傳。方程式失敗絕不會被當成這類檢查回傳，現行機制也照常記錄它所認證的程式。 |
+| 隨數值傳遞的紀錄 | 把紀錄附在數值上的兩個運算，在已認證的程式之外原樣回傳該數值；它們的導數規則原樣回傳切線（tangent）與餘切向量（cotangent）。 |
+
+來源：[test_certificate_ledger.py](https://github.com/NCUPHY-LTLab/scnsim/blob/develop/tests/test_certificate_ledger.py)；導數規則見 [test_differentiation_rules.py](https://github.com/NCUPHY-LTLab/scnsim/blob/develop/tests/test_differentiation_rules.py)。
+
 ## 求解診斷（Solve diagnostics）
 
 小型單位矩陣案例會區分彙總指標與方程分量診斷。令 `A = I₂`、一個右手邊（right-hand side）向量 `b = [1, 1e-20]`、近似解 `x = [1, 0]`；彙總正規化殘差為 `5e-21`，第二個方程分量（equation component）的殘差則為 1。彙總指標符合原有求解器門檻，但逐右手邊（per-right-hand-side, per-RHS）診斷會指出該分量的錯誤。另一個兩欄案例才是兩個右手邊，檢查值為 `[1, 0]`，其中第二個解欄完全正確。
