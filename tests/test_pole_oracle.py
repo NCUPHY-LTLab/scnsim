@@ -25,11 +25,13 @@ from decimal import localcontext
 import math
 import unittest
 
+import jax
 import numpy as np
 from scipy import linalg
 
 from scnsim import (CircuitPlan, CircuitRun, HybridizedPoleSpec, ReductionPipeline, TransferZeroSpec,
                     components, units as u)
+from scnsim.numerics.native_transfer import NativeTransferPacket, corrected_point_outcome
 from tests.analytic_conditions import assert_forward
 from tests.decimal_complex import DComplex as _D
 
@@ -247,6 +249,49 @@ class TransferZeroOracleTests(unittest.TestCase):
             expected, condition = _ZeroEquation(formulation).polish(2 * math.pi * ZERO_ANCHOR_HZ)
             assert_forward(self, f"retained_view_z_zero_{formulation}", actual, expected,
                            condition, "radian / second")
+
+
+def _transfer_packet(omega, status, failure_stage, steps, closure):
+    """A transfer-zero packet with explicit fields; the choice reads none of the rest."""
+    fields = dict.fromkeys(NativeTransferPacket._fields, np.float64(0.0))
+    fields.update(omega=np.complex128(omega), status=np.int32(status),
+                  failure_stage=np.int32(failure_stage), steps=np.int32(steps),
+                  closure=np.bool_(closure), certificate_status=np.int32(status), certificates=())
+    return NativeTransferPacket(**fields)
+
+
+class CorrectedPointOutcomeTests(unittest.TestCase):
+    """The rule applied after the last correction of a transfer zero (Issue 52).
+
+    NumPy arrays keep these tests from initializing JAX before the runtime is
+    configured; the loop calls the same function with jax.numpy.
+    """
+
+    accepted = _transfer_packet(3.7e10 - 1.3e8j, 0, 4, 4, True)
+
+    def assert_packet(self, actual, expected):
+        for name, left, right in zip(NativeTransferPacket._fields, actual, expected):
+            self.assertEqual(jax.tree.leaves(left), jax.tree.leaves(right), name)
+
+    def test_corrected_point_that_closes_is_returned(self):
+        corrected = _transfer_packet(3.7e10 - 1.3e8j + 1e-3, 0, 4, 5, True)
+        packet, status = corrected_point_outcome(np.int32(0), corrected, corrected, np.int32(0), xp=np)
+        self.assert_packet(packet, corrected)
+        self.assertEqual(int(status), 0)
+
+    def test_corrected_point_that_does_not_close_returns_the_accepted_point(self):
+        # The loop's own rejection (here the exhausted budget, code 12 at stage 4)
+        # does not replace the accepted point either.
+        corrected = _transfer_packet(3.7e10 - 1.3e8j + 1e-3, 12, 4, 5, False)
+        packet, status = corrected_point_outcome(np.int32(0), corrected, self.accepted, np.int32(12), xp=np)
+        self.assert_packet(packet, self.accepted)
+        self.assertEqual(int(status), 0)
+
+    def test_failed_evaluation_at_the_corrected_point_is_returned(self):
+        corrected = _transfer_packet(3.7e10 - 1.3e8j + 1e-3, 12, 3, 5, False)
+        packet, status = corrected_point_outcome(np.int32(12), corrected, self.accepted, np.int32(12), xp=np)
+        self.assert_packet(packet, corrected)
+        self.assertEqual(int(status), 12)
 
 
 if __name__ == "__main__":
