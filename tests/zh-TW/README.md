@@ -70,6 +70,6 @@ SCNSim 的測試使用小型且明確宣告的電路案例，說明套件如何�
 ::: {.askr-card-body}
 ### [數值檢查（Numerical checks）與本機執行（Local run）](numerical-checks.md) {.askr-card-title .unlisted}
 
-了解前向界限、後向殘差、精確比較，以及預設本機 unittest 指令各自檢查什麼。
+了解前向界限、後向殘差、精確比較、驗證測試家族，以及預設本機 unittest 指令各自檢查什麼。
 :::
 ::::
