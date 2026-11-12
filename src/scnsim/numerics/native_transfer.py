@@ -111,6 +111,26 @@ def _host_denominator(pattern, values, primes, prior, *, ordering):
         owner.factor = None
 
 
+def corrected_point_outcome(evaluation_status, evaluated, accepted, status, *, xp=None):
+    """Return the packet and loop status chosen at the corrected point.
+
+    The corrected point is evaluated once after a machine-sized step from a
+    closed point. A failure reported by that evaluation itself is returned like
+    a failure at any other iteration, because an earlier closure never masks a
+    later checked equation/native error. Otherwise ``accepted`` is returned:
+    the corrected packet when it closed, the previously accepted packet when it
+    did not, or when the loop's own checks (zero slope, non-finite update,
+    exhausted budget) rejected it. ``xp`` is the array module, jax.numpy by
+    default.
+    """
+    import jax
+    if xp is None:
+        import jax.numpy as xp
+    failed = evaluation_status != 0
+    packet = jax.tree.map(lambda a, b: xp.where(failed, a, b), evaluated, accepted)
+    return packet, xp.where(failed, status, accepted.status)
+
+
 def compile_native_transfer(declaration, frequency_program, *, precision, view_index, capability, availability_dependency):
     import jax
     import jax.numpy as jnp
@@ -343,8 +363,9 @@ def compile_native_transfer(declaration, frequency_program, *, precision, view_i
             return jax.tree.map(lambda a, b: jnp.where(predicate, a, b), yes, no)
 
         def body(loop):
-            omega, step, stopped, _, _, eligible, has_eligible, _ = loop
+            omega, step, stopped, _, _, eligible, has_eligible, _, corrected = loop
             packet, value, closure_code = at(candidate, omega)
+            evaluation_status = packet.status
             checkify.debug_check(~(stopped & packet.closure),
                 'stagnant transfer certificate returned without a failure')
             final = (step == 32) | stopped
@@ -372,7 +393,13 @@ def compile_native_transfer(declaration, frequency_program, *, precision, view_i
             has_eligible = has_eligible | owns_closure
             stagnant = same_bits(updated, omega)
             machine_correction = jnp.abs(correction) <= tau(minor_width, rd) * jnp.abs(omega)
-            refined = (status == 0) & has_eligible & (machine_correction | stagnant)
+            # A machine-sized step from a closed point is the remaining error:
+            # take it once and return the corrected point if it closes too. If
+            # its evaluation fails, that failure is returned; if it evaluates
+            # but does not close, or no update budget is left, the closed point
+            # is returned unchanged.
+            apply_last = (~corrected & owns_closure & machine_correction & ~stagnant & ~final)
+            refined = (status == 0) & has_eligible & (machine_correction | stagnant) & ~apply_last
             # Eligibility never masks a later checked equation/native error.
             # The original update budget also bounds refinement: no unrefined
             # success is returned just because an earlier closure was eligible.
@@ -383,14 +410,23 @@ def compile_native_transfer(declaration, frequency_program, *, precision, view_i
                 certificate_status=first(packet.certificate_status, status != 0, status))
             returned = choose(refined, eligible, packet)
             done = refined | (status != 0) | final
-            return jnp.where(done, omega, updated), step+1, stagnant, returned, status, eligible, has_eligible, done
+            # At the corrected point, its own evaluation failure is returned;
+            # otherwise eligible is that point when it closed and the previously
+            # accepted point when it did not.
+            corrected_packet, corrected_status = corrected_point_outcome(
+                evaluation_status, packet, eligible, status)
+            returned = choose(corrected, corrected_packet, returned)
+            status = jnp.where(corrected, corrected_status, status)
+            done = done | corrected
+            return (jnp.where(done, omega, updated), step+1, stagnant, returned, status, eligible,
+                    has_eligible, done, apply_last)
 
         def condition(loop):
             return (loop[1] < 33) & (loop[4] == 0) & ~loop[7]
         failed = empty_packet._replace(omega=initial, status=initial_code, certificate_status=initial_code)
-        _, _, _, packet, _, _, _, _ = jax.lax.while_loop(condition, body,
+        _, _, _, packet, _, _, _, _, _ = jax.lax.while_loop(condition, body,
             (initial, jnp.int32(0), jnp.bool_(False), failed, initial_code,
-             failed, jnp.bool_(False), jnp.bool_(False)))
+             failed, jnp.bool_(False), jnp.bool_(False), jnp.bool_(False)))
         return packet
 
     def physical_equation(candidate, omega):
