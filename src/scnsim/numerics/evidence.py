@@ -106,34 +106,6 @@ def require_primal(outcome):
     return primal
 
 
-def native_primal_exception(error):
-    """Restore only an owned archived check's original host exception type.
-
-    Scalar consumers retain their existing SparseEquationCheck classification
-    and throw all other errors through the original Error. A BatchedError stays
-    batched: this projection does not authorize scalar callers to accept lanes.
-    The Error, its archived certificate payloads and namespace are untouched.
-    """
-    from .native_sparse import ArchivedPrimalCheck
-    exception = error.get_exception()
-    while isinstance(exception, ArchivedPrimalCheck):
-        exception = exception.original_tree.unflatten(exception.payload[:-2])
-    return exception
-
-
-def native_error_may_raise(error):
-    """Avoid eager exception projection for uniformly false native checks.
-
-    A synchronized checkify Error with uniformly shaped, all-false predicates
-    cannot raise. Any true predicate or heterogeneous predicate shapes keep the
-    existing full exception projection path.
-    """
-    predicates = tuple(np.asarray(value) for value in error._pred.values())
-    if len({value.shape for value in predicates}) > 1:
-        return True
-    return any(bool(value.any()) for value in predicates)
-
-
 def require_native_candidate(candidate):
     """Restore original physical/domain failures from synchronized candidate aux.
 
@@ -317,7 +289,7 @@ def response_ad_error_frames(outcome, *, work_indices, frequency_source_indices,
     This host projection slices only compact Error data, never numerical state.
     Runtime work/frequency labels are evidence, not primitive static keys.
     """
-    import jax
+    from . import frame_evidence
     work_indices, sources, basis = tuple(work_indices), tuple(frequency_source_indices), tuple(basis_indices)
     if len(work_indices) != len(sources):
         raise ValueError('response Error work/frequency locator lengths differ')
@@ -329,12 +301,12 @@ def response_ad_error_frames(outcome, *, work_indices, frequency_source_indices,
     # parameter-coordinate or authoritative output-row ordinals.
     certificate_basis = basis_kind
     def lane(error, index, directions):
-        for code in error._code.values():
-            if np.ndim(code) == 0 or np.shape(code)[0] != len(work_indices):
+        for shape in frame_evidence.lane_shapes(error):
+            if len(shape) == 0 or shape[0] != len(work_indices):
                 raise ValueError('response Error leading axis differs from its work locators')
-            if directions and (np.ndim(code) < 2 or np.shape(code)[1] != len(basis)):
+            if directions and (len(shape) < 2 or shape[1] != len(basis)):
                 raise ValueError('response derivative Error direction axis differs from its basis')
-        return jax.tree.map(lambda value: np.asarray(value)[index], error)
+        return frame_evidence.lane(error, index)
     frames = []
     for index, (work, source) in enumerate(zip(work_indices, sources, strict=True)):
         frames.append(MappedNativeErrorFrame(lane(outcome.primal_errors, index, False), work, source))
@@ -344,25 +316,23 @@ def response_ad_error_frames(outcome, *, work_indices, frequency_source_indices,
 
 
 def _native_error_certificate_frames(error, error_frames, *, derivatives):
-    from .native_sparse import sparse_certificates
-    rows = [(_detach_native(sparse_certificates(error)), error)]
+    from . import frame_evidence
+    rows = [(_detach_native(frame_evidence.certificates(error)), error)]
     for frame in error_frames:
         if not derivatives and frame.basis_kind is not None:
             continue
-        rows.append((_detach_native(sparse_certificates(frame.error,
+        rows.append((_detach_native(frame_evidence.certificates(frame.error,
             basis_kind=frame.basis_kind, basis_indices=frame.basis_indices,
             work_index=frame.work_index, frequency_source_index=frame.frequency_source_index)), frame.error))
     return tuple(rows)
 
 
 def _raise_native_unexpected(error, *, derivative_frame):
-    from .native_sparse import SparseCertificateEffect, DerivativeAvailabilityEffect
-    projected_effects = (SparseCertificateEffect, DerivativeAvailabilityEffect) if derivative_frame else (SparseCertificateEffect,)
-    fatal = error._replace(_pred={effect: np.zeros_like(predicate, dtype=bool)
-        if isinstance(effect, projected_effects) else predicate
-        for effect, predicate in error._pred.items()})
-    if fatal.get_exception() is not None:
-        fatal.throw()
+    """Raise a check SCNSim does not own from a frame under host projection."""
+    from . import frame_evidence
+    frame_evidence.raise_foreign(error, frame=(
+        frame_evidence.FrameKind.DERIVATIVE_PROJECTION if derivative_frame
+        else frame_evidence.FrameKind.PRIMAL_PROJECTION))
 
 def project_native_outcome(native, result, checked_error, *, _derivative_frame=False, error_frames=(),
                            compact_evidence=False):
@@ -373,7 +343,6 @@ def project_native_outcome(native, result, checked_error, *, _derivative_frame=F
     separate precedence. Transformed certificate roles remain explicit; they
     are not relabelled as primal certificates by this value projection.
     """
-    from .native_sparse import sparse_certificates
     from .program_models import ProgramOutcome, ProgramAux
     _, aux = result
     require_native_candidate(aux)
@@ -411,8 +380,7 @@ def project_native_derivative_outcome(native, result, checked_error, *, output_c
     This boundary performs no differentiation, solve or physical projection.
     """
     from .program_models import DerivativeOutcome
-    from .native_sparse import (derivative_availability, sparse_certificates,
-        SparseCertificateEffect, DerivativeAvailabilityEffect)
+    from . import frame_evidence
     primal_result, derivative = result
     primal = project_native_outcome(native, primal_result, checked_error,
                                    _derivative_frame=True, error_frames=error_frames, compact_evidence=compact_evidence)
@@ -436,14 +404,10 @@ def project_native_derivative_outcome(native, result, checked_error, *, output_c
             raise ValueError('mapped derivative errors require their actual basis kind')
         # All mapped payloads have the exact same leading direction axis. A
         # direction Error is data returned by the already checked JAX transform.
-        for code in _directional_errors._code.values():
-            if np.ndim(code) == 0 or np.shape(code)[0] != len(basis):
+        for shape in frame_evidence.lane_shapes(_directional_errors):
+            if len(shape) == 0 or shape[0] != len(basis):
                 raise ValueError('mapped derivative Error axis disagrees with its ordered basis')
-        fatal = _directional_errors._replace(_pred={effect: np.zeros_like(predicate, dtype=bool)
-            if isinstance(effect, (SparseCertificateEffect, DerivativeAvailabilityEffect)) else predicate
-            for effect, predicate in _directional_errors._pred.items()})
-        if fatal.get_exception() is not None:
-            fatal.throw()
+        _raise_native_unexpected(_directional_errors, derivative_frame=True)
         directional_frames += ((_directional_errors, _basis_kind, basis),)
     elif _basis_kind is not None or _basis_indices:
         raise ValueError('derivative basis metadata requires mapped errors')
@@ -466,7 +430,7 @@ def project_native_derivative_outcome(native, result, checked_error, *, output_c
                 math.prod(block['shape']) * len(block['components']) for row in rows))
 
     for frame, kind, basis in directional_frames:
-        for fact in derivative_availability(frame):
+        for fact in frame_evidence.availability(frame):
             mask = np.asarray(fact.present) & ~np.asarray(fact.available)
             if bool(np.any(mask)):
                 selected_blocks = affected_basis(mask, kind, basis)
@@ -477,11 +441,11 @@ def project_native_derivative_outcome(native, result, checked_error, *, output_c
     transformed_certificates = primal.aux.certificates
     for frame in error_frames:
         if frame.basis_kind is not None:
-            transformed_certificates += _detach_native(sparse_certificates(frame.error,
+            transformed_certificates += _detach_native(frame_evidence.certificates(frame.error,
                 basis_kind=frame.basis_kind, basis_indices=frame.basis_indices,
                 work_index=frame.work_index, frequency_source_index=frame.frequency_source_index))
     if _directional_errors is not None:
-        transformed_certificates += _detach_native(sparse_certificates(_directional_errors,
+        transformed_certificates += _detach_native(frame_evidence.certificates(_directional_errors,
             basis_kind=_basis_kind, basis_indices=tuple(_basis_indices)))
     primal = primal._replace(aux=primal.aux._replace(certificates=tuple(
         certificate for certificate in primal.aux.certificates
