@@ -213,17 +213,24 @@ def acquire_completed_root_frame(program, inputs, *, backend, program_owner,
 
 
 class ChunkedResultSink:
-    """Bounded operation-local staging for one Direct or Sweep completion.
+    """Operation-local rows for one Direct or Sweep completion.
 
-    Numerical rows are stored as checked immutable SQLite blocks. Only
-    immutable byte-range references remain resident while computation runs;
-    publication reads one Direct chunk or one budget-sized Sweep group at a
-    time. The sink has no Workspace transaction or success-selection authority.
+    A Direct call keeps its work rows and completed chunks in this process.
+    Nothing of it reaches the database before the terminal publisher writes
+    the chunks, so a failed or interrupted call leaves no object behind.
+
+    A Sweep stages its rows as checked immutable SQLite blocks. Only
+    immutable byte-range references remain resident while it runs, and
+    publication reads one budget-sized group at a time.
+
+    The sink has no Workspace transaction or success-selection authority.
     """
 
     def __init__(self, spool, *, domain, scratch_budget_bytes, sweep_grid_shape=None):
         if domain not in {"direct", "sweep"}:
             raise ValueError(f"unsupported chunked result domain {domain!r}")
+        if (spool is None) != (domain == "direct"):
+            raise ValueError("only a Sweep sink stages rows in checked storage")
         self._spool = spool
         self._domain = domain
         self._scratch_budget_bytes = scratch_budget_bytes
@@ -232,6 +239,8 @@ class ChunkedResultSink:
         )
         self._references = []
         self._native_work_references = {}
+        self._direct_work = {}
+        self._direct_chunks = []
         self._point_count = 0
         self._summary_reference = None
         self._continuations = {}
@@ -261,6 +270,8 @@ class ChunkedResultSink:
         return self._point_count
 
     def set_summary(self, summary):
+        if self._domain != "sweep":
+            raise TypeError("only a Sweep sink stages a terminal summary")
         if not isinstance(summary, Mapping):
             raise TypeError("chunked terminal summary must be a mapping")
         self._summary_reference = self._spool.put_record(dict(summary))
@@ -285,35 +296,31 @@ class ChunkedResultSink:
         frequencies = np.asarray(frequencies_hz)
         family_records = {name: np.asarray(families[name]) for name in ("S", "Y", "Z")}
         count = len(np.asarray(frequencies_hz))
-        source_chunk = {
+        # The terminal publisher encodes this chunk once, from these arrays.
+        self._direct_chunks.append({
             "point_count": count,
             "payload": {"frequencies_hz": frequencies, "families": family_records},
             "summary_json": {"evidence": dict(evidence)},
-        }
-        self._references.append(self._spool.put_record(source_chunk))
+        })
         self._point_count += count
 
-    def append_direct_record(self, chunk):
-        """Stage one already canonical Direct chunk from the native provider."""
-        if self._domain != "direct":
-            raise TypeError("Direct data cannot be appended to a Sweep sink")
-        if not isinstance(chunk, Mapping):
-            raise TypeError("Direct chunk must be a mapping")
-        point_count = chunk.get("point_count")
-        payload = chunk.get("payload")
-        summary_json = chunk.get("summary_json")
-        if (not isinstance(point_count, int) or isinstance(point_count, bool)
-                or point_count <= 0 or not isinstance(payload, Mapping)
-                or not isinstance(summary_json, Mapping)):
-            raise TypeError("Direct chunk has incomplete source fields")
-        self._references.append(self._spool.put_record(dict(chunk)))
-        self._point_count += point_count
-
     def stage_direct_work(self, work_index, record):
-        """Keep one synchronized native work row in scratch, not in RAM history."""
+        """Keep one synchronized native work row until its chunks are assembled."""
         if self._domain != "direct":
             raise TypeError("native frequency work belongs to a Direct sink")
-        self.stage_native_work(None, work_index, record)
+        if type(work_index) is not int or work_index < 0:
+            raise TypeError("native work index must be a non-negative integer")
+        if work_index in self._direct_work:
+            raise RuntimeError("native work index was staged more than once in its scope")
+        if not isinstance(record, Mapping):
+            raise TypeError("native work row must be a mapping")
+        self._direct_work[work_index] = dict(record)
+
+    def release_direct_work(self):
+        """Drop the work rows once every chunk that gathers them is assembled."""
+        if self._domain != "direct":
+            raise TypeError("native frequency work belongs to a Direct sink")
+        self._direct_work.clear()
 
     def stage_native_work(self, namespace, work_index, record):
         """Stage one completed native frequency row under its candidate scope."""
@@ -344,10 +351,13 @@ class ChunkedResultSink:
                 del self._native_work_references[key]
 
     def direct_work(self, work_index):
-        """Read a single staged native work row while assembling output chunks."""
+        """Read a single held native work row while assembling output chunks."""
         if self._domain != "direct":
             raise TypeError("native frequency work belongs to a Direct sink")
-        return self.native_work(None, work_index)
+        try:
+            return self._direct_work[work_index]
+        except KeyError as error:
+            raise RuntimeError("native work row was not staged") from error
 
     def append_sweep_point(self, point):
         if self._domain != "sweep":
@@ -408,8 +418,7 @@ class ChunkedResultSink:
                 "Sweep continuation evidence has no matching requested occurrence"
             )
         if self._domain == "direct":
-            for reference in self._references:
-                yield self._spool.get_record(reference, snapshot=snapshot)
+            yield from self._direct_chunks
             return
 
         pending = []
@@ -1463,6 +1472,7 @@ class PhysicalAnalysis:
             self.result_sink.append_direct_chunk(
                 frequencies_hz=frequencies[start:stop], families=families, evidence=evidence,
             )
+        self.result_sink.release_direct_work()
 
         return {'type': 'direct_solve', 'point_count': len(frequencies),
                 'backend': self.backend.native_program_identity('direct')}

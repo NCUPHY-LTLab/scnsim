@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import numpy as np
+
 from ..errors import EvidenceIntegrityError, UnsupportedEvidenceVersionError
 from .operation_store import OperationStore, Snapshot, _VERSION as _OPERATION_STORE_VERSION, _reference
 from .binary_blocks import record_bytes, record_document
@@ -1523,9 +1525,14 @@ def _complete_chunked_operation(binding, *, domain, operation_id, task_id, attem
                              domain=domain, ordinal=ordinal)
             first_point = point_count
             if domain == "direct":
-                if (not isinstance(payload.get("frequencies_hz"), Mapping)
-                        or not isinstance(payload.get("families"), Mapping)
-                        or set(payload["families"]) != {"S", "Y", "Z"}):
+                # A Direct chunk arrives as the call's own host arrays and is
+                # encoded exactly once, by the put_object calls below.
+                frequencies = payload.get("frequencies_hz")
+                families = payload.get("families")
+                if (not isinstance(frequencies, np.ndarray) or frequencies.shape != (count,)
+                        or not isinstance(families, Mapping) or set(families) != {"S", "Y", "Z"}
+                        or any(not isinstance(matrix, np.ndarray) or matrix.shape[:1] != (count,)
+                               for matrix in families.values())):
                     raise _error("Direct chunk payload lacks its three actual matrix families.",
                                  ordinal=ordinal)
             else:
@@ -3683,11 +3690,12 @@ class _ChunkReference:
 
 
 class ChunkStorage:
-    """Same-call Direct/Sweep staging in checked SQLite objects, without spool.
+    """Same-call Sweep staging in checked SQLite objects, without spool.
 
-    Chunk writes cannot publish completion. The terminal publisher consumes the
-    references through its own transaction snapshot, so it never nests a reader
-    lock inside the final writer lock.
+    A Direct call does not use it: its rows stay in memory until the terminal
+    publisher writes them. Chunk writes cannot publish completion. The terminal
+    publisher consumes the references through its own transaction snapshot, so
+    it never nests a reader lock inside the final writer lock.
     """
     def __init__(self, binding):
         self.binding = binding

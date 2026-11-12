@@ -17,7 +17,7 @@ import unittest
 
 import numpy as np
 
-from scnsim import (CircuitRun, DirectSolveSpec,
+from scnsim import (CircuitRun, DirectResponseFormationError, DirectSolveSpec,
                     EvidenceIntegrityError, ExecutionPolicy,
                     DiagonalRootSpec, JVP, OperatorSpec, ParameterSpace, ReductionPipeline,
                     ResponseElementSpec, SensitivitySpec,
@@ -219,6 +219,87 @@ def _direct_summary_blocks(result):
             blocks.append({"point_count": row["point_count"], "header": header,
                            "byte_length": len(payload)})
     return blocks
+
+
+_REFERENCE_KEYS = {"schema_version", "storage", "database", "role", "sha256", "byte_length"}
+
+
+def _stored_references(value, found):
+    if isinstance(value, Mapping):
+        if set(value) == _REFERENCE_KEYS:
+            found.add((value["sha256"], value["role"]))
+        else:
+            for child in value.values():
+                _stored_references(child, found)
+    elif isinstance(value, (tuple, list)):
+        for child in value:
+            _stored_references(child, found)
+
+
+def _database_census(workspace):
+    """List every stored object and those that pointers, streams and indexes reach.
+
+    A reference is followed into the object it names, so an object counts as
+    referenced when a chain of stored references leads to it from a pointer, a
+    stream entry, the operation index or a result index table.
+    """
+    paths = list(Path(workspace).rglob("operations.sqlite3"))
+    if len(paths) != 1:
+        raise AssertionError("fixture must have exactly one OperationStore")
+    connection = sqlite3.connect(paths[0].absolute().as_uri() + "?mode=ro", uri=True)
+    try:
+        bodies = {digest: record_document(bytes(payload))
+                  for digest, payload in connection.execute("SELECT sha256,payload FROM objects")}
+        objects = set(connection.execute("SELECT sha256,role FROM object_roles"))
+        pending = set()
+        for table in ("pointers", "entries", "operations"):
+            pending.update(connection.execute("SELECT sha256,role FROM " + table))
+        tables = [name for (name,) in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")]
+        for table in tables:
+            for column in [row[1] for row in connection.execute("PRAGMA table_info(" + table + ")")]:
+                if column.endswith(("_ref", "_json")):
+                    for (text,) in connection.execute(
+                            "SELECT " + column + " FROM " + table + " WHERE " + column + " IS NOT NULL"):
+                        _stored_references(json.loads(text), pending)
+        current_operations = {operation_id for (operation_id,) in connection.execute(
+            "SELECT operation_id FROM operations")}
+    finally:
+        connection.close()
+    reached = set()
+    while pending:
+        key = pending.pop()
+        if key in reached:
+            continue
+        if key not in objects:
+            raise AssertionError("stored reference names a missing object: " + repr(key))
+        reached.add(key)
+        found = set()
+        _stored_references(bodies[key[0]], found)
+        pending.update(found - reached)
+    return {"objects": objects, "reached": reached, "bodies": bodies,
+            "current_operations": current_operations}
+
+
+@contextmanager
+def _interrupted_at(owner, name, *, call, matches=lambda args, kwargs: True):
+    """Raise KeyboardInterrupt in place of one selected call; forward all others."""
+    original = getattr(owner, name)
+    seen = 0
+
+    def forwarded(*args, **kwargs):
+        nonlocal seen
+        if matches(args, kwargs):
+            seen += 1
+            if seen == call:
+                raise KeyboardInterrupt("interrupted at " + name)
+        return original(*args, **kwargs)
+
+    setattr(owner, name, forwarded)
+    try:
+        yield
+    finally:
+        setattr(owner, name, original)
 
 
 # The assigned private runner may persist these test observations immediately.
@@ -946,6 +1027,72 @@ class EvidenceV3Tests(unittest.TestCase):
                                     for column in header["columns"]]))
         # The same columns whatever the chunk size; only their length differs.
         self.assertEqual(len(layouts), 1)
+
+    def test_direct_calls_leave_no_staging_or_unreferenced_objects(self):
+        from scnsim.execution.physical_analysis import PhysicalAnalysis
+        from scnsim.workspace.operation_store import StoreTransaction
+        # Two chunks of two work rows each; 6.0 GHz is requested twice.
+        frequencies = [5.5, 6.0, 6.0, 6.5, 7.0]*u.GHz
+        # The last lane overflows after the first chunk's rows are already held.
+        overflowing = [5.5e9, 6.0e9, 6.5e9, 1.0e308]*u.Hz
+        result_roles = {"direct_chunk", "direct_chunk_summary", "direct_manifest", "direct_index_root",
+                        "direct_completion", "operation_result", "success_selection"}
+        for case, attempt_status in (("completed", "success"), ("failed", "failure"),
+                                     ("interrupted_while_solving", "interrupted"),
+                                     ("interrupted_while_sealing", "interrupted")):
+            with self.subTest(case=case), TemporaryDirectory() as directory:
+                plan, _, _ = _primitive_plan()
+                run = CircuitRun(plan=plan, workspace=Path(directory), precision="float64",
+                                 execution_policy=ExecutionPolicy(frequency_chunk_size=2))
+                try:
+                    if case == "completed":
+                        result = run.solve(run.original, DirectSolveSpec(frequencies=frequencies))
+                        chunk_count = result.s.view._fixed_reader.selection.chunk_count
+                    elif case == "failed":
+                        with self.assertRaises(DirectResponseFormationError):
+                            run.solve(run.original, DirectSolveSpec(frequencies=overflowing))
+                    elif case == "interrupted_while_solving":
+                        # The second native batch never runs; the first is already held.
+                        with _interrupted_at(PhysicalAnalysis, "_execute_native_chunk", call=2), \
+                                self.assertRaises(KeyboardInterrupt):
+                            run.solve(run.original, DirectSolveSpec(frequencies=frequencies))
+                    else:
+                        # The terminal transaction already holds one chunk, its
+                        # summary and the next chunk when it is interrupted.
+                        with _interrupted_at(
+                                StoreTransaction, "put_object", call=2,
+                                matches=lambda args, kwargs: kwargs.get("role") == "direct_chunk_summary"), \
+                                self.assertRaises(KeyboardInterrupt):
+                            run.solve(run.original, DirectSolveSpec(frequencies=frequencies))
+                finally:
+                    run.close()
+                census = _database_census(directory)
+                objects, reached, bodies = census["objects"], census["reached"], census["bodies"]
+                roles = {role for _, role in objects}
+                self.assertFalse({role for role in roles if "staging" in role}, roles)
+                if case == "completed":
+                    for role in ("direct_chunk", "direct_chunk_summary"):
+                        stored = {key for key in objects if key[1] == role}
+                        self.assertEqual(len(stored), chunk_count)
+                        self.assertLessEqual(stored, reached)
+                    self.assertLessEqual(result_roles, roles)
+                else:
+                    # Nothing of an unfinished result reaches the database.
+                    self.assertFalse(result_roles & roles, result_roles & roles)
+                attempts = [bodies[digest] for digest, role in reached if role == "attempt"]
+                self.assertEqual([attempt["status"] for attempt in attempts], [attempt_status])
+                # The store replaces two control records behind their pointers:
+                # the operation row and the attempt. Their earlier states stay
+                # as objects that nothing refers to. Every other object,
+                # including all numerical evidence, must be referenced.
+                for digest, role in objects - reached:
+                    body = bodies[digest]
+                    if role == "operation":
+                        self.assertIn(body["operation_id"], census["current_operations"])
+                    elif role == "attempt":
+                        self.assertEqual(body["attempt_id"], attempts[0]["attempt_id"])
+                    else:
+                        self.fail("unreferenced " + role + " object " + digest)
 
     def test_optimization_history_locator_storage_integrity(self):
         from scnsim.workspace.results import FixedPhysicalOptimizationReader
