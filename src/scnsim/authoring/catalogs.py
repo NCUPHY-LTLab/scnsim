@@ -120,6 +120,23 @@ class _BuiltinComponents(Library):
         josephson_inductance: object,
         junction_capacitance: object = 0 * registry.farad,
     ) -> ComponentInstance:
+        """Build one Josephson junction between ``terminal_1`` and ``terminal_2``.
+
+        - ``id``: identifier of this component.
+        - ``josephson_inductance``: the junction's small-signal inductance at zero
+          phase and zero bias, ``L_J = phi_0 / I_c``, with the reduced flux quantum
+          ``phi_0 = hbar / 2e = Phi_0 / 2pi``, about 3.291e-16 Wb; the field therefore
+          also fixes the critical current ``I_c = phi_0 / L_J``, about 329 nA for 1 nH.
+          Direct solves the junction as a fixed linear inductor of this value, which
+          is exact in the limit of no DC current and a vanishing signal.
+        - ``junction_capacitance``: capacitance in parallel with the junction; the
+          default ``0 * farad`` omits it.
+
+        How far the inductance departs from ``josephson_inductance`` once a junction
+        carries current is tabulated under "Josephson junctions in Direct" on the
+        documentation page "Linear Direct realization"
+        (``docs/concepts/direct-and-hb-realizations.qmd``).
+        """
         return ComponentInstance._create(
             id=id,
             factory="josephson_junction",
@@ -233,6 +250,29 @@ class _BuiltinComponents(Library):
         junction_capacitance: object = 0 * registry.farad,
         loop_inductance: object | None = None,
     ) -> ComponentInstance:
+        """Build a symmetric SQUID: two equal Josephson junctions on a finite loop.
+
+        One junction joins ``terminal_1`` and ``terminal_2`` directly; the loop
+        inductance in series with the other junction joins them in parallel.
+
+        - ``id``: identifier of this component.
+        - ``josephson_inductance``: each junction's small-signal inductance at zero
+          phase and zero bias, ``L_J = phi_0 / I_c``, with the reduced flux quantum
+          ``phi_0 = hbar / 2e = Phi_0 / 2pi``, about 3.291e-16 Wb; the field therefore
+          also fixes each junction's critical current ``I_c = phi_0 / L_J``, about
+          329 nA for 1 nH. Direct solves each junction as a fixed linear inductor of
+          this value, which is exact in the limit of no DC current and a vanishing
+          signal.
+        - ``junction_capacitance``: capacitance in parallel with each junction; the
+          default ``0 * farad`` omits it.
+        - ``loop_inductance``: self-inductance of the loop, exposed as the inductive
+          branch ``loop``; required.
+
+        How far the inductance departs from ``josephson_inductance`` once a junction
+        carries current is tabulated under "Josephson junctions in Direct" on the
+        documentation page "Linear Direct realization"
+        (``docs/concepts/direct-and-hb-realizations.qmd``).
+        """
         if loop_inductance is None:
             raise TypeError("loop_inductance is required")
         from .assembly import CompositePlan
@@ -308,6 +348,27 @@ class _BuiltinComponents(Library):
         josephson_inductance: object,
         junction_capacitance: object,
     ) -> ComponentInstance:
+        """Build a grounded resonator: a Josephson junction and a capacitor to ground.
+
+        ``terminal_1`` and ``terminal_2`` are two handles on the one resonator node;
+        both parallel branches return to ground.
+
+        - ``id``: identifier of this component.
+        - ``capacitance``: capacitance from the resonator node to ground.
+        - ``josephson_inductance``: the junction's small-signal inductance at zero
+          phase and zero bias, ``L_J = phi_0 / I_c``, with the reduced flux quantum
+          ``phi_0 = hbar / 2e = Phi_0 / 2pi``, about 3.291e-16 Wb; the field therefore
+          also fixes the critical current ``I_c = phi_0 / L_J``, about 329 nA for 1 nH.
+          Direct solves the junction as a fixed linear inductor of this value, which
+          is exact in the limit of no DC current and a vanishing signal.
+        - ``junction_capacitance``: capacitance in parallel with the junction,
+          separate from the resonator capacitance; ``0 * farad`` omits it.
+
+        How far the inductance departs from ``josephson_inductance`` once a junction
+        carries current is tabulated under "Josephson junctions in Direct" on the
+        documentation page "Linear Direct realization"
+        (``docs/concepts/direct-and-hb-realizations.qmd``).
+        """
         return self._resonator(
             id=id,
             grounded=True,
@@ -329,6 +390,32 @@ class _BuiltinComponents(Library):
         josephson_inductance: object,
         junction_capacitance: object,
     ) -> ComponentInstance:
+        """Build a floating resonator: a Josephson junction across a capacitor network.
+
+        The junction joins ``terminal_1`` and ``terminal_2``; the network adds a
+        capacitance between them and one from each terminal to ground.
+
+        - ``id``: identifier of this component.
+        - ``terminal_1_to_reference_capacitance``: capacitance from ``terminal_1`` to
+          ground.
+        - ``terminal_2_to_reference_capacitance``: capacitance from ``terminal_2`` to
+          ground.
+        - ``terminal_mutual_capacitance``: capacitance between ``terminal_1`` and
+          ``terminal_2``.
+        - ``josephson_inductance``: the junction's small-signal inductance at zero
+          phase and zero bias, ``L_J = phi_0 / I_c``, with the reduced flux quantum
+          ``phi_0 = hbar / 2e = Phi_0 / 2pi``, about 3.291e-16 Wb; the field therefore
+          also fixes the critical current ``I_c = phi_0 / L_J``, about 329 nA for 1 nH.
+          Direct solves the junction as a fixed linear inductor of this value, which
+          is exact in the limit of no DC current and a vanishing signal.
+        - ``junction_capacitance``: capacitance in parallel with the junction,
+          separate from the resonator capacitance; ``0 * farad`` omits it.
+
+        How far the inductance departs from ``josephson_inductance`` once a junction
+        carries current is tabulated under "Josephson junctions in Direct" on the
+        documentation page "Linear Direct realization"
+        (``docs/concepts/direct-and-hb-realizations.qmd``).
+        """
         return self._resonator(
             id=id,
             grounded=False,
@@ -351,6 +438,30 @@ class _BuiltinComponents(Library):
         junction_capacitance: object,
         loop_inductance: object,
     ) -> ComponentInstance:
+        """Build a grounded resonator: a symmetric SQUID and a capacitor to ground.
+
+        ``terminal_1`` and ``terminal_2`` are two handles on the one resonator node;
+        both parallel branches return to ground.
+
+        - ``id``: identifier of this component.
+        - ``capacitance``: capacitance from the resonator node to ground.
+        - ``josephson_inductance``: each junction's small-signal inductance at zero
+          phase and zero bias, ``L_J = phi_0 / I_c``, with the reduced flux quantum
+          ``phi_0 = hbar / 2e = Phi_0 / 2pi``, about 3.291e-16 Wb; the field therefore
+          also fixes each junction's critical current ``I_c = phi_0 / L_J``, about
+          329 nA for 1 nH. Direct solves each junction as a fixed linear inductor of
+          this value, which is exact in the limit of no DC current and a vanishing
+          signal.
+        - ``junction_capacitance``: capacitance in parallel with each junction,
+          separate from the resonator capacitance; ``0 * farad`` omits it.
+        - ``loop_inductance``: self-inductance of the SQUID loop, exposed as the
+          inductive branch ``loop``.
+
+        How far the inductance departs from ``josephson_inductance`` once a junction
+        carries current is tabulated under "Josephson junctions in Direct" on the
+        documentation page "Linear Direct realization"
+        (``docs/concepts/direct-and-hb-realizations.qmd``).
+        """
         return self._resonator(
             id=id,
             grounded=True,
@@ -374,6 +485,35 @@ class _BuiltinComponents(Library):
         junction_capacitance: object,
         loop_inductance: object,
     ) -> ComponentInstance:
+        """Build a floating resonator: a symmetric SQUID across a capacitor network.
+
+        The SQUID joins ``terminal_1`` and ``terminal_2``; the network adds a
+        capacitance between them and one from each terminal to ground.
+
+        - ``id``: identifier of this component.
+        - ``terminal_1_to_reference_capacitance``: capacitance from ``terminal_1`` to
+          ground.
+        - ``terminal_2_to_reference_capacitance``: capacitance from ``terminal_2`` to
+          ground.
+        - ``terminal_mutual_capacitance``: capacitance between ``terminal_1`` and
+          ``terminal_2``.
+        - ``josephson_inductance``: each junction's small-signal inductance at zero
+          phase and zero bias, ``L_J = phi_0 / I_c``, with the reduced flux quantum
+          ``phi_0 = hbar / 2e = Phi_0 / 2pi``, about 3.291e-16 Wb; the field therefore
+          also fixes each junction's critical current ``I_c = phi_0 / L_J``, about
+          329 nA for 1 nH. Direct solves each junction as a fixed linear inductor of
+          this value, which is exact in the limit of no DC current and a vanishing
+          signal.
+        - ``junction_capacitance``: capacitance in parallel with each junction,
+          separate from the resonator capacitance; ``0 * farad`` omits it.
+        - ``loop_inductance``: self-inductance of the SQUID loop, exposed as the
+          inductive branch ``loop``.
+
+        How far the inductance departs from ``josephson_inductance`` once a junction
+        carries current is tabulated under "Josephson junctions in Direct" on the
+        documentation page "Linear Direct realization"
+        (``docs/concepts/direct-and-hb-realizations.qmd``).
+        """
         return self._resonator(
             id=id,
             grounded=False,

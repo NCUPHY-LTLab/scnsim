@@ -306,7 +306,9 @@ j = plan.add(
 
 `josephson_inductance` always means the per-junction small-signal
 `L_J0` at the stable zero-phase, zero-bias operating point. SCNSim does not interpret it as an arbitrary
-bias-point inductance.
+bias-point inductance. Direct solves the junction as a fixed inductor of that
+value; [Josephson junctions in Direct](concepts/direct-and-hb-realizations.qmd#josephson-junctions-in-direct)
+shows how far the inductance departs from it once the junction carries current.
 
 A nonzero `junction_capacitance` lowers as an independent capacitor in parallel
 with the ideal Josephson element. Exact `0 * u.F` records that this model omits

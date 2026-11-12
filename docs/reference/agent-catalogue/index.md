@@ -194,7 +194,7 @@ Names come from actual `scnsim.__all__` and the builtin `components` Library, in
 - `scripts/generate_agent_catalogue.py` — SHA-256 `040d05273dc882d2f645ab1cac13e37e878901925ba234c67e1933b439d69c9d`
 - `src/scnsim/__init__.py` — SHA-256 `2b3523836e4152aa0a836a8df1081eaff945458a5df34adac42e08688b970438`
 - `src/scnsim/authoring/assembly.py` — SHA-256 `da95087557c8a623bbb60654957fb8b43a1d68a68f1cf2c695effe0ecee87aa2`
-- `src/scnsim/authoring/catalogs.py` — SHA-256 `7276b23d3aad359ae0baf4db60b95c5249ccc854bc937a74891baa7a7f543917`
+- `src/scnsim/authoring/catalogs.py` — SHA-256 `29563406e811d7a497e7002a667536a5d5c201fb19712c40f7477aa7cb66b582`
 - `src/scnsim/authoring/components.py` — SHA-256 `2b53329380ae89b0bc1594378b0c74ecbe533f6bb5b92e2dc1bb41f4295361c2`
 - `src/scnsim/authoring/factory_context.py` — SHA-256 `2241c6d5bf9c99ccac6360f08256be2b4603b7a7b1f8bf01310bfa28bf87015b`
 - `src/scnsim/authoring/handles.py` — SHA-256 `3901a301d2c75e23ea220e6d831944a51a1e37c6e1179818471dbc87c0ba0574`
