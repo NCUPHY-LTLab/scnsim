@@ -1,0 +1,318 @@
+{
+ "programs": {
+  "programs": 88,
+  "sites_total": 105
+ },
+ "rows": [
+  {
+   "kind": "archive",
+   "name": "scnsim_owned_primal_equation_archive",
+   "where": "cond/custom_jvp_call",
+   "count": 3
+  },
+  {
+   "kind": "archive",
+   "name": "scnsim_owned_primal_equation_archive",
+   "where": "custom_jvp_call",
+   "count": 30
+  },
+  {
+   "kind": "archive",
+   "name": "scnsim_owned_primal_equation_archive",
+   "where": "<top>",
+   "count": 4
+  },
+  {
+   "kind": "check_p",
+   "name": "debug",
+   "where": "cond",
+   "count": 6
+  },
+  {
+   "kind": "check_p",
+   "name": "debug",
+   "where": "while",
+   "count": 4
+  },
+  {
+   "kind": "hop",
+   "name": "cond",
+   "where": "no_sites",
+   "count": 1257
+  },
+  {
+   "kind": "hop",
+   "name": "cond",
+   "where": "with_sites",
+   "count": 13
+  },
+  {
+   "kind": "hop",
+   "name": "custom_jvp_call",
+   "where": "no_sites",
+   "count": 10102
+  },
+  {
+   "kind": "hop",
+   "name": "custom_jvp_call",
+   "where": "with_sites",
+   "count": 11
+  },
+  {
+   "kind": "hop",
+   "name": "custom_linear_solve",
+   "where": "no_sites",
+   "count": 14
+  },
+  {
+   "kind": "hop",
+   "name": "custom_vmap_call",
+   "where": "no_sites",
+   "count": 22
+  },
+  {
+   "kind": "hop",
+   "name": "custom_vmap_call",
+   "where": "with_sites",
+   "count": 11
+  },
+  {
+   "kind": "hop",
+   "name": "jit",
+   "where": "no_sites",
+   "count": 112954
+  },
+  {
+   "kind": "hop",
+   "name": "scan",
+   "where": "no_sites",
+   "count": 294
+  },
+  {
+   "kind": "hop",
+   "name": "scatter-add",
+   "where": "no_sites",
+   "count": 945
+  },
+  {
+   "kind": "hop",
+   "name": "scatter-mul",
+   "where": "no_sites",
+   "count": 16
+  },
+  {
+   "kind": "hop",
+   "name": "while",
+   "where": "no_sites",
+   "count": 44
+  },
+  {
+   "kind": "hop",
+   "name": "while",
+   "where": "with_sites",
+   "count": 22
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_first_jet",
+   "where": "cond/cond",
+   "count": 2
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_first_jet",
+   "where": "cond/custom_jvp_call/custom_vmap_call",
+   "count": 1
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_first_jet",
+   "where": "cond/custom_jvp_call/custom_vmap_call/while",
+   "count": 1
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_first_jet",
+   "where": "cond",
+   "count": 1
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_first_jet",
+   "where": "custom_jvp_call/custom_vmap_call",
+   "count": 6
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_first_jet",
+   "where": "custom_jvp_call/custom_vmap_call/while",
+   "count": 6
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_first_jet",
+   "where": "while",
+   "count": 7
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_first_jet",
+   "where": "<top>",
+   "count": 7
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_linear_tangent",
+   "where": "cond",
+   "count": 1
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_linear_tangent",
+   "where": "<top>",
+   "count": 1
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_equation_linear_tangent_batch",
+   "where": "<top>",
+   "count": 1
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_pair_equation",
+   "where": "cond",
+   "count": 1
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_pair_first_jet",
+   "where": "cond/custom_jvp_call/custom_vmap_call/while",
+   "count": 1
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_pair_first_jet",
+   "where": "cond",
+   "count": 3
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_pair_first_jet",
+   "where": "custom_jvp_call/custom_vmap_call/while",
+   "count": 1
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_pair_first_jet",
+   "where": "while",
+   "count": 2
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_pair_residual_equation",
+   "where": "cond",
+   "count": 2
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_sparse_equation",
+   "where": "cond/custom_jvp_call/custom_vmap_call/while",
+   "count": 9
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_sparse_equation",
+   "where": "cond",
+   "count": 17
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_sparse_equation",
+   "where": "custom_jvp_call/custom_vmap_call/while",
+   "count": 9
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_sparse_equation",
+   "where": "while",
+   "count": 18
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_sparse_equation",
+   "where": "<top>",
+   "count": 6
+  },
+  {
+   "kind": "site",
+   "name": "scnsim_checked_sparse_equation_batch",
+   "where": "<top>",
+   "count": 2
+  }
+ ],
+ "param_keys": {
+  "jit": [
+   "compiler_options_kvs",
+   "ctx_mesh",
+   "donated_invars",
+   "in_layouts",
+   "in_shardings",
+   "inline",
+   "jaxpr",
+   "keep_unused",
+   "name",
+   "out_layouts",
+   "out_shardings"
+  ],
+  "scatter-add": [
+   "dimension_numbers",
+   "indices_are_sorted",
+   "mode",
+   "unique_indices",
+   "update_consts",
+   "update_jaxpr"
+  ],
+  "custom_linear_solve": [
+   "const_lengths",
+   "jaxprs"
+  ],
+  "custom_jvp_call": [
+   "call_jaxpr",
+   "jvp_jaxpr_fun",
+   "num_consts",
+   "symbolic_zeros"
+  ],
+  "while": [
+   "body_jaxpr",
+   "body_nconsts",
+   "cond_jaxpr",
+   "cond_nconsts"
+  ],
+  "cond": [
+   "branches"
+  ],
+  "custom_vmap_call": [
+   "call",
+   "in_tree",
+   "out_tree",
+   "rule"
+  ],
+  "scan": [
+   "ft_in",
+   "ft_out",
+   "jaxpr",
+   "length",
+   "reverse",
+   "unroll"
+  ],
+  "scatter-mul": [
+   "dimension_numbers",
+   "indices_are_sorted",
+   "mode",
+   "unique_indices",
+   "update_consts",
+   "update_jaxpr"
+  ]
+ }
+}

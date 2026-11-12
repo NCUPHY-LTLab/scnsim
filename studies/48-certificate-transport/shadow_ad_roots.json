@@ -1,0 +1,24 @@
+{
+ "counts": {
+  "frames_traced": 52,
+  "archived_rows_not_compared": 66,
+  "availability_facts_not_compared": 6,
+  "executions": 105,
+  "arrays_compared": 7144,
+  "elements_compared": 10501,
+  "rows_traced": 40
+ },
+ "roles": {
+  "tangent": 8,
+  "adjoint": 6,
+  "primal": 19,
+  "frequency_tangent": 7
+ },
+ "nesting": {
+  "branches": 21,
+  "<top>": 7,
+  "branches/equation": 8,
+  "branches/branches/equation": 4
+ },
+ "problems": []
+}

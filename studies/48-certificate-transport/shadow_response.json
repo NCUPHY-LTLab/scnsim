@@ -1,0 +1,20 @@
+{
+ "counts": {
+  "frames_traced": 8,
+  "archived_rows_not_compared": 0,
+  "availability_facts_not_compared": 0,
+  "executions": 16,
+  "arrays_compared": 585,
+  "elements_compared": 1219,
+  "rows_traced": 7
+ },
+ "roles": {
+  "primal": 5,
+  "tangent": 1,
+  "adjoint": 1
+ },
+ "nesting": {
+  "<top>": 7
+ },
+ "problems": []
+}

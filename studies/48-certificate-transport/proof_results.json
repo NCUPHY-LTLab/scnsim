@@ -1,0 +1,1474 @@
+[
+ {
+  "case": "direct solve, success",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(0,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 4.003732510050945e-17,
+  "first_call_s": [
+   0.249,
+   0.03
+  ],
+  "run_ms": [
+   0.1796,
+   0.1831
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "direct solve, singular matrix",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(0,)"
+  ],
+  "statuses": [
+   3
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.033,
+   0.031
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "prior failure skips the second equation",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(0,)",
+   "(1,)"
+  ],
+  "statuses": [
+   3
+  ],
+  "not_present": 0,
+  "not_performed": 1,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.037,
+   0.037
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "frequency jet (two certificate groups)",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "frequency_tangent",
+   "primal"
+  ],
+  "sites": [
+   "(2, 'equation', 0)",
+   "(2, 'equation', 1)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 4.40404099622348e-17,
+  "first_call_s": [
+   0.042,
+   0.041
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "vmap of certified, 5 lanes, lane 1 singular",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(0,)"
+  ],
+  "statuses": [
+   0,
+   3
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.042,
+   0.034
+  ],
+  "run_ms": [
+   0.4048,
+   0.3705
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "certified of vmap (batch primitive)",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1,)"
+  ],
+  "statuses": [
+   0,
+   3
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.036,
+   0.037
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "vmap of certified, inner vmap over 2 right-hand sides",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(2,)"
+  ],
+  "statuses": [
+   0,
+   3
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.039,
+   0.038
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "value_and_grad: primal + adjoint",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "adjoint",
+   "primal"
+  ],
+  "sites": [
+   "(22,)",
+   "(7,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 8.392790261490118e-17,
+  "first_call_s": [
+   0.055,
+   0.05
+  ],
+  "run_ms": [
+   0.4087,
+   0.3386
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "value_and_grad at a singular matrix",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "adjoint",
+   "primal"
+  ],
+  "sites": [
+   "(22,)",
+   "(7,)"
+  ],
+  "statuses": [
+   3
+  ],
+  "not_present": 0,
+  "not_performed": 1,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.057,
+   0.049
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "grad through two chained solves",
+  "rows": 4,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "adjoint",
+   "primal"
+  ],
+  "sites": [
+   "(23,)",
+   "(38,)",
+   "(7,)",
+   "(8,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 8.761710596447568e-17,
+  "first_call_s": [
+   0.06,
+   0.051
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "vmap of certified value_and_grad, lane 1 singular",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "adjoint",
+   "primal"
+  ],
+  "sites": [
+   "(22,)",
+   "(7,)"
+  ],
+  "statuses": [
+   0,
+   3
+  ],
+  "not_present": 0,
+  "not_performed": 1,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.054,
+   0.052
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "grad through cond (adjoint inside a branch)",
+  "rows": 4,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "adjoint",
+   "primal"
+  ],
+  "sites": [
+   "(22, 'branches', 0, 0)",
+   "(22, 'branches', 1, 0)",
+   "(7, 'branches', 0, 2)",
+   "(7, 'branches', 1, 1)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 2,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 8.392790261490118e-17,
+  "first_call_s": [
+   0.079,
+   0.072
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "vmap of grad through cond, lanes differ",
+  "rows": 4,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "adjoint",
+   "primal"
+  ],
+  "sites": [
+   "(22, 'branches', 0, 0)",
+   "(22, 'branches', 1, 0)",
+   "(7, 'branches', 0, 2)",
+   "(7, 'branches', 1, 1)"
+  ],
+  "statuses": [
+   0,
+   7
+  ],
+  "not_present": 10,
+  "not_performed": 1,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.17,
+   0.102
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "dense backend under grad",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "adjoint",
+   "primal"
+  ],
+  "sites": [
+   "(19,)",
+   "(34,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 9.012948493417344e-17,
+  "first_call_s": [
+   0.108,
+   0.098
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "jvp: primal + tangent",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal",
+   "tangent"
+  ],
+  "sites": [
+   "(1, 'equation', 0)",
+   "(1, 'equation', 1)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 5.655271366279539e-17,
+  "first_call_s": [
+   0.049,
+   0.047
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "jvp of jvp: mixed equation",
+  "rows": 4,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "mixed",
+   "primal",
+   "tangent"
+  ],
+  "sites": [
+   "(20,)",
+   "(4, 'equation', 0)",
+   "(4, 'equation', 1)",
+   "(70,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 7.089986138689088e-17,
+  "first_call_s": [
+   0.068,
+   0.059
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "linearize, 3 directions mapped",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal",
+   "tangent"
+  ],
+  "sites": [
+   "(1,)",
+   "(2, 'jaxpr', 0)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 5.655271366279539e-17,
+  "first_call_s": [
+   0.066,
+   0.064
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "forward over reverse (Hessian-vector)",
+  "rows": 4,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "adjoint",
+   "mixed",
+   "primal",
+   "tangent"
+  ],
+  "sites": [
+   "(10, 'equation', 0)",
+   "(10, 'equation', 1)",
+   "(52, 'equation', 0)",
+   "(52, 'equation', 1)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 8.392790261490118e-17,
+  "first_call_s": [
+   0.077,
+   0.071
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "cond, taken branch only",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'branches', 0, 1)",
+   "(1, 'branches', 1, 0)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 1,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 4.003732510050945e-17,
+  "first_call_s": [
+   0.043,
+   0.05
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "cond, other branch",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'branches', 0, 1)",
+   "(1, 'branches', 1, 0)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 1,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 4.003732510050945e-17,
+  "first_call_s": [
+   0.041,
+   0.046
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "vmap of certified cond, lanes differ",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'branches', 0, 1)",
+   "(1, 'branches', 1, 0)"
+  ],
+  "statuses": [
+   0,
+   7
+  ],
+  "not_present": 5,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.052,
+   0.058
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "while_loop, 3 iterations",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'body_jaxpr', 5)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 9.517998651243831e-17,
+  "first_call_s": [
+   0.049,
+   0.049
+  ],
+  "run_ms": [
+   0.55,
+   0.531
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "while_loop, zero iterations (site not executed)",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'body_jaxpr', 5)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 1,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 0.0,
+  "first_call_s": [
+   0.048,
+   0.047
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "while_loop, failure in iteration 1 of 4 is kept",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'body_jaxpr', 5)"
+  ],
+  "statuses": [
+   3
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.051,
+   0.052
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "scan over 3 right-hand sides",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(3, 'jaxpr', 1)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 9.792687913153373e-17,
+  "first_call_s": [
+   0.049,
+   0.048
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "lax.map (batch 2 of 5) over an inner certified body",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(6,)",
+   "(3, 'jaxpr', 2)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 6.18856028098016e-17,
+  "first_call_s": [
+   0.077,
+   0.075
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "availability holds",
+  "rows": 2,
+  "availability": 1,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal",
+   "tangent"
+  ],
+  "sites": [
+   "(1, 'call_jaxpr', 0)",
+   "(23,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 5.655271366279539e-17,
+  "first_call_s": [
+   0.051,
+   0.049
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "availability fails",
+  "rows": 2,
+  "availability": 1,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal",
+   "tangent"
+  ],
+  "sites": [
+   "(1, 'call_jaxpr', 0)",
+   "(23,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 1,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 5.655271366279539e-17,
+  "first_call_s": [
+   0.049,
+   0.048
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "availability, vmap of certified",
+  "rows": 2,
+  "availability": 1,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal",
+   "tangent"
+  ],
+  "sites": [
+   "(1, 'call_jaxpr', 0)",
+   "(23,)"
+  ],
+  "statuses": [
+   0,
+   3,
+   13
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 3,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.055,
+   0.051
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "availability under reverse mode",
+  "rows": 3,
+  "availability": 2,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "adjoint",
+   "primal",
+   "tangent"
+  ],
+  "sites": [
+   "(5, 'call_jaxpr', 0)",
+   "(51,)",
+   "(66,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 2,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 6.009621571368924e-17,
+  "first_call_s": [
+   0.068,
+   0.064
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "certified of vmap of sequential primal",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'body_jaxpr', 5)"
+  ],
+  "statuses": [
+   0,
+   3
+  ],
+  "not_present": 1,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.087,
+   0.074
+  ],
+  "run_ms": [
+   1.516,
+   1.8073
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "vmap of certified of sequential primal",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'body_jaxpr', 5)"
+  ],
+  "statuses": [
+   0,
+   3
+  ],
+  "not_present": 1,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.082,
+   0.072
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "sequential primal, scalar call",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'body_jaxpr', 5)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 9.09903967176424e-17,
+  "first_call_s": [
+   0.056,
+   0.05
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "foreign debug_check in a while body, scalar",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": "foreign loop invariant broke at step 1 (`check` failed)",
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'body_jaxpr', 2)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 9.517998651243831e-17,
+  "first_call_s": [
+   0.052,
+   0.053
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "foreign debug_check inside the sequential body, scalar",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": "foreign loop invariant broke at step 1 (`check` failed)",
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'body_jaxpr', 2)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 9.517998651243831e-17,
+  "first_call_s": [
+   0.062,
+   0.056
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "foreign debug_check inside the sequential body, lanes",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": "foreign loop invariant broke at step [2 1 1 1 0] (`check` failed)",
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'body_jaxpr', 2)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 1,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 1.2883862407865362e-16,
+  "first_call_s": [
+   0.096,
+   0.085
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": false,
+  "problems": [
+   "foreign failure 'foreign loop invariant broke at step [2 1 1 1 0] (`check` failed)' != 'foreign loop invariant broke at step 1 (`check` failed)'"
+  ]
+ },
+ {
+  "case": "foreign checkify.check, passing",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(0,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 4.003732510050945e-17,
+  "first_call_s": [
+   0.037,
+   0.035
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "foreign checkify.check, failing",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": "foreign invariant broke at -0.23912616655103092 (`check` failed)",
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(0,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": 4.003732510050945e-17,
+  "first_call_s": [
+   0.035,
+   0.034
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "foreign check failing in one of 5 lanes",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": true,
+  "foreign": "at mapped index 2: foreign invariant broke at -0.23912616655103092 (`check` failed)",
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(0,)"
+  ],
+  "statuses": [
+   0,
+   3
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float64"
+  ],
+  "max_eta": Infinity,
+  "first_call_s": [
+   0.038,
+   0.039
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "complex64 operands, ambient x64 off",
+  "rows": 1,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(0,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float32"
+  ],
+  "max_eta": 6.188230372572434e-08,
+  "first_call_s": [
+   0.031,
+   0.027
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "complex64 value_and_grad, ambient x64 off",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "adjoint",
+   "primal"
+  ],
+  "sites": [
+   "(22,)",
+   "(7,)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 0,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float32"
+  ],
+  "max_eta": 6.188230372572434e-08,
+  "first_call_s": [
+   0.056,
+   0.048
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "complex64 lanes, vmap of certified cond, ambient x64 off",
+  "rows": 2,
+  "availability": 0,
+  "owned_failure": false,
+  "foreign": null,
+  "roles": [
+   "primal"
+  ],
+  "sites": [
+   "(1, 'branches', 0, 1)",
+   "(1, 'branches', 1, 0)"
+  ],
+  "statuses": [
+   0
+  ],
+  "not_present": 2,
+  "not_performed": 0,
+  "unavailable": 0,
+  "payload_dtypes": [
+   "float32"
+  ],
+  "max_eta": 6.188230372572434e-08,
+  "first_call_s": [
+   0.052,
+   0.057
+  ],
+  "run_ms": [
+   NaN,
+   NaN
+  ],
+  "identical": true,
+  "problems": []
+ },
+ {
+  "case": "fail closed: site inside jax.checkpoint",
+  "identical": true,
+  "outcome": "raised CertificateTransportError: equation site inside 'remat2' at (0,): this primitive has no certificate rule; certify its body or add a rule",
+  "rows": 0,
+  "sites": [],
+  "foreign": null,
+  "max_eta": 0.0,
+  "first_call_s": [
+   0,
+   0
+  ],
+  "run_ms": [
+   0,
+   0
+  ],
+  "problems": []
+ }
+]

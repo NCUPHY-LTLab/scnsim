@@ -1,0 +1,26 @@
+{
+ "counts": {
+  "sequential_body_frames_traced": 6,
+  "frames_traced": 18,
+  "archived_rows_not_compared": 32,
+  "availability_facts_not_compared": 4,
+  "rows_traced": 49,
+  "executions": 68,
+  "arrays_compared": 7902,
+  "elements_compared": 8254
+ },
+ "roles": {
+  "primal": 28,
+  "frequency_tangent": 14,
+  "tangent": 4,
+  "adjoint": 3
+ },
+ "nesting": {
+  "body_jaxpr/equation": 8,
+  "equation": 8,
+  "branches": 15,
+  "body_jaxpr": 16,
+  "branches/equation": 2
+ },
+ "problems": []
+}

@@ -1,0 +1,194 @@
+                                              0.4.30    0.5.3     0.6.2     0.7.2     0.8.3     0.9.2     0.10.2    0.11.0    0.11.2    0.12.0.1 
+checkify.py lines                             1305      1404      1411      1418      1423      1409      1411      1415      1488      1497     
+_INACTIVE_CODE defined                       
+    absent   
+    absent   
+    absent   
+    absent   
+    absent   
+    absent   
+    absent   
+    absent   
+    =-2      
+    =np.int32(-2)
+placeholder code literal                     
+    -1       
+    -1       
+    -1       
+    -1       
+    -1       
+    -1       
+    -1       
+    -1       
+    _INACTIVE_CODE
+    _INACTIVE_CODE
+placeholder payload                           ones      ones      ones      ones      ones      ones      ones      ones      ones      ones     
+placeholders sorted(effects)                 
+    no (set order)
+    no (set order)
+    no (set order)
+    no (set order)
+    no (set order)
+    no (set order)
+    no (set order)
+    no (set order)
+    yes      
+    yes      
+CheckifyContext class                         no        no        no        no        no        no        no        no        yes       yes      
+assert_func signature                        
+    error: Error, pred: Bool, new_error: JaxExce
+    error: Error, pred: Bool, new_error: JaxExce
+    error: Error, pred: Bool, new_error: JaxExce
+    error: Error, pred: Bool, new_error: JaxExce
+    error: Error, pred: Bool, new_error: JaxExce
+    error: Error, pred: Bool, new_error: JaxExce
+    error: Error, pred: Bool, new_error: JaxExce
+    error: Error, pred: Bool, new_error: JaxExce
+    ctx: CheckifyContext, error: Error, pred: Bo
+    ctx: CheckifyContext, error: Error, pred: Bo
+rule signature (cond_error_check)            
+    error: Error, enabled_errors, index, *ops, branch
+    error: Error, enabled_errors, index, *ops, branch
+    error: Error, enabled_errors, index, *ops, branch
+    error: Error, enabled_errors, index, *ops, branch
+    error: Error, enabled_errors, index, *ops, branch
+    error: Error, enabled_errors, index, *ops, branch
+    error: Error, enabled_errors, index, *ops, branch
+    error: Error, enabled_errors, index, *ops, branch
+    ctx: CheckifyContext, error: Error, enabled_error
+    ctx: CheckifyContext, error: Error, enabled_error
+next_code global counter                      no        no        no        no        no        no        no        no        no        no       
+ErrorEffect defined in                       
+    checkify.py
+    checkify.py
+    checkify.py
+    checkify.py
+    checkify.py
+    checkify.py
+    checkify.py
+    checkify.py
+    checkify.py
+    checkify.py
+ErrorEffect body sha                          1230e5    1230e5    1230e5    1230e5    1230e5    1230e5    1230e5    1230e5    b1e5d6    b1e5d6   
+JaxException body sha                         50feba    50feba    50feba    50feba    50feba    bb31b0    bb31b0    bb31b0    bb31b0    bb31b0   
+Error class body sha                          2d1ec6    2d1ec6    58be18    58be18    58be18    6dbf62    543d70    543d70    a656ac    a656ac   
+Error field order                            
+    _pred,_code,_metadata,_payload
+    _pred,_code,_metadata,_payload
+    _pred,_code,_metadata,_payload
+    _pred,_code,_metadata,_payload
+    _pred,_code,_metadata,_payload
+    _pred,_code,_metadata,_payload
+    _pred,_code,_metadata,_payload
+    _pred,_code,_metadata,_payload
+    _pred,_code,_metadata,_payload
+    _pred,_code,_metadata,_payload
+Error.get_exception sha                       4defe3    4defe3    4defe3    4defe3    4defe3    b43225    4c45b8    4c45b8    4c45b8    4c45b8   
+update_error sha                              c5f788    c5f788    c5f788    c5f788    c5f788    c5f788    c5f788    c5f788    69dee5    69dee5   
+_check_error signature                       
+    def _check_error(error, *, debug=False)
+    def _check_error(error, *, debug=False)
+    def _check_error(error, *, debug=False)
+    def _check_error(error, *, debug=False)
+    def _check_error(error, *, debug=False)
+    def _check_error(error, *, debug=False)
+    def _check_error(error, *, debug=False)
+    def _check_error(error, *, debug=False)
+    def _check_error(error, *, debug=False)
+    def _check_error(error, *, debug=False)
+check_discharge_rule sha                      745e1a    745e1a    745e1a    745e1a    745e1a    745e1a    745e1a    745e1a    4d5150    4d5150   
+discharge remaps code namespace               no        no        no        no        no        no        no        no        yes       yes      
+cond_error_check sha                          b57b7f    a34390    c8eee9    c8eee9    c8eee9    bd4904    bd4904    bd4904    26dbae    26dbae   
+scan_error_check sha                          022457    c27d11    c27d11    c27d11    c27d11    9823c9    e1ef60    c7c675    3826f4    3826f4   
+while_loop_error_check sha                    b879f0    9dbfa4    9dbfa4    9dbfa4    9dbfa4    fef494    fef494    fef494    1d4dde    1d4dde   
+scan rule params                             
+    reverse, length, jaxpr, num_consts, num_carry, linear, unroll, _split_transpose
+    reverse, length, jaxpr, num_consts, num_carry, linear, unroll, _split_transpose
+    reverse, length, jaxpr, num_consts, num_carry, linear, unroll, _split_transpose
+    reverse, length, jaxpr, num_consts, num_carry, linear, unroll, _split_transpose
+    reverse, length, jaxpr, num_consts, num_carry, linear, unroll, _split_transpose
+    reverse, length, jaxpr, num_consts, num_carry, linear, unroll, _split_transpose
+    reverse, length, jaxpr, num_consts, num_carry, unroll
+    reverse, length, jaxpr, ft_in, ft_out, unroll
+    reverse, length, jaxpr, ft_in, ft_out, unroll
+    reverse, length, jaxpr, ft_in, ft_out, unroll
+BatchedError sha                              f40ec4    f40ec4    f40ec4    f40ec4    f40ec4    f40ec4    f40ec4    f40ec4    f40ec4    f40ec4   
+get_traceback                                 yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+check_p params                               
+    *args, err_tree, debug)
+    *args, err_tree, debug)
+    *args, err_tree, debug)
+    *args, err_tree, debug)
+    *args, err_tree, debug)
+    *args, err_tree, debug)
+    *args, err_tree, debug)
+    *args, err_tree, debug)
+    *args, err_tree, debug)
+    *args, err_tree, debug)
+public checkify exports sha                   40c0b2    042488    042488    042488    042488    042488    042488    042488    042488    042488   
+pe.separate_consts                            no        no        no        no        yes       yes       yes       yes       yes       yes      
+pe.convert_constvars_jaxpr (public re-export) yes       yes       yes       yes       yes       yes       no        no        yes       yes      
+class ClosedJaxpr separate                   
+    yes      
+    yes      
+    yes      
+    yes      
+    yes      
+    yes      
+    yes      
+    no (unified)
+    no (unified)
+    no (unified)
+get_bind_params returns                      
+    [], params
+    [], params
+    [], params
+    [], params
+    [], params
+    params   
+    params   
+    params   
+    params   
+    params   
+xla_bridge.backends_are_initialized           yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.backend exports                   
+    clear_backends
+    backend_xla_version,backends,clear_backends,get_backend,register_backend_factory
+    backend_xla_version,backends,clear_backends,get_backend,register_backend_factory
+    backend_xla_version,backends,clear_backends,get_backend,get_compile_options,register_backend_factory
+    backend_xla_version,backends,clear_backends,get_backend,get_compile_options,register_backend_factory
+    backend_xla_version,backends,clear_backends,clear_in_memory_compilation_cache,get_backend,get_compile_options,get_default_device,register_backend_factory
+    backend_xla_version,backends,clear_backends,clear_in_memory_compilation_cache,get_backend,get_compile_options,get_default_device,register_backend_factory
+    backend_xla_version,backends,clear_backends,clear_in_memory_compilation_cache,get_backend,get_compile_options,get_default_device,register_backend_factory
+    backend_xla_version,backends,clear_backends,clear_in_memory_compilation_cache,get_backend,get_compile_options,get_default_device,register_backend_factory
+    backend_xla_version,backends,clear_backends,clear_in_memory_compilation_cache,get_backend,get_compile_options,get_default_device,register_backend_factory
+scan_p params have num_carry                  yes       yes       yes       yes       yes       yes       yes       no        no        no       
+scan_p params have ft_in                      no        no        no        no        no        no        no        yes       yes       yes      
+while_p params                               
+    cond_nconsts,cond_jaxpr,body_nconsts,body_jaxpr
+    cond_nconsts,cond_jaxpr,body_nconsts,body_jaxpr
+    cond_nconsts,cond_jaxpr,body_nconsts,body_jaxpr
+    cond_nconsts,cond_jaxpr,body_nconsts,body_jaxpr
+    cond_nconsts,cond_jaxpr,body_nconsts,body_jaxpr
+    cond_nconsts,cond_jaxpr,body_nconsts,body_jaxpr
+    cond_nconsts,cond_jaxpr,body_nconsts,body_jaxpr
+    cond_nconsts,cond_jaxpr,body_nconsts,body_jaxpr
+    cond_nconsts,cond_jaxpr,body_nconsts,body_jaxpr
+    cond_nconsts,cond_jaxpr,body_nconsts,body_jaxpr
+cond_p.bind(... branches=                     yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.Jaxpr                         yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.JaxprEqn                      yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.Primitive                     yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.jaxpr_as_fun                  yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.Literal                       yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.Var                           yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.ClosedJaxpr                   yes       yes       yes       yes       yes       yes       yes       yes       yes       no       
+jax.extend.core.Effect                        no        no        no        no        no        no        yes       yes       yes       yes      
+jax.extend.core.new_jaxpr_eqn                 no        no        no        no        no        no        yes       yes       yes       yes      
+jax.extend.core.primitives.cond_p             yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.primitives.while_p            yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.primitives.scan_p             yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.primitives.custom_jvp_call_p  yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.primitives.jit_p              no        no        no        yes       yes       yes       yes       yes       yes       yes      
+jax.extend.core.primitives.pjit_p             no        no        yes       no        no        no        no        no        no        no       
+jax.core.eval_jaxpr                           yes       yes       yes       yes       yes       yes       yes       yes       yes       yes      
