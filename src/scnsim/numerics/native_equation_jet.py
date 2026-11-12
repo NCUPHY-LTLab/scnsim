@@ -12,17 +12,18 @@ from typing import NamedTuple
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax._src import core
-from jax._src.interpreters import ad, batching, mlir, partial_eval as pe
+from jax.core import ShapedArray
+from jax.extend.core import Primitive
+from jax.interpreters import ad, batching, mlir, partial_eval as pe
 from . import native_sparse as ns
 
-_first_p = core.Primitive('scnsim_checked_equation_first_jet')
+_first_p = Primitive('scnsim_checked_equation_first_jet')
 _first_p.multiple_results = True
-_batch_first_p = core.Primitive('scnsim_checked_equation_first_jet_batch')
+_batch_first_p = Primitive('scnsim_checked_equation_first_jet_batch')
 _batch_first_p.multiple_results = True
-_linear_p = core.Primitive('scnsim_checked_equation_linear_tangent')
+_linear_p = Primitive('scnsim_checked_equation_linear_tangent')
 _linear_p.multiple_results = True
-_batch_linear_p = core.Primitive('scnsim_checked_equation_linear_tangent_batch')
+_batch_linear_p = Primitive('scnsim_checked_equation_linear_tangent_batch')
 _batch_linear_p.multiple_results = True
 
 
@@ -105,9 +106,9 @@ def _linear_abstract(values, x, prior, values1, rhs1, **params):
 
 def _batch_abstract(*operands, abstract, **params):
     size = operands[0].shape[0]
-    result = abstract(*(core.ShapedArray(value.shape[1:], value.dtype)
+    result = abstract(*(ShapedArray(value.shape[1:], value.dtype)
                         for value in operands), **params)
-    return tuple(core.ShapedArray((size,) + value.shape, value.dtype) for value in result)
+    return tuple(ShapedArray((size,) + value.shape, value.dtype) for value in result)
 
 
 for primitive, callback, abstract in ((_first_p, _callback, _abstract),
@@ -132,7 +133,7 @@ def _solve_jvp(primals, tangents, *, primitive=ns._solve_p, **params):
         values, rhs, prior, values1, rhs1,
         **dict(params, parameter_ad_depth=params.get('parameter_ad_depth', 0) + 1))
     primal = jet[0], *jet[2:7]
-    tangent = jet[1], *(ad.Zero(core.typeof(value).to_tangent_aval()) for value in primal[1:])
+    tangent = jet[1], *(ad.Zero(jax.typeof(value).to_tangent_aval()) for value in primal[1:])
     return primal, tangent
 
 
@@ -160,7 +161,7 @@ def _jet_jvp(primals, tangents, *, primitive=_first_p, **params):
     mixed = solve.bind(values, residual12, mixed_prior, primal[2],
         **dict(params, stage=4, role='mixed',
                derivative_order=params.get('derivative_order', 0) + 2, parameter_ad_depth=depth, frequency_jet=False))
-    derivatives = second[0], mixed[0], *(ad.Zero(core.typeof(value).to_tangent_aval())
+    derivatives = second[0], mixed[0], *(ad.Zero(jax.typeof(value).to_tangent_aval())
                                         for value in primal[2:])
     return primal, derivatives
 

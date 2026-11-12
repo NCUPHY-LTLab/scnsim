@@ -1,6 +1,6 @@
 """Pinned native JAX sparse equation and its finite checked transform rules.
 
-Only this equation boundary uses JAX's private primitive/checkify interfaces.
+Only this equation boundary uses JAX's private checkify/partial_eval interfaces.
 Ordinary arithmetic remains JAX arithmetic. Native factors belong to one host
 call; primitive parameters contain immutable structure, never points or tapes.
 Checkify must wrap the complete transformed computation, including an executed
@@ -15,8 +15,10 @@ from dataclasses import dataclass
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax._src import core, checkify
-from jax._src.interpreters import ad, batching, mlir
+from jax._src import checkify
+from jax.core import ShapedArray
+from jax.extend.core import Jaxpr, Primitive, jaxpr_as_fun
+from jax.interpreters import ad, batching, mlir
 from jax.experimental import checkify as public_checkify
 
 from .sparse_solve import SolveAux, SolveOutcome, SparseEquation, _host_solve
@@ -77,7 +79,7 @@ class SparseEquationCheck(checkify.JaxException):
         return cls(*metadata, *payload)
 
     def get_effect_type(self):
-        descriptors = tuple(jax.ShapeDtypeStruct(core.typeof(x).shape, core.typeof(x).dtype)
+        descriptors = tuple(jax.ShapeDtypeStruct(jax.typeof(x).shape, jax.typeof(x).dtype)
                             for x in self.payload)
         return SparseCertificateEffect(type(self), descriptors, self.site, self.role, self.stage, self.derivative_order, self.dependency)
 
@@ -172,7 +174,7 @@ class DerivativeUnavailableCheck(checkify.JaxException):
 
     def get_effect_type(self):
         return DerivativeAvailabilityEffect(type(self),
-            (jax.ShapeDtypeStruct(core.typeof(self.available).shape, core.typeof(self.available).dtype),),
+            (jax.ShapeDtypeStruct(jax.typeof(self.available).shape, jax.typeof(self.available).dtype),),
             (), self.dependency, self.reason)
 
     def __str__(self):
@@ -246,7 +248,7 @@ def _annotate_sparse_sites(jaxpr, path=()):
     # JAX 0.11.2 unifies ClosedJaxpr with Jaxpr; its .jaxpr is self.
     # Only nested equation parameters recurse. replace retains actual consts.
     def nested(value, prefix):
-        if isinstance(value, core.Jaxpr):
+        if isinstance(value, Jaxpr):
             return _annotate_sparse_sites(value, prefix)
         if isinstance(value, tuple):
             items = tuple(nested(item, prefix + (i,)) for i, item in enumerate(value))
@@ -283,7 +285,7 @@ def checked_native(function):
             program = _annotate_sparse_sites(program)
             flat_args, _ = jax.tree.flatten(args)
             _, output_tree = jax.tree.flatten(shape)
-            error, values = public_checkify.checkify(core.jaxpr_as_fun(program),
+            error, values = public_checkify.checkify(jaxpr_as_fun(program),
                 errors=public_checkify.user_checks | frozenset((SparseEquationCheck, DerivativeUnavailableCheck, ArchivedPrimalCheck,)))(*flat_args)
             return error, output_tree.unflatten(values)
     return checked
@@ -309,14 +311,14 @@ def checked_sequential_primal(function):
             explicit_program, constants = pe.separate_consts(program)
             flat_operands, _ = jax.tree.flatten(operands)
             _, output_tree = jax.tree.flatten(shape)
-            mapped = jax.custom_batching.sequential_vmap(core.jaxpr_as_fun(explicit_program))
+            mapped = jax.custom_batching.sequential_vmap(jaxpr_as_fun(explicit_program))
             error, packet = output_tree.unflatten(mapped(*constants, *flat_operands))
             _archive_primal_error(error)
             return packet
     return primal
 
 
-_primal_archive_p = core.Primitive('scnsim_owned_primal_equation_archive')
+_primal_archive_p = Primitive('scnsim_owned_primal_equation_archive')
 _primal_archive_p.multiple_results = True
 _primal_archive_p.is_effectful = lambda _: True
 
@@ -360,7 +362,7 @@ def _archive_layout(error):
         owned = isinstance(effect, (SparseCertificateEffect, DerivativeAvailabilityEffect))
         if owned and not archived:
             payload += (lane_code != checkify._INACTIVE_CODE, lane_code)
-        descriptors = tuple(jax.ShapeDtypeStruct(core.typeof(value).shape, core.typeof(value).dtype)
+        descriptors = tuple(jax.ShapeDtypeStruct(jax.typeof(value).shape, jax.typeof(value).dtype)
                             for value in payload)
         if isinstance(effect, SparseCertificateEffect):
             key = ArchivedSparseEffect(ArchivedPrimalCheck, descriptors, effect.site, effect.role,
@@ -502,9 +504,9 @@ def _archive_error_check(context, outer, enabled_errors, *operands, error_tree):
 checkify.error_checks[_primal_archive_p] = _archive_error_check
 
 
-_solve_p = core.Primitive('scnsim_checked_sparse_equation')
+_solve_p = Primitive('scnsim_checked_sparse_equation')
 _solve_p.multiple_results = True
-_batch_solve_p = core.Primitive('scnsim_checked_sparse_equation_batch')
+_batch_solve_p = Primitive('scnsim_checked_sparse_equation_batch')
 _batch_solve_p.multiple_results = True
 
 
@@ -592,8 +594,8 @@ def _abstract(values, rhs, prior, *, equation, stage, mode, role, certificate_si
     if values.dtype != rhs.dtype or prior.shape != () or prior.dtype != np.dtype('int32'):
         raise TypeError('sparse equation operands require one selected dtype and scalar int32 status')
     rd = np.empty((), dtype=rhs.dtype).real.dtype
-    return (rhs, core.ShapedArray((), np.dtype('int32')),
-            *(core.ShapedArray((), rd) for _ in range(3)), core.ShapedArray((), np.dtype('bool')))
+    return (rhs, ShapedArray((), np.dtype('int32')),
+            *(ShapedArray((), rd) for _ in range(3)), ShapedArray((), np.dtype('bool')))
 
 
 _solve_p.def_abstract_eval(_abstract)
@@ -618,10 +620,10 @@ def _batch_abstract(values, rhs, prior, **params):
     size = values.shape[0]
     if rhs.shape[0] != size or prior.shape != (size,):
         raise TypeError('batched equation operands require the same lane axis')
-    avals = _abstract(core.ShapedArray(values.shape[1:], values.dtype),
-                      core.ShapedArray(rhs.shape[1:], rhs.dtype),
-                      core.ShapedArray(prior.shape[1:], prior.dtype), **params)
-    return tuple(core.ShapedArray((size,) + value.shape, value.dtype) for value in avals)
+    avals = _abstract(ShapedArray(values.shape[1:], values.dtype),
+                      ShapedArray(rhs.shape[1:], rhs.dtype),
+                      ShapedArray(prior.shape[1:], prior.dtype), **params)
+    return tuple(ShapedArray((size,) + value.shape, value.dtype) for value in avals)
 
 
 _batch_solve_p.def_abstract_eval(_batch_abstract)
@@ -651,7 +653,7 @@ def _jvp(primals, tangents, *, primitive=_solve_p, **params):
     tangent = primitive.bind(values, residual, primal[1], **tangent_params)
     # Certificates are checked by the primitive's own checkify rule; their
     # numerical derivatives are not physical observables.
-    return primal, (tangent[0], *(ad.Zero(core.typeof(x).to_tangent_aval()) for x in primal[1:]))
+    return primal, (tangent[0], *(ad.Zero(jax.typeof(x).to_tangent_aval()) for x in primal[1:]))
 
 
 ad.primitive_jvps[_solve_p] = _jvp
@@ -711,9 +713,9 @@ batching.primitive_batchers[_batch_solve_p] = _nested_batch
 # that can itself depend on a direction. Reverse consumes the separately
 # retained primal prerequisite, never that nonlinear diagnostic as a linear
 # coefficient. Both executions retain their actual owned certificates.
-_residual_solve_p = core.Primitive('scnsim_checked_residual_equation')
+_residual_solve_p = Primitive('scnsim_checked_residual_equation')
 _residual_solve_p.multiple_results = True
-_batch_residual_solve_p = core.Primitive('scnsim_checked_residual_equation_batch')
+_batch_residual_solve_p = Primitive('scnsim_checked_residual_equation_batch')
 _batch_residual_solve_p.multiple_results = True
 
 
@@ -735,9 +737,9 @@ def _batch_residual_callback(values, rhs, prior, retained_prior, **params):
 
 def _batch_residual_abstract(*operands, **params):
     size = operands[0].shape[0]
-    result = _residual_abstract(*(core.ShapedArray(value.shape[1:], value.dtype)
+    result = _residual_abstract(*(ShapedArray(value.shape[1:], value.dtype)
                                   for value in operands), **params)
-    return tuple(core.ShapedArray((size,) + value.shape, value.dtype) for value in result)
+    return tuple(ShapedArray((size,) + value.shape, value.dtype) for value in result)
 
 
 for primitive, callback, abstract in (
@@ -763,7 +765,7 @@ def _residual_jvp(primals, tangents, *, primitive=_residual_solve_p, **params):
     tangent = primitive.bind(values, residual, primal[1], retained_prior,
         **dict(params, stage=4, role='tangent' if order == 1 else 'mixed',
                derivative_order=order, parameter_ad_depth=depth + 1, frequency_jet=False))
-    return primal, (tangent[0], *(ad.Zero(core.typeof(value).to_tangent_aval())
+    return primal, (tangent[0], *(ad.Zero(jax.typeof(value).to_tangent_aval())
                                    for value in primal[1:]))
 
 
