@@ -27,16 +27,20 @@ holds the work rows until the chunks are assembled, and the final transaction
 encodes each chunk and chunk summary once. A Direct call that fails or is
 interrupted leaves no result object and no staging object.
 
-A parameter Sweep, including a Sweep of Direct, stages its rows and points as
-checked immutable objects while it runs. Its sink retains small references, not
-a spool or a second numerical result. Optimization keeps its operation spool
-and ordered lazy history.
+A parameter Sweep, including a Sweep of Direct, also keeps its rows in memory.
+Its sink releases the frequency rows of a point when that point is complete and
+holds each completed point, with its work evidence gathered into columnar runs,
+until the final transaction. That transaction stores each point's evidence and
+dependency bodies once and leaves their locators in the chunk. A Sweep that
+fails or is interrupted leaves no result object and no staging object. Neither
+path uses a spool or a second numerical result. Optimization keeps its
+operation spool and ordered lazy history.
 
 A newly inserted object is read back and verified before `put_object` returns.
-Staged Sweep objects commit before completion, but those objects alone do not
-select a successful Result. The final revision-checked transaction publishes the
-manifest, result, completion, terminal attempt state and success selection
-atomically. Failed or interrupted attempts keep their actual evidence.
+Nothing of a Direct call or of a Sweep is committed before completion. The
+final revision-checked transaction publishes the chunks, manifest, result,
+completion, terminal attempt state and success selection atomically. Failed or
+interrupted attempts keep their actual evidence.
 
 CMA publishes complete post-tell groups and the declared checkpoint state.
 The baseline is not generation zero; iteration/evaluation counters retain their
@@ -129,8 +133,8 @@ without resending a failed/uncertain required batch.
 
 The dev27 JAX Direct/Sweep completion domain owns versioned exact binding,
 ordered point/frequency chunk references and the final verified result selection.
-Chunks are staged privately and final success is atomic; there is no per-chunk
-COMMIT. Results bind that fixed completion once and read selected chunks in
+Chunks are held privately in memory and final success is atomic; there is no
+per-chunk COMMIT. Results bind that fixed completion once and read selected chunks in
 short snapshots, without task replay, implicit recovery or latest reselection.
 Explicit selected output axes are factorized metadata, not repeated per-frequency
 records. Unpublished scratch remains execution-owned rather than a Result.

@@ -215,34 +215,38 @@ def acquire_completed_root_frame(program, inputs, *, backend, program_owner,
 class ChunkedResultSink:
     """Operation-local rows for one Direct or Sweep completion.
 
-    A Direct call keeps its work rows and completed chunks in this process.
-    Nothing of it reaches the database before the terminal publisher writes
-    the chunks, so a failed or interrupted call leaves no object behind.
+    The sink keeps a call's rows in this process. Nothing of the call reaches
+    the database before the terminal publisher writes its chunks, so a failed
+    or interrupted call leaves no result object and no staging object behind.
 
-    A Sweep stages its rows as checked immutable SQLite blocks. Only
-    immutable byte-range references remain resident while it runs, and
-    publication reads one budget-sized group at a time.
+    A Direct call holds its work rows until its chunks are assembled, and the
+    assembled chunks until publication.
+
+    A Sweep holds the frequency rows of the point being solved until that
+    point is complete, and every completed point until publication. A
+    completed point is held with its work evidence gathered into columnar
+    runs, so what stays resident is one array per certificate field and not
+    one record per frequency.
 
     The sink has no Workspace transaction or success-selection authority.
     """
 
-    def __init__(self, spool, *, domain, scratch_budget_bytes, sweep_grid_shape=None):
+    def __init__(self, *, domain, scratch_budget_bytes, sweep_grid_shape=None):
         if domain not in {"direct", "sweep"}:
             raise ValueError(f"unsupported chunked result domain {domain!r}")
-        if (spool is None) != (domain == "direct"):
-            raise ValueError("only a Sweep sink stages rows in checked storage")
-        self._spool = spool
         self._domain = domain
         self._scratch_budget_bytes = scratch_budget_bytes
         self._sweep_grid_shape = (
             None if sweep_grid_shape is None else tuple(sweep_grid_shape)
         )
-        self._references = []
-        self._native_work_references = {}
+        self._points = []
+        self._point_bytes = []
+        self._cached_points = []
+        self._native_work = {}
         self._direct_work = {}
         self._direct_chunks = []
         self._point_count = 0
-        self._summary_reference = None
+        self._summary = {}
         self._continuations = {}
         self._metadata = None
 
@@ -271,10 +275,10 @@ class ChunkedResultSink:
 
     def set_summary(self, summary):
         if self._domain != "sweep":
-            raise TypeError("only a Sweep sink stages a terminal summary")
+            raise TypeError("only a Sweep sink holds a terminal summary")
         if not isinstance(summary, Mapping):
             raise TypeError("chunked terminal summary must be a mapping")
-        self._summary_reference = self._spool.put_record(dict(summary))
+        self._summary = dict(summary)
 
     def merge_summary(self, summary):
         if not isinstance(summary, Mapping):
@@ -284,9 +288,7 @@ class ChunkedResultSink:
         self.set_summary(current)
 
     def summary(self):
-        if self._summary_reference is None:
-            return {}
-        return self._spool.get_record(self._summary_reference)
+        return dict(self._summary)
 
     def append_direct_chunk(self, *, frequencies_hz, families, evidence):
         if self._domain != "direct":
@@ -323,32 +325,31 @@ class ChunkedResultSink:
         self._direct_work.clear()
 
     def stage_native_work(self, namespace, work_index, record):
-        """Stage one completed native frequency row under its candidate scope."""
+        """Keep one completed native frequency row under its candidate scope."""
         if type(work_index) is not int or work_index < 0:
             raise TypeError("native work index must be a non-negative integer")
         key = work_index if namespace is None else (namespace, work_index)
-        if key in self._native_work_references:
+        if key in self._native_work:
             raise RuntimeError("native work index was staged more than once in its scope")
         if not isinstance(record, Mapping):
             raise TypeError("native work row must be a mapping")
-        self._native_work_references[key] = self._spool.put_record(dict(record))
+        self._native_work[key] = dict(record)
 
     def native_work(self, namespace, work_index):
         """Read one synchronized native row from the active candidate scope."""
         key = work_index if namespace is None else (namespace, work_index)
         try:
-            reference = self._native_work_references[key]
+            return self._native_work[key]
         except KeyError as error:
             raise RuntimeError("native work row was not staged") from error
-        return self._spool.get_record(reference)
 
     def release_native_work(self, namespace):
-        """Drop only references for a completed candidate; scratch owns the bytes."""
+        """Drop the frequency rows of one completed candidate."""
         if namespace is None:
             return
-        for key in tuple(self._native_work_references):
+        for key in tuple(self._native_work):
             if isinstance(key, tuple) and key[0] == namespace:
-                del self._native_work_references[key]
+                del self._native_work[key]
 
     def direct_work(self, work_index):
         """Read a single held native work row while assembling output chunks."""
@@ -377,27 +378,27 @@ class ChunkedResultSink:
                 remaining, index = divmod(remaining, size)
                 indices.append(index)
             body["source_index"] = list(reversed(indices))
-        continuation_refs = self._continuations.pop(ordinal, ())
-        if continuation_refs:
-            body["continuations"] = [
-                self._spool.get_record(reference) for reference in continuation_refs
-            ]
-        reference = self._spool.put_record(body)
-        self._references.append(reference)
+        continuations = self._continuations.pop(ordinal, ())
+        if continuations:
+            body["continuations"] = list(continuations)
+        body = self._resident(body)
+        self._points.append(body)
+        self._point_bytes.append(_numeric_bytes(body))
         self._point_count += 1
-        return reference
+        return self.cache_sweep_point(body)
 
     def sweep_point(self, reference):
-        """Read one occurrence from scratch for exact-value cache reuse."""
+        """Return one held occurrence for exact-value cache reuse."""
         if self._domain != "sweep":
             raise TypeError("Sweep point cannot be read from a Direct sink")
-        return self._spool.get_record(reference)
+        return self._cached_points[reference]
 
     def cache_sweep_point(self, point):
-        """Keep a single immutable point record available for exact cache hits."""
+        """Keep a single point record available for exact cache hits."""
         if self._domain != "sweep":
             raise TypeError("Sweep cache cannot be used with a Direct sink")
-        return self._spool.put_record(dict(point))
+        self._cached_points.append(self._resident(point))
+        return len(self._cached_points) - 1
 
     def append_sweep_continuation(self, ordinal, record):
         if self._domain != "sweep":
@@ -405,13 +406,23 @@ class ChunkedResultSink:
         if type(ordinal) is not int or ordinal < 0:
             raise TypeError("Sweep continuation ordinal must be a non-negative integer")
         if ordinal < self._point_count:
-            raise RuntimeError("Sweep continuation arrived after its requested occurrence was staged")
+            raise RuntimeError("Sweep continuation arrived after its requested occurrence was held")
         if not isinstance(record, Mapping):
             raise TypeError("Sweep continuation evidence must be a mapping")
-        reference = self._spool.put_record(dict(record))
-        self._continuations.setdefault(ordinal, []).append(reference)
+        self._continuations.setdefault(ordinal, []).append(dict(record))
 
-    def chunks(self, snapshot=None):
+    @staticmethod
+    def _resident(point):
+        """Hold a point with its work evidence in the stored columnar form."""
+        from ..workspace.sweep_evidence import stored_sweep_evidence
+
+        evidence = point.get("evidence")
+        if not isinstance(evidence, Mapping):
+            return point
+        gathered = stored_sweep_evidence(evidence)
+        return point if gathered is evidence else {**point, "evidence": gathered}
+
+    def chunks(self):
         """Yield the canonical chunk records required by the atomic publisher."""
         if self._continuations:
             raise RuntimeError(
@@ -421,19 +432,35 @@ class ChunkedResultSink:
             yield from self._direct_chunks
             return
 
+        # A chunk closes before the array bytes of its points pass the budget.
+        # A single point larger than the budget is its own chunk.
         pending = []
         pending_bytes = 0
-        for reference in self._references:
-            if pending and pending_bytes + reference.byte_length > self._scratch_budget_bytes:
+        for point, point_bytes in zip(self._points, self._point_bytes, strict=True):
+            if pending and pending_bytes + point_bytes > self._scratch_budget_bytes:
                 yield {"point_count": len(pending), "payload": {"points": pending},
                        "summary_json": {}}
                 pending = []
                 pending_bytes = 0
-            pending.append(self._spool.get_record(reference, snapshot=snapshot))
-            pending_bytes += reference.byte_length
+            pending.append(point)
+            pending_bytes += point_bytes
         if pending:
             yield {"point_count": len(pending), "payload": {"points": pending},
                    "summary_json": {}}
+
+
+def _numeric_bytes(value):
+    """Count the array bytes that one held record carries."""
+    if isinstance(value, np.ndarray):
+        return value.nbytes
+    if isinstance(value, Mapping):
+        if set(value) == {"dtype", "shape", "data_hex"} and isinstance(value["data_hex"], str):
+            return len(value["data_hex"]) // 2
+        return sum(_numeric_bytes(item) for item in value.values())
+    if isinstance(value, (tuple, list)):
+        return sum(_numeric_bytes(item) for item in value)
+    return 0
+
 
 _ROOT_TYPES = frozenset(('diagonal_root', 'operator_element_root', 'hybridized_pole',
                          'transfer_zero', 'residue_normalized_coupling'))

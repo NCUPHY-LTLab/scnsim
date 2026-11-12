@@ -52,7 +52,9 @@ scalar and identity JSON documents remain valid.
 `workspace/evidence_version.py` holds the one evidence version number.
 `workspace/direct_summary.py` defines the columnar work evidence of a Direct
 chunk summary: one array per work counter and per certificate field over the
-chunk's work rows.
+chunk's work rows. `workspace/sweep_evidence.py` stores the work evidence of a
+sweep point in the same layout, as runs of work rows, and returns the rows on
+read.
 See [Workspace evidence v4](../contracts/workspace-evidence-v4.qmd).
 
 ## Fixed selection and occurrence identity

@@ -23,9 +23,8 @@ from .evidence_version import EVIDENCE_VERSION
 _MAGIC_FAMILY = b"SCNSIMB"
 MAGIC = _MAGIC_FAMILY + str(EVIDENCE_VERSION).encode("ascii")
 _COLUMN = f"$scnsim_column_v{EVIDENCE_VERSION}"
-# The stage label predates evidence version 4. It belongs to the typed error
-# surface, which a change of the stored format does not rename.
-_STAGE = "evidence_v3"
+# The stage that this codec's typed errors name follows the evidence version.
+_STAGE = f"evidence_v{EVIDENCE_VERSION}"
 _HEADER_KEYS = {"schema", "schema_version", "record", "columns", "context", "chunk_ordinal"}
 _COLUMN_KEYS = {"ordinal", "path", "dtype", "byte_order", "shape", "order",
                 "axes", "unit", "complex_representation", "offset", "byte_length", "representation"}

@@ -15,6 +15,7 @@ from ..errors import _freeze
 from .binary_blocks import record_bytes, record_document
 from ..numeric_encoding import record_bytes as numerical_record_bytes
 from .operation_store import OperationStore, _reference
+from .sweep_evidence import read_sweep_evidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -2528,9 +2529,12 @@ def _hydrate_sweep_record(snapshot, record):
             raise _integrity("Sweep record repeats inline and referenced evidence.")
         if not isinstance(evidence_ref, Mapping):
             raise _integrity("Sweep evidence reference is malformed.")
-        hydrated["evidence"] = _chunked_canonical(
+        # The stored body holds its work rows as columnar runs.
+        hydrated["evidence"] = read_sweep_evidence(_chunked_canonical(
             snapshot, evidence_ref, role="benchmark_value", schema=None,
-        )
+        ))
+    elif "evidence" in hydrated:
+        raise _integrity("Sweep record holds an evidence body instead of its locator.")
     has_dependency_refs = "dependency_refs" in hydrated
     dependency_refs = hydrated.pop("dependency_refs", None)
     if has_dependency_refs:
@@ -2548,6 +2552,8 @@ def _hydrate_sweep_record(snapshot, record):
                                  body_id=body_id)
             dependencies[body_id] = body
         hydrated["dependencies"] = dependencies
+    elif "dependencies" in hydrated:
+        raise _integrity("Sweep record holds dependency bodies instead of their locators.")
     failure = hydrated.get("failure")
     if isinstance(failure, Mapping) and "evidence_ref" in failure:
         if "evidence" in failure:
@@ -2560,6 +2566,8 @@ def _hydrate_sweep_record(snapshot, record):
             snapshot, reference, role="benchmark_value", schema=None,
         )
         hydrated["failure"] = failure_record
+    elif isinstance(failure, Mapping) and "evidence" in failure:
+        raise _integrity("Sweep failure holds an evidence body instead of its locator.")
     return hydrated
 
 

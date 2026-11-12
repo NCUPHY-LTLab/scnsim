@@ -43,8 +43,9 @@ saved selections remain usable after Run close.
 Memory owns actual detached values and evidence without a Workspace, spool or
 saved identity. Workspace uses evidence v4 and OperationStore revision 8.
 Direct holds same-call host arrays in memory and writes them to immutable
-objects once, at completion. Direct Sweeps stage their points in immutable
-objects while they run. Optimization retains its bounded operation spool and
+objects once, at completion. Parameter sweeps, including Direct Sweeps, hold
+their completed points in memory and write them once, at completion.
+Optimization retains its bounded operation spool and
 lazy stage history. No second numerical pass materializes saved data.
 
 CMA groups complete post-tell generations according to the declared commit
