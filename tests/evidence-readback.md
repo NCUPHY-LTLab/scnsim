@@ -14,6 +14,18 @@ The `v4` evidence format encodes typed array columns with exact binary64 values.
 1. Encode and decode the typed columns, then compare their exact binary64 representation.
 2. Flip bytes in the header or payload. The reader must raise `EvidenceIntegrityError` rather than return a plausible-looking value.
 3. Truncate a block, omit an object, or interrupt the success-pointer transaction. The incomplete write must not be published as success, while an earlier completed block remains readable. An unsupported evidence format is rejected before Workspace changes.
+4. Take a complete Workspace with one saved Direct result and declare evidence version 3 in its root envelope, its leaf envelope or its database. Opening it must raise `UnsupportedEvidenceVersionError` without changing a byte. A version 3 block, header or manifest is not read either.
+
+Source: [`test_evidence_v4.py`](test_evidence_v4.py).
+
+## Direct summaries and what a Direct call leaves behind
+
+A Direct result keeps its S, Y and Z arrays in data chunks and the equation certificates of the same call in chunk summaries. A summary stores each certificate field once, as one array over the work rows of its chunk; a work row is one solved frequency.
+
+1. Gather work rows that carry negative zero, a NaN payload, infinity and a vector-valued field into columns, store them and read the rows back. Every bit must return, and rows with different certificates are refused.
+2. Solve eight frequencies with chunk sizes 3 and 8. The summaries over 3, 2 and 8 work rows must store the same columns: one per work counter and one per certificate field.
+3. Compare every stored column, sliced at each work row, with the certificate values the solver returned in the same call. The stored values are read again after close and in a fresh process, and the solver's values must agree between Memory and Workspace.
+4. Run a Direct call that completes, one that fails at its last frequency, one that is interrupted while solving and one that is interrupted while its result is written. The operation database must then hold no staging object and no result object of an unfinished call. The only objects that nothing refers to are earlier states of the operation row and of the attempt, which the store replaces behind a pointer.
 
 Source: [`test_evidence_v4.py`](test_evidence_v4.py).
 

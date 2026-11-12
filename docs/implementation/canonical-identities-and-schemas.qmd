@@ -45,8 +45,14 @@ complex, integer and boolean arrays retain their actual bits. A content address
 is not a substitute for checking role, schema, length or selected occurrence.
 
 Readers verify the current object reference, framing and header before decoding.
-Legacy JSON numerical array records are rejected rather than accepted as a
-compatibility codec. Small scalar and identity JSON documents remain valid.
+Legacy JSON numerical array records and numeric blocks of another evidence
+version are rejected rather than accepted through a compatibility codec. Small
+scalar and identity JSON documents remain valid.
+
+`workspace/evidence_version.py` holds the one evidence version number.
+`workspace/direct_summary.py` defines the columnar work evidence of a Direct
+chunk summary: one array per work counter and per certificate field over the
+chunk's work rows.
 See [Workspace evidence v4](../contracts/workspace-evidence-v4.qmd).
 
 ## Fixed selection and occurrence identity

@@ -18,10 +18,12 @@ HB and external Julia execution are retired from 1.0.
 | `prepare` / `warmup` | Detached numerical callable / compile-only preparation; no baseline solve |
 | `close` | Release Run-owned resources; returned values and fixed saved selections remain readable |
 
-Direct and parameter-swept Direct stream the same call's host arrays to checked
-binary objects without an operation spool. Optimization retains its spool and
-lazy stage history. Completed chunks alone do not select success; final
-manifest/result/completion/attempt/success publication is atomic.
+Direct keeps the same call's host arrays in memory and writes them to checked
+binary objects once, in the final transaction. Parameter-swept Direct stages its
+points as checked binary objects while it runs. Neither uses an operation spool.
+Optimization retains its spool and lazy stage history. Staged objects alone do
+not select success; final manifest/result/completion/attempt/success publication
+is atomic.
 Each public `stage.history` contains its own saved baseline, when present,
 before ordered evaluations. This adds no evaluation or iteration and changes
 no optimizer counter. Stage/model/kind/ordinal and source ancestry remain bound.

@@ -8,16 +8,19 @@ evidence remain readable after `CircuitRun.close()` and in a fresh process.
 
 ## Version domains
 
+One number describes stored evidence: 4. The Workspace envelope, the operation
+database, every numeric block and every result manifest declare it.
+
 | Document or store | Version |
 |---|---:|
 | Plan, Request, ParameterSet and authoring snapshot | Existing per-document versions; canonical bytes unchanged |
 | Workspace envelope | Schema 1, with required `evidence_version: 4` |
-| Numeric block header and evidence manifest authority | Evidence 4 |
-| Operation database and object references | Internal revision 8 |
+| Numeric block magic bytes and header, and evidence manifest authority | Evidence 4 |
+| Operation database and object references | Internal revision 8; the database metadata also declares evidence 4 |
 
-`identity-v4.schema.json` describes the evidence header, manifests and object
-references. It does not replace the authoring document definitions in
-`identity-v2.schema.json`.
+`identity-v4.schema.json` describes the evidence header, manifests, object
+references and Direct chunk summaries. It does not replace the authoring
+document definitions in `identity-v2.schema.json`.
 
 ## Binary columns
 
@@ -41,16 +44,51 @@ numerical sequence. Small scalar and identity envelopes retain their canonical
 representation. JSON numerical arrays are rejected by the current evidence
 reader rather than interpreted as an older storage format.
 
+## Direct chunk summaries
+
+A Direct result stores the S, Y and Z arrays of each chunk in one object and
+the equation evidence of the same call in a separately referenced
+chunk-summary object. The root index holds the references rather than the
+certificate arrays.
+
+The work evidence of a summary is columnar. A work row is one solved frequency
+of the chunk. A frequency that the chunk requests more than once shares one
+work row, and a work row that several chunks request appears in each of their
+summaries. Every work row of a chunk runs the same checked equations, so the
+summary holds:
+
+- six work counters, `work_index`, `source_index`, `check_status`,
+  `certificate_status`, `check_position` and `certificate_position`, each as
+  one 64-bit integer array over the chunk's ordered work rows;
+- for each checked equation, its identity (`site`, `role`, `stage` and
+  `derivative_order`) once, and each of its fields `status`, `eta`,
+  `residual_numerator`, `residual_denominator`, `performed` and `present` as
+  one array whose leading axis is the work rows.
+
+The number of columns therefore depends on the checked equations and not on
+the chunk size. `status`, `performed` and `present` are stored as binary64
+numbers; `eta` and the residual fields keep their floating-point dtype. Slicing
+every array at one work row gives that row's certificate values with their
+shape and bits unchanged; `work_evidence_rows` in
+`workspace/direct_summary.py` returns the rows in that form.
+
 ## Publication and lifetime
 
-Direct, including parameter sweeps of Direct, writes the same call's completed
-host arrays into checked immutable objects without an operation spool. Only
-small references remain in the sink. Optimization retains its existing spool
-and lazy stage-history lifetime.
+A Direct call keeps its rows in memory while it runs. Its chunks and chunk
+summaries are encoded once and written by the final transaction, together with
+the manifest, result, completion, attempt state and success selection. A
+Direct call that fails or is interrupted leaves no result object and no staging
+object in the operation database.
+
+A parameter sweep stages its rows and points as checked immutable objects
+while it runs, and only small references remain in its sink. Staged objects
+are not part of a result, and their existence does not select a successful
+one. Neither path uses an operation spool. Optimization retains its existing
+spool and lazy stage-history lifetime.
 
 Each public Optimization `stage.history` includes its saved starting baseline
 before that stage's ordered evaluation occurrences, matching Memory history.
-The v3 stage-history body declares `baseline_locator`: an exact stage/model-bound
+The stage-history body declares `baseline_locator`: an exact stage/model-bound
 candidate reference with its original source and batch ancestry, or `null` when
 that stage has no separate baseline occurrence. The baseline retains its full
 saved values and certificates. Evaluation SQL indexes and optimizer iteration
@@ -58,13 +96,10 @@ and evaluation counters are unchanged. Missing or corrupt baseline declarations
 fail through the existing evidence-integrity path; readers never substitute the
 global comparison baseline or run another solve.
 
-A new object is read back and checked before its write returns. Completed
-chunks can commit independently; their existence does not select a successful
-result. Direct certificate columns stay in separately referenced chunk-summary objects;
-the root index holds their references rather than all certificate arrays.
-The final revision-checked transaction publishes the manifest, result,
-completion, attempt state and success selection together. Sweep occurrences
-retain declared order, repeated points, executed markers and typed failures.
+A new object is read back and checked before its write returns. The final
+revision-checked transaction publishes the manifest, result, completion,
+attempt state and success selection together. Sweep occurrences retain
+declared order, repeated points, executed markers and typed failures.
 
 Readers verify reference structure, content hash, framing, exact byte length
 and the closed header before decoding. Missing, truncated or corrupted data
@@ -74,10 +109,12 @@ solver.
 ## Opening a Workspace
 
 Opening an existing Workspace first reads its format metadata without creating
-a directory, lock file or writable SQLite connection. Older evidence requires
-a new Workspace and recomputation. The format is checked again under the
-ordinary lock before current-format mutation or recovery. There is no migration
-or older-format reader.
+a directory, lock file or writable SQLite connection. A Workspace that declares
+another evidence version, including version 3 written by 1.0.0a3, raises
+`UnsupportedEvidenceVersionError` and requires a new Workspace and
+recomputation. The format is checked again under the ordinary lock before
+current-format mutation or recovery. There is no migration and no reader for
+another version.
 
 The public Sweep, SParameterTrace, Result evidence and resolve interfaces retain
 their ownership and ordering. Direct and Operator Results expose readonly same-call evidence, including

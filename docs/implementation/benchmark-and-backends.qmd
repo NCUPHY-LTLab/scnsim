@@ -42,9 +42,10 @@ saved selections remain usable after Run close.
 
 Memory owns actual detached values and evidence without a Workspace, spool or
 saved identity. Workspace uses evidence v4 and OperationStore revision 8.
-Direct and Direct Sweeps stream same-call host arrays directly to immutable
-objects; Optimization retains its bounded operation spool and lazy stage history.
-No second numerical pass materializes saved data.
+Direct holds same-call host arrays in memory and writes them to immutable
+objects once, at completion. Direct Sweeps stage their points in immutable
+objects while they run. Optimization retains its bounded operation spool and
+lazy stage history. No second numerical pass materializes saved data.
 
 CMA groups complete post-tell generations according to the declared commit
 cadence. Required publication completes before its callback; transient progress
