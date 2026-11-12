@@ -53,7 +53,7 @@ SCNSim 的測試使用小型且明確宣告的電路案例，說明套件如何�
 ::: {.askr-card-body}
 ### [錯誤處理（Failure handling）與診斷（Diagnostics）](diagnostics.md) {.askr-card-title .unlisted}
 
-了解原生錯誤如何保留原始內容，以及求解診斷如何區分彙總指標與逐右手邊結果。
+了解原生錯誤如何保留原始內容、方程式證書如何從已編譯的程式回傳，以及求解診斷如何區分彙總指標與逐右手邊結果。
 :::
 ::::
 

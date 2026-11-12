@@ -53,7 +53,7 @@ Follow values from a completed calculation into v4 evidence, then through Memory
 ::: {.askr-card-body}
 ### [Failure handling and diagnostics](diagnostics.md) {.askr-card-title .unlisted}
 
-Understand how owned native failures preserve their payloads and how solve diagnostics distinguish aggregate from per-right-hand-side behavior.
+Understand how owned native failures preserve their payloads, how equation certificates return from a compiled program, and how solve diagnostics distinguish aggregate from per-right-hand-side behavior.
 :::
 ::::
 
