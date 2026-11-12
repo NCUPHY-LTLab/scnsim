@@ -21,6 +21,7 @@ from jax.extend.core import Jaxpr, Primitive, jaxpr_as_fun
 from jax.interpreters import ad, batching, mlir
 from jax.experimental import checkify as public_checkify
 
+from .certificate_transport import pass_records_equations, register_equation
 from .sparse_solve import SolveAux, SolveOutcome, SparseEquation, _host_solve
 
 
@@ -810,7 +811,11 @@ def _error_check(ctx, error, enabled_errors, *operands, primitive=_solve_p,
     # selected32 outputs remain32 and no global configuration is changed.
     with jax.enable_x64(True):
         result = primitive.bind(*operands, **params)
-        if checkify.FailedCheckError in enabled_errors:
+        # Issue 48: the certificate pass of certificate_transport.py records
+        # this equation in its own ledger and asks checkify for foreign checks
+        # only, so this rule stands down while that pass runs. The last step of
+        # the Issue deletes this rule and the condition with it.
+        if checkify.FailedCheckError in enabled_errors and not pass_records_equations():
             groups = certificate_groups or ((None, None, None),)
             if len(result) != value_count + 5 * len(groups):
                 raise TypeError('owned equation certificate schema disagrees with primitive outputs')
@@ -847,6 +852,8 @@ def register_equation_certificate(primitive, *, value_count, certificate_groups=
     _certificate_primitives.add(primitive)
     checkify.error_checks[primitive] = partial(_error_check, primitive=primitive,
         value_count=value_count, certificate_groups=groups)
+    # Issue 48: the certificate pass reads the same layout from its own registry.
+    register_equation(primitive, value_count=value_count, certificate_groups=groups)
 
 
 _certificate_primitives = set()

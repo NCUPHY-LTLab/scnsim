@@ -32,7 +32,7 @@ relative_error <= 100 * condition_bound * float64_epsilon
 | 家族 | 檢查內容 | 基準 | 原始碼 |
 | --- | --- | --- | --- |
 | 網路不變量 | 含一個消去節點的雙埠網路，其 Direct `Y`、`Z`、`S` 的互易性、被動性、無損性、頻率與阻抗縮放律，以及節點與埠的排列 | 精確有理數節點解；`κ` 對每個分支值、角頻率與參考阻抗加總各元素的精確一階變化 | [`test_network_invariants.py`](../test_network_invariants.py)、[`exact_network.py`](../exact_network.py) |
-| 微分規則 | 已安裝套件中所有自訂 JVP 與轉置規則的清單；每條受測規則都有 Taylor 測試與 JVP/VJP 內積恆等式 | 精確或 60 位數的原值與導數；Taylor 餘項與恆等式使用由各部分前向界限推得的界限 | [`test_differentiation_rules.py`](../test_differentiation_rules.py) |
+| 微分規則 | 已安裝套件中所有自訂 JVP 與轉置規則的清單；每條受測規則都有 Taylor 測試與 JVP/VJP 內積恆等式；證書帳本的兩個恆等基本運算則必須逐位元回傳切線與餘切向量 | 精確或 60 位數的原值與導數；Taylor 餘項與恆等式使用由各部分前向界限推得的界限 | [`test_differentiation_rules.py`](../test_differentiation_rules.py) |
 | 全域極點基準 | 三模態有損網路的所有極點，由描述子矩陣束 `A = [[0, I], [-K, -G]]`、`B = diag(I, C)` 求得，並由錨定的混成極點一對一對應；以及保留 `a`、`b` 之 View 中由 `b` 到 `a` 的阻抗零點。另以建構的封包直接測試傳輸零點最後一次牛頓修正後的選擇：修正點閉合則回傳修正點，未閉合則退回先前已接受的點，修正點的評估失敗則以該失敗回傳 | 以 60 位數 Decimal 精修的廣義特徵值；零點從其錨點以相同算術，分別在加邊 Rosenbrock 系統矩陣與 `Q` 的餘因子兩種形式上精修；由伴隨矩陣求得逐分量的根 `κ` | [`test_pole_oracle.py`](../test_pole_oracle.py) |
 | 電報方程式傳輸線 | 有損傳輸線的 π 梯形網路與同一梯形網路的鏈矩陣解比較（至 16 段）；另外檢查段數加倍時，相對精確電報方程式解的誤差嚴格下降 | 60 位數鏈矩陣與雙曲函數 | [`test_telegrapher_line.py`](../test_telegrapher_line.py) |
 | 無誤差轉換 | 各平台 wheel 內核的 TwoSum 與 TwoProduct，涵蓋 binary32 與 binary64、正規範圍與次正規範圍；JAX 補償算術只測正規範圍 | 精確 `Fraction` 運算，不涉及容許誤差 | [`test_probe_eft.py`](../test_probe_eft.py) |

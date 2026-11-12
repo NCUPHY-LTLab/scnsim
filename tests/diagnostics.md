@@ -40,6 +40,27 @@ No tolerance is asserted. The cases check status codes, the performed and presen
 
 One separate test records the `site` label of each row and the order in which rows are returned. `site` is the position of an equation in the traced program, counting JAX's own equations, so no other case relies on it. Source: [`test_certificate_transport.py`](test_certificate_transport.py).
 
+## The certificate ledger
+
+SCNSim is moving these certificates from JAX's internal check mechanism to a ledger of its own: an ordinary output of the compiled program with one entry for every equation. Both ways of returning certificates exist until the move is complete, and analyses still use the first. Two groups of cases cover the ledger.
+
+The first group compiles every call of the previous section both ways and requires the same result: the same rows in the same order with the same labels, all six arrays of every row equal bit for bit, the same returned values, and the same derivative-availability facts. Further calls add a sequentially mapped Newton body under a custom derivative rule, inside a branch, under reverse mode and inside another such body. In two places the results agree in everything except `site`, because each mechanism adds a different number of its own equations to the traced program; those cases record both labels. Source: [`test_certificate_transport_parity.py`](test_certificate_transport_parity.py).
+
+The second group covers what a comparison cannot show.
+
+| Case | What must hold |
+| --- | --- |
+| Public interfaces | The ledger's module imports only public JAX modules and reads no private attribute. |
+| An equation out of reach | An equation inside a JAX primitive that the ledger has no rule for, or in the predicate of a loop, stops compilation with a typed error. Its certificate cannot be lost silently. |
+| One entry per equation | An entry keeps its first failure, otherwise its latest execution. |
+| A program that did not run | Its ledger is built from shapes alone and marks every entry absent. A derivative-availability fact that is absent reads as available, so only a fact that is present can make a derivative unavailable. |
+| Single precision | Entries of complex64 equations hold float32 values, present or absent. |
+| The ledger as data | A ledger passes through a later compiled call unchanged, and the slice of one lane equals the ledger of that lane computed alone. |
+| Checks SCNSim does not own | Such a check returns with its own message. An equation failure is never returned as one, and the current mechanism keeps recording the programs it certifies. |
+| Facts that travel with a value | The two operations that attach a fact to a value return the value unchanged outside a certified program, and their derivative rules return the tangent and the cotangent unchanged. |
+
+Source: [`test_certificate_ledger.py`](test_certificate_ledger.py); the derivative rules are in [`test_differentiation_rules.py`](test_differentiation_rules.py).
+
 ## Solve diagnostics
 
 A small identity-matrix system makes the aggregate metric differ from a componentwise diagnostic. With `A = I₂`, one right-hand side containing two components, `b = [1, 1e-20]`, and approximate solution `x = [1, 0], the aggregate normalized residual is `5e-21`, while the second equation component has residual 1. The aggregate metric satisfies the original solver threshold even though the per-RHS diagnostic exposes that component. A separate two-column case checks per-RHS values `[1, 0]` when the second solution column is exact.

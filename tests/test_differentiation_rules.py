@@ -19,6 +19,9 @@ formed exactly from the product's values. Both are the same bilinear function
 of the primitives, v and w, so each is compared with the exact oracle value
 using the sensitivity S of that bilinear form, and their difference is bounded
 by the sum of the two forward bounds.
+
+The two identity primitives of the certificate transport need neither: their
+JVP and transpose return the tangent and the cotangent bit for bit.
 """
 from __future__ import annotations
 
@@ -38,6 +41,7 @@ from scnsim import (CircuitPlan, CircuitRun, DiagonalRootSpec, JVP, VJP, OutputC
                     ResponseElementSpec, SensitivitySpec, TransferZeroSpec, components, units as u)
 from tests.analytic_conditions import assert_forward, matched_zero_oracle
 from tests.exact_network import Branch, Exact, HyperDual, Network, ONE, ZERO
+from tests.jax_runtime import initialize_jax_through_scnsim
 
 
 EPS = np.finfo(np.float64).eps
@@ -51,7 +55,13 @@ PI = Decimal("3.14159265358979323846264338327950288419716939937510582097494459")
 # rule. A rule with no test lists its reason in UNCOVERED.
 _RESPONSE = ("PublicRuleTests.test_response_element",)
 _RETAINED_Z = ("PublicRuleTests.test_retained_z_transfer_zero",)
+_GATE = ("IdentityRuleTests.test_derivative_gate",)
+_ATTACH = ("IdentityRuleTests.test_evidence_attach",)
 RULES = {
+    ("numerics/certificate_transport.py", "jvp", "derivative_gate_p"): _GATE,
+    ("numerics/certificate_transport.py", "transpose", "derivative_gate_p"): _GATE,
+    ("numerics/certificate_transport.py", "jvp", "evidence_attach_p"): _ATTACH,
+    ("numerics/certificate_transport.py", "transpose", "evidence_attach_p"): _ATTACH,
     ("numerics/determinant_ad.py", "custom_jvp", "polynomial"): ("DirectRuleTests.test_determinant",),
     ("numerics/matrix_functions.py", "custom_jvp", "root"): ("DirectRuleTests.test_spd_root",),
     ("numerics/native_compensated.py", "jvp", "_pair_p"): ("DirectRuleTests.test_compensated_pair",) + _RETAINED_Z,
@@ -428,6 +438,75 @@ class _SpdRootOracle:
                 sensitivity += abs(inner(self._sylvester([[Decimal(item) for item in row] for row in unit])))
             sensitivity += abs(value)  # The weight W perturbed relatively as a whole.
             return value, float(sensitivity)
+
+
+# ---------------------------------------------------------------------------
+# Rules of the two identity primitives of the certificate transport
+
+
+def _array_bits(value):
+    value = np.asarray(value)
+    return value.dtype.str, value.shape, value.tobytes()
+
+
+class IdentityRuleTests(unittest.TestCase):
+    """The gate and the attach return their value unchanged, so their rules are identities.
+
+    Nothing is rounded: the JVP returns the tangent it was given and the
+    transpose the cotangent, bit for bit, and neither reaches the fact or the
+    evidence the primitive carries.
+    """
+    VALUE = np.array([1.5 - 0.25j, -2.0 + 0.5j, 0.125 + 3.0j])
+    TANGENT = np.array([0.5 + 1.0j, 0.25 - 0.75j, -1.25 + 0.125j])
+    COTANGENT = np.array([-0.75 + 0.5j, 2.0 + 0.25j, 0.375 - 1.5j])
+
+    @classmethod
+    def setUpClass(cls):
+        # These tests call JAX directly; SCNSim initializes it first.
+        initialize_jax_through_scnsim()
+
+    def assert_identity_rules(self, function, primals, tangents, cotangents):
+        """``function`` has the JVP and the transpose of the identity on ``primals``."""
+        import jax
+
+        with jax.enable_x64(True):
+            out, out_tangent = jax.jvp(function, primals, tangents)
+            self.assertEqual(list(map(_array_bits, out)), list(map(_array_bits, primals)))
+            self.assertEqual(list(map(_array_bits, out_tangent)), list(map(_array_bits, tangents)))
+            # jax.linear_transpose traces the primitive itself as a linear map,
+            # so the transpose rule runs; jax.vjp goes through the JVP rule.
+            transposed = jax.linear_transpose(function, *primals)(cotangents)
+            self.assertEqual(list(map(_array_bits, transposed)), list(map(_array_bits, cotangents)))
+            _, pullback = jax.vjp(function, *primals)
+            self.assertEqual(list(map(_array_bits, pullback(cotangents))),
+                             list(map(_array_bits, cotangents)))
+
+    def test_derivative_gate(self):
+        from scnsim.numerics.certificate_transport import derivative_gate
+
+        def gated(value):
+            return (derivative_gate(value, False, dependency=("rule test",),
+                                    reason="unavailable in this test"),)
+
+        self.assert_identity_rules(gated, (self.VALUE,), (self.TANGENT,), (self.COTANGENT,))
+
+    def test_evidence_attach(self):
+        import jax
+        from scnsim.numerics.certificate_transport import (attach_evidence, certified,
+                                                           derivative_gate, ledger_availability)
+
+        with jax.enable_x64(True):
+            # Evidence with arrays in it: the fact of one gate.
+            evidence, _ = certified(lambda value: derivative_gate(
+                value, False, dependency=("rule test",), reason="unavailable in this test"))(self.VALUE)
+        self.assertEqual(len(ledger_availability(evidence.ledger)), 1)
+
+        def attached(first, second):
+            return attach_evidence((first, second), evidence)
+
+        self.assert_identity_rules(attached, (self.VALUE, 2 * self.VALUE),
+                                   (self.TANGENT, 3 * self.TANGENT),
+                                   (self.COTANGENT, 5 * self.COTANGENT))
 
 
 # ---------------------------------------------------------------------------

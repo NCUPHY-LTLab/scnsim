@@ -48,6 +48,13 @@ from scnsim.numerics.native_sparse import (
     derivative_availability, sparse_certificates,
 )
 from scnsim.numerics.sparse_solve import SparseEquation
+from tests.jax_runtime import initialize_jax_through_scnsim
+
+
+def setUpModule():
+    # These tests call JAX directly. SCNSim has to initialize it first, or the
+    # SCNSim tests that run after this module in the same process fail.
+    initialize_jax_through_scnsim()
 
 
 # ---------------------------------------------------------------------------
