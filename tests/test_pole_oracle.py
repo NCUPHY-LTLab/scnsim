@@ -12,9 +12,12 @@ kappa = sum_p |tr(adj Q  p dQ/dp)| / (|w| |tr(adj Q  dQ/dw)|).
 The product's anchored poles are compared with assert_forward, and the pole
 set must be matched one-to-one.
 
-Transfer zeros through the Rosenbrock system matrix are not asserted here: the
-retained-View Z zero of this fixture misses the forward bound, which is
-reported on Issue 47 as a product finding.
+The impedance zero of the retained View (a, b), with m eliminated, is a root of
+the bordered Rosenbrock system matrix [[Q, e_b], [e_a^T, 0]], whose determinant
+is -adj(Q)[a, b], and independently of the cofactor that deletes row b and
+column a of Q. Both are polished from the anchor in the same 60-digit
+arithmetic, with the same componentwise condition bound, and the product's zero
+is compared with each.
 """
 from __future__ import annotations
 
@@ -25,7 +28,8 @@ import unittest
 import numpy as np
 from scipy import linalg
 
-from scnsim import CircuitPlan, CircuitRun, HybridizedPoleSpec, ReductionPipeline, components, units as u
+from scnsim import (CircuitPlan, CircuitRun, HybridizedPoleSpec, ReductionPipeline, TransferZeroSpec,
+                    components, units as u)
 from tests.analytic_conditions import assert_forward
 from tests.decimal_complex import DComplex as _D
 
@@ -39,6 +43,8 @@ BRANCHES = (("C", "a", None, 100e-15), ("L", "a", None, 10e-9),
             ("C", "a", "m", 4e-15), ("L", "m", "b", 300e-9),
             ("C", "a", "b", 1e-15), ("R", "a", "b", 2e5))
 NODES = ("a", "m", "b")
+# Transfer impedance from b to a of the retained View (a, b), near 5.906 GHz.
+ZERO_INPUT, ZERO_OUTPUT, ZERO_ANCHOR_HZ = "b", "a", 5.906e9
 
 
 def _plan():
@@ -108,6 +114,10 @@ def _adjugate_trace(matrix, direction):
 class _Equation:
     """det Q(omega) = 0 for the fixture's nodal operator."""
 
+    def system(self, q, constant):
+        """The matrix whose determinant is the equation; Q itself for poles."""
+        return q
+
     def operator(self, omega):
         q = [[ZERO] * 3 for _ in range(3)]
         for kind, value, stamp in _stamps():
@@ -140,8 +150,9 @@ class _Equation:
             context.prec = PRECISION
             omega = _D.of(initial)
             for _ in range(60):
-                operator = self.operator(omega)
-                step = _det(operator) / _adjugate_trace(operator, self.frequency_derivative(omega))
+                operator = self.system(self.operator(omega), ONE)
+                step = _det(operator) / _adjugate_trace(
+                    operator, self.system(self.frequency_derivative(omega), ZERO))
                 updated = omega - step
                 if updated.re == omega.re and updated.im == omega.im:
                     break
@@ -149,14 +160,34 @@ class _Equation:
             return complex(omega), self._condition(omega)
 
     def _condition(self, omega):
-        matrix = self.operator(omega)
-        slope = _adjugate_trace(matrix, self.frequency_derivative(omega))
+        matrix = self.system(self.operator(omega), ONE)
+        slope = _adjugate_trace(matrix, self.system(self.frequency_derivative(omega), ZERO))
         total = 0.0
         for kind, value, stamp in _stamps():
             local = self.branch_term(kind, value, omega, relative=True)
-            direction = [[local * _D.of(stamp[i, j]) for j in range(3)] for i in range(3)]
+            direction = self.system([[local * _D.of(stamp[i, j]) for j in range(3)] for i in range(3)], ZERO)
             total += abs(complex(_adjugate_trace(matrix, direction)))
         return total / (abs(complex(omega)) * abs(complex(slope)))
+
+
+class _ZeroEquation(_Equation):
+    """A zero of Z[output, input] of the retained View, in one of two forms.
+
+    Eliminating m leaves Z = (Y_view)^-1 with the same nonzero-frequency zeros
+    as adj(Q)[output, input]. The constant border of the Rosenbrock matrix does
+    not depend on frequency or on any branch value, so its derivatives are zero.
+    """
+
+    def __init__(self, formulation):
+        self.formulation = formulation
+
+    def system(self, q, constant):
+        output, input_ = NODES.index(ZERO_OUTPUT), NODES.index(ZERO_INPUT)
+        n = len(NODES)
+        if self.formulation == "rosenbrock":
+            return ([row + [constant if r == input_ else ZERO] for r, row in enumerate(q)]
+                    + [[constant if c == output else ZERO for c in range(n)] + [ZERO]])
+        return [[q[r][c] for c in range(n) if c != output] for r in range(n) if r != input_]
 
 
 def _pencil():
@@ -198,6 +229,24 @@ class PoleOracleTests(unittest.TestCase):
                 self.assertEqual(nearest, position)
         finally:
             run.close()
+
+
+class TransferZeroOracleTests(unittest.TestCase):
+    def test_retained_view_impedance_zero_matches_both_formulations(self):
+        plan, buses = _plan()
+        run = CircuitRun(plan=plan, storage="memory", precision="float64")
+        try:
+            view = run.original.reduce(ReductionPipeline().retain(buses["a"].node, buses["b"].node))
+            result = run.evaluate(view, TransferZeroSpec(
+                family="Z", input_coordinate=buses[ZERO_INPUT].node,
+                output_coordinate=buses[ZERO_OUTPUT].node, anchor=ZERO_ANCHOR_HZ * u.Hz))
+            actual = complex(result.zero.to("radian / second").magnitude)
+        finally:
+            run.close()
+        for formulation in ("rosenbrock", "cofactor"):
+            expected, condition = _ZeroEquation(formulation).polish(2 * math.pi * ZERO_ANCHOR_HZ)
+            assert_forward(self, f"retained_view_z_zero_{formulation}", actual, expected,
+                           condition, "radian / second")
 
 
 if __name__ == "__main__":
