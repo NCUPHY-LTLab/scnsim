@@ -3,10 +3,13 @@
 Every binary64 primitive, and the binary64 angular frequency, is converted
 exactly to a Fraction. Nodal admittance, Schur reduction, Z and S are then
 formed in exact complex-rational arithmetic, so the oracle has no rounding.
+First and second derivatives use exact hyper-dual numbers over the same
+field, so they are exact as well.
+
 The condition bound of an entry is the triangle bound used by
 ``analytic_conditions``: the sum over independently and relatively perturbed
 primitives of the absolute first-order change, divided by the entry. The
-frequency and the reference impedance count as primitives where they enter.
+angular frequency and, for S, the reference impedance count as primitives.
 
 Branch admittances follow SCNSim's convention: 1/R, i/(omega L), -i omega C.
 """
@@ -14,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
+import math
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,8 @@ class Exact:
         return Exact(Fraction(value.real), Fraction(value.imag))
 
     def __add__(self, other):
+        if isinstance(other, HyperDual):
+            return NotImplemented
         other = Exact.of(other)
         return Exact(self.re + other.re, self.im + other.im)
 
@@ -40,12 +46,16 @@ class Exact:
         return Exact(-self.re, -self.im)
 
     def __sub__(self, other):
+        if isinstance(other, HyperDual):
+            return NotImplemented
         return self + (-Exact.of(other))
 
     def __rsub__(self, other):
         return Exact.of(other) - self
 
     def __mul__(self, other):
+        if isinstance(other, HyperDual):
+            return NotImplemented
         other = Exact.of(other)
         return Exact(self.re * other.re - self.im * other.im,
                      self.re * other.im + self.im * other.re)
@@ -53,6 +63,8 @@ class Exact:
     __rmul__ = __mul__
 
     def __truediv__(self, other):
+        if isinstance(other, HyperDual):
+            return NotImplemented
         other = Exact.of(other)
         scale = other.re * other.re + other.im * other.im
         return Exact((self.re * other.re + self.im * other.im) / scale,
@@ -77,6 +89,60 @@ class Exact:
 ZERO, ONE, I = Exact(Fraction(0)), Exact(Fraction(1)), Exact(Fraction(0), Fraction(1))
 
 
+@dataclass(frozen=True)
+class HyperDual:
+    """a + b e1 + c e2 + d e1 e2 with e1**2 = e2**2 = 0, over Exact."""
+
+    a: Exact
+    b: Exact = ZERO
+    c: Exact = ZERO
+    d: Exact = ZERO
+
+    @staticmethod
+    def of(value) -> "HyperDual":
+        return value if isinstance(value, HyperDual) else HyperDual(Exact.of(value))
+
+    def __add__(self, other):
+        o = HyperDual.of(other)
+        return HyperDual(self.a + o.a, self.b + o.b, self.c + o.c, self.d + o.d)
+
+    __radd__ = __add__
+
+    def __neg__(self):
+        return HyperDual(-self.a, -self.b, -self.c, -self.d)
+
+    def __sub__(self, other):
+        return self + (-HyperDual.of(other))
+
+    def __rsub__(self, other):
+        return HyperDual.of(other) - self
+
+    def __mul__(self, other):
+        o = HyperDual.of(other)
+        return HyperDual(self.a * o.a, self.a * o.b + self.b * o.a, self.a * o.c + self.c * o.a,
+                         self.a * o.d + self.b * o.c + self.c * o.b + self.d * o.a)
+
+    __rmul__ = __mul__
+
+    def reciprocal(self):
+        inverse = ONE / self.a
+        square = inverse * inverse
+        return HyperDual(inverse, -self.b * square, -self.c * square,
+                         -self.d * square + 2 * self.b * self.c * square * inverse)
+
+    def __truediv__(self, other):
+        return self * HyperDual.of(other).reciprocal()
+
+    def __rtruediv__(self, other):
+        return HyperDual.of(other) * self.reciprocal()
+
+    def conjugate(self):
+        return HyperDual(self.a.conjugate(), self.b.conjugate(), self.c.conjugate(), self.d.conjugate())
+
+    def is_zero(self) -> bool:
+        return self.a.is_zero() and self.b.is_zero() and self.c.is_zero() and self.d.is_zero()
+
+
 def zeros(rows, columns):
     return [[ZERO for _ in range(columns)] for _ in range(rows)]
 
@@ -98,12 +164,16 @@ def add(a, b, scale=ONE):
     return [[x + scale * y for x, y in zip(row_a, row_b)] for row_a, row_b in zip(a, b)]
 
 
+def _pivot_nonzero(value) -> bool:
+    return not (value.a.is_zero() if isinstance(value, HyperDual) else value.is_zero())
+
+
 def solve(a, b):
     """Exact Gauss-Jordan elimination of a @ x = b (b is a matrix)."""
     n = len(a)
     work = [list(a[row]) + list(b[row]) for row in range(n)]
     for column in range(n):
-        pivot = next(row for row in range(column, n) if not work[row][column].is_zero())
+        pivot = next(row for row in range(column, n) if _pivot_nonzero(work[row][column]))
         work[column], work[pivot] = work[pivot], work[column]
         inverse = ONE / work[column][column]
         work[column] = [value * inverse for value in work[column]]
@@ -127,30 +197,23 @@ class Branch:
     b: str | None
     value: float
 
-    def admittance(self, omega: Exact) -> Exact:
-        value = Exact.of(self.value)
-        if self.kind == "R":
-            return ONE / value
-        if self.kind == "L":
-            return I / (omega * value)
-        if self.kind == "C":
-            return -I * omega * value
-        raise ValueError(self.kind)
 
-    def omega_log_derivative(self, omega: Exact) -> Exact:
-        """omega * d(admittance)/d(omega)."""
-        return {"R": ZERO, "L": -self.admittance(omega), "C": self.admittance(omega)}[self.kind]
+def _admittance(kind, value, omega):
+    if kind == "R":
+        return ONE / value
+    if kind == "L":
+        return I / (omega * value)
+    if kind == "C":
+        return -I * omega * value
+    raise ValueError(kind)
 
 
-def stamp(nodes, branch, value):
-    """Return the nodal matrix of one branch carrying admittance ``value``."""
-    index = {node: position for position, node in enumerate(nodes)}
-    matrix = zeros(len(nodes), len(nodes))
+def _stamp(matrix, index, branch, value):
     ends = [(index[node], sign) for node, sign in ((branch.a, 1), (branch.b, -1)) if node is not None]
     for row, row_sign in ends:
         for column, column_sign in ends:
-            matrix[row][column] = matrix[row][column] + value * (row_sign * column_sign)
-    return matrix
+            term = value if row_sign == column_sign else -value
+            matrix[row][column] = matrix[row][column] + term
 
 
 @dataclass(frozen=True)
@@ -169,86 +232,107 @@ class Network:
                     internal.append(node)
         return tuple(self.ports) + tuple(internal)
 
-    def nodal(self, omega, values=None):
-        nodes = self.nodes
-        total = zeros(len(nodes), len(nodes))
-        for position, branch in enumerate(self.branches):
-            value = branch.admittance(omega) if values is None else values[position]
-            total = add(total, stamp(nodes, branch, value))
-        return total
+    @property
+    def primitive_count(self):
+        # Branch values, then angular frequency, then reference impedance.
+        return len(self.branches) + 2
 
-    def extension(self, nodal):
-        """W = [I; -A_ee^-1 A_et]: all node voltages for unit port voltages."""
+    def families(self, values, omega, reference):
+        """Y, Z and S of the ports for (possibly hyper-dual) primitives."""
+        nodes = self.nodes
+        index = {node: position for position, node in enumerate(nodes)}
+        nodal = zeros(len(nodes), len(nodes))
+        for branch, value in zip(self.branches, values, strict=True):
+            _stamp(nodal, index, branch, _admittance(branch.kind, value, omega))
         p = len(self.ports)
-        a_ee = [row[p:] for row in nodal[p:]]
-        a_et = [row[:p] for row in nodal[p:]]
-        if not a_ee:
-            return identity(p)
-        tail = solve(a_ee, a_et)
-        return identity(p) + [[-value for value in row] for row in tail]
+        y = [row[:p] for row in nodal[:p]]
+        if len(nodes) > p:
+            a_te = [row[p:] for row in nodal[:p]]
+            tail = solve([row[p:] for row in nodal[p:]], [row[:p] for row in nodal[p:]])
+            y = add(y, matmul(a_te, tail), -ONE)
+        m = inverse(add(identity(p), y, reference))
+        s = matmul(add(identity(p), y, -reference), m)
+        return {"Y": y, "Z": inverse(y), "S": s}
 
     def response(self, frequency_hz: float, reference: float = 50.0):
-        """Exact Y, Z, S at the binary64 omega SCNSim forms from frequency_hz."""
-        import math
-        omega = Exact.of(2 * math.pi * frequency_hz)
-        return Response(self, omega, Exact.of(reference))
+        """Exact responses at the binary64 omega SCNSim forms from frequency_hz."""
+        return Response(self, 2 * math.pi * frequency_hz, reference)
+
+
+def _part(value: complex, part):
+    return value if part is None else getattr(value, part)
 
 
 class Response:
-    def __init__(self, network: Network, omega: Exact, reference: Exact):
-        self.network, self.omega, self.reference = network, omega, reference
-        nodal = network.nodal(omega)
-        self.w = network.extension(nodal)
-        self.y = matmul(transpose(self.w), matmul(nodal, self.w))
-        p = len(network.ports)
-        self._m = inverse(add(identity(p), self.y, reference))
-        self.s = matmul(add(identity(p), self.y, -reference), self._m)
+    """Exact Y, Z, S, their derivatives and condition bounds at one point."""
+
+    def __init__(self, network: Network, omega: float, reference: float):
+        self.network = network
+        self.primitives = tuple(branch.value for branch in network.branches) + (omega, reference)
+        self._exact = network.families(*self._split([Exact.of(v) for v in self.primitives]))
+        self._first = {}
+        self._second = {}
 
     @property
-    def z(self):
-        return inverse(self.y)
+    def y(self):
+        return self._exact["Y"]
 
-    def _family_derivative(self, family, d_y):
-        if family == "Y":
-            return d_y
-        if family == "Z":
-            z = self.z
-            return [[-value for value in row] for row in matmul(z, matmul(d_y, z))]
-        p = len(self.network.ports)
-        left = add(identity(p), self.s)
-        product = matmul(left, matmul(d_y, self._m))
-        return [[-self.reference * value for value in row] for row in product]
-
-    def perturbations(self, family):
-        """Exact first-order changes of the family per relative primitive."""
-        network, omega = self.network, self.omega
-        changes = []
-        for position, branch in enumerate(network.branches):
-            # p dY/dp is -Y for R and L and +Y for C (Y = 1/R, i/(wL), -iwC).
-            sign = 1 if branch.kind == "C" else -1
-            local = stamp(network.nodes, branch, branch.admittance(omega) * sign)
-            changes.append(self._family_derivative(
-                family, matmul(transpose(self.w), matmul(local, self.w))))
-        total = zeros(len(network.nodes), len(network.nodes))
-        for branch in network.branches:
-            total = add(total, stamp(network.nodes, branch, branch.omega_log_derivative(omega)))
-        changes.append(self._family_derivative(
-            family, matmul(transpose(self.w), matmul(total, self.w))))
-        if family == "S":
-            p = len(network.ports)
-            left = add(identity(p), self.s)
-            product = matmul(left, matmul(self.y, self._m))
-            changes.append([[-self.reference * value for value in row] for row in product])
-        return changes
+    @property
+    def s(self):
+        return self._exact["S"]
 
     def matrix(self, family):
-        return {"Y": self.y, "Z": self.z, "S": self.s}[family]
-
-    def condition(self, family, row, column):
-        """Triangle condition bound of one entry (frequency perturbed)."""
-        value = self.matrix(family)[row][column].magnitude()
-        total = sum(change[row][column].magnitude() for change in self.perturbations(family))
-        return total / value
+        return self._exact[family]
 
     def entry(self, family, row, column) -> complex:
-        return complex(self.matrix(family)[row][column])
+        return complex(self._exact[family][row][column])
+
+    def _split(self, values):
+        return values[:-2], values[-2], values[-1]
+
+    def _seeded(self, first, second=None):
+        values = []
+        for position, primitive in enumerate(self.primitives):
+            exact = Exact.of(primitive)
+            # Relative seeds: the e-coefficients are p df/dp and p q d2f/dpdq.
+            values.append(HyperDual(exact, exact if position == first else ZERO,
+                                    exact if position == second else ZERO))
+        return self.network.families(*self._split(values))
+
+    def _first_changes(self, family):
+        if family not in self._first:
+            self._first[family] = [self._seeded(k)[family] for k in range(self.network.primitive_count)]
+        return self._first[family]
+
+    def relative_derivative(self, family, row, column, primitive) -> Exact:
+        """Exact p * d(entry)/dp for one primitive index."""
+        return self._first_changes(family)[primitive][row][column].b
+
+    def condition(self, family, row, column, part=None):
+        """Triangle condition bound of one entry or its real/imag part."""
+        value = abs(_part(self.entry(family, row, column), part))
+        changes = self._first_changes(family)
+        total = sum(abs(_part(complex(change[row][column].b), part)) for change in changes)
+        return total / value
+
+    def first_changes(self, family, row, column):
+        """Exact change of the entry per relative primitive, in primitive order."""
+        return [change[row][column].b for change in self._first_changes(family)]
+
+    def derivative_changes(self, family, row, column, primitive):
+        """Exact change of p d(entry)/dp per relative primitive q."""
+        key = (family, primitive)
+        if key not in self._second:
+            self._second[key] = [self._seeded(primitive, q)[family]
+                                 for q in range(self.network.primitive_count)]
+        derivative = self.relative_derivative(family, row, column, primitive)
+        # q d(p df/dp)/dq = p q d2f/dpdq + [p == q] p df/dp
+        return [change[row][column].d + (derivative if q == primitive else ZERO)
+                for q, change in enumerate(self._second[key])]
+
+    def derivative_condition(self, family, row, column, primitive, part=None):
+        """Condition bound of p d(entry)/dp, from exact second derivatives."""
+        derivative = complex(self.relative_derivative(family, row, column, primitive))
+        total = sum(abs(_part(complex(term), part))
+                    for term in self.derivative_changes(family, row, column, primitive))
+        return total / abs(_part(derivative, part))
