@@ -17,7 +17,8 @@ import unittest
 
 import numpy as np
 
-from scnsim import (CircuitRun, DirectSolveSpec, EvidenceIntegrityError,
+from scnsim import (CircuitRun, DirectSolveSpec,
+                    EvidenceIntegrityError, ExecutionPolicy,
                     DiagonalRootSpec, JVP, OperatorSpec, ParameterSpace, ReductionPipeline,
                     ResponseElementSpec, SensitivitySpec,
                     UnsupportedEvidenceVersionError, units as u)
@@ -25,6 +26,7 @@ from scnsim.numeric_encoding import array_from_record, array_record
 from scnsim.results.memory_analysis import InMemoryAnalysisResult
 from scnsim.results.matrix import OperatorResult
 from scnsim.workspace.binary_blocks import MAGIC, record_bytes, record_document
+from scnsim.workspace.direct_summary import work_evidence_columns, work_evidence_rows
 from scnsim.workspace.operation_store import OperationStore
 from tests.test_workspace_readback import _primitive_plan
 from tests.test_workspace_optimization_readback import _fixture as _optimization_fixture, _saved_values
@@ -116,10 +118,44 @@ def _root_typed(value):
     return value
 
 
+_WORK_COUNTERS = ("work_index", "source_index", "check_status", "certificate_status",
+                  "check_position", "certificate_position")
+
+
+def _is_work_columns(value):
+    """Recognize a Direct chunk summary's work evidence: arrays over its work rows."""
+    return (set(value) == {*_WORK_COUNTERS, "certificates"}
+            and all(isinstance(value[name], Mapping) for name in _WORK_COUNTERS))
+
+
+def _work_column_certificates(columns):
+    # Independent of the product reader: slice every stored column at one work
+    # row and present it as the certificate record of that row. The result is
+    # ordered by work row, then by certificate, like the same-call lanes.
+    counters = {name: array_from_record(dict(columns[name])) for name in _WORK_COUNTERS}
+    row_count = counters["work_index"].shape[0]
+    for name, column in counters.items():
+        if column.dtype != np.dtype("int64") or column.shape != (row_count,):
+            raise AssertionError("Direct work counter " + name + " is not one integer per work row")
+    for position in range(row_count):
+        for certificate in columns["certificates"]:
+            if set(certificate) != {*_CERTIFICATE_META, *_CERTIFICATE_ARRAYS}:
+                raise AssertionError("Direct summary certificate has unexpected fields")
+            row = {name: certificate[name] for name in _CERTIFICATE_META}
+            for name in _CERTIFICATE_ARRAYS:
+                column = array_from_record(dict(certificate[name]))
+                if column.shape[:1] != (row_count,):
+                    raise AssertionError("Direct certificate field does not cover its work rows")
+                row[name] = array_record(column[position], exact_dtype=True)
+            yield row
+
+
 def _certificate_records(value):
     """Select actual certificate records without dropping their other fields."""
     if isinstance(value, Mapping):
-        if set(_ROOT_FIELDS) <= set(value):
+        if _is_work_columns(value):
+            yield from _work_column_certificates(value)
+        elif set(_ROOT_FIELDS) <= set(value):
             yield value
         elif set(_CERTIFICATE_ARRAYS) <= set(value) and set(_CERTIFICATE_META) <= set(value):
             yield value
@@ -157,8 +193,32 @@ def _saved_certificates(result):
                     raise AssertionError("Direct certificate belongs to another selected execution")
             if body["ordinal"] != row["ordinal"]:
                 raise AssertionError("Direct certificate chunk order changed")
-            rows.extend(_certificate_records(body["evidence"]))
+            sliced = list(_certificate_records(body["evidence"]))
+            # The product reader of the columnar layout must return the rows
+            # that the independent slicing above found, in the same order.
+            read = [certificate for work_row in work_evidence_rows(body["evidence"]["work_evidence"])
+                    for certificate in work_row["certificates"]]
+            if _tree(read) != _tree(sliced):
+                raise AssertionError("Direct summary reader differs from its stored columns")
+            rows.extend(sliced)
     return _tree(rows)
+
+
+def _direct_summary_blocks(result):
+    """Read each chunk summary's stored header through the fixed selection."""
+    reader = result.s.view._fixed_reader
+    blocks = []
+    with reader._store().reader() as snapshot:
+        _, _, _, index_root, _ = reader._selection_snapshot(snapshot)
+        for row in index_root["chunks"]:
+            payload = snapshot.get_object(row["summary_json"]["summary_ref"])
+            if not payload.startswith(MAGIC):
+                raise AssertionError("Direct chunk summary is not a numeric block")
+            header_length = struct.unpack("<Q", payload[8:16])[0]
+            header = json.loads(payload[16:16 + header_length])
+            blocks.append({"point_count": row["point_count"], "header": header,
+                           "byte_length": len(payload)})
+    return blocks
 
 
 # The assigned private runner may persist these test observations immediately.
@@ -798,6 +858,94 @@ class EvidenceV3Tests(unittest.TestCase):
                 connection.close()
             with store.reader() as snapshot, self.assertRaises(EvidenceIntegrityError):
                 snapshot.get_object(reference)
+
+    def test_direct_work_evidence_columns_recover_their_rows_exactly(self):
+        # Signed zero, a NaN payload, infinity and a vector-valued field are
+        # data. The columnar layout may only rearrange them.
+        payload_nan = np.array([0x7ff8000000000042], dtype="<u8").view("<f8")[0]
+
+        def certificate(site, stage, values):
+            return {"site": site, "role": "primal", "stage": stage, "derivative_order": 0,
+                    **{name: array_record(np.asarray(value)) for name, value in values.items()}}
+
+        def work_row(index, scalar, vector):
+            return {"work_index": index, "source_index": 10 + index, "check_status": 0,
+                    "certificate_status": index % 2, "check_position": -1,
+                    "certificate_position": index,
+                    "certificates": (
+                        certificate((183,), 15, {
+                            "status": 0.0, "eta": scalar, "residual_numerator": -0.0,
+                            "residual_denominator": np.inf, "performed": 1.0, "present": 1.0}),
+                        certificate((7, ("rhs", 2)), 4, {
+                            "status": np.zeros(2), "eta": np.asarray(vector, dtype=np.float32),
+                            "residual_numerator": np.asarray(vector) * (1 + 2j),
+                            "residual_denominator": np.asarray(vector),
+                            "performed": np.ones(2), "present": np.ones(2)}))}
+
+        rows = [work_row(0, payload_nan, [1.5, -0.0]), work_row(1, 2.5e-17, [np.inf, 3.0]),
+                work_row(5, -0.0, [payload_nan, 4.0])]
+        columns = work_evidence_columns(rows)
+        self.assertEqual(set(columns), {*_WORK_COUNTERS, "certificates"})
+        self.assertEqual(columns["work_index"].tolist(), [0, 1, 5])
+        self.assertEqual(columns["certificates"][0]["eta"].shape, (3,))
+        self.assertEqual(columns["certificates"][1]["eta"].shape, (3, 2))
+        self.assertEqual(columns["certificates"][1]["eta"].dtype, np.dtype("float32"))
+        stored = record_document(record_bytes({"work_evidence": columns}))
+        self.assertEqual(_tree(work_evidence_rows(stored["work_evidence"])), _tree(rows))
+
+        other_site = [dict(rows[0]), dict(rows[1])]
+        other_site[1]["certificates"] = (dict(rows[1]["certificates"][0], site=(184,)),
+                                         rows[1]["certificates"][1])
+        other_shape = [dict(rows[0]), dict(rows[1])]
+        other_shape[1]["certificates"] = (
+            dict(rows[1]["certificates"][0], eta=array_record(np.zeros(2))), rows[1]["certificates"][1])
+        for label, mixed in (("site", other_site), ("shape", other_shape)):
+            with self.subTest(mixed=label), self.assertRaises(RuntimeError):
+                work_evidence_columns(mixed)
+        with self.assertRaises(TypeError):
+            work_evidence_columns([dict(rows[0], work_index=0.0)])
+
+        short = dict(stored["work_evidence"], check_status=array_record(
+            np.zeros(2, dtype=np.int64), exact_dtype=True))
+        truncated = dict(stored["work_evidence"])
+        truncated["certificates"] = [dict(truncated["certificates"][0], eta=array_record(np.zeros(2))),
+                                     truncated["certificates"][1]]
+        open_layout = dict(stored["work_evidence"], extra=1)
+        for label, damaged in (("counter", short), ("field", truncated), ("open", open_layout)):
+            with self.subTest(damaged=label), self.assertRaises(EvidenceIntegrityError):
+                work_evidence_rows(damaged)
+
+    def test_direct_summary_columns_do_not_depend_on_chunk_size(self):
+        frequencies = np.linspace(5.5, 6.5, 8)*u.GHz
+        blocks = []
+        # Chunk sizes 3 and 8 give summaries over 3, 3, 2 and 8 work rows.
+        for chunk_size in (3, 8):
+            with TemporaryDirectory() as directory:
+                plan, _, _ = _primitive_plan()
+                run = CircuitRun(plan=plan, workspace=Path(directory), precision="float64",
+                                 execution_policy=ExecutionPolicy(frequency_chunk_size=chunk_size))
+                try:
+                    result = run.solve(run.original, DirectSolveSpec(frequencies=frequencies))
+                    blocks.extend(_direct_summary_blocks(result))
+                finally:
+                    run.close()
+        self.assertEqual([block["point_count"] for block in blocks], [3, 3, 2, 8])
+        layouts = set()
+        for block in blocks:
+            header, row_count = block["header"], block["point_count"]
+            work = header["record"]["evidence"]["work_evidence"]
+            certificates = work["certificates"]
+            self.assertTrue(certificates, "Direct summary stored no certificate")
+            # One column per work counter and one per field of each certificate.
+            self.assertEqual(len(header["columns"]),
+                             len(_WORK_COUNTERS) + len(_CERTIFICATE_ARRAYS)*len(certificates))
+            for column in header["columns"]:
+                self.assertEqual(column["path"][:2], ["evidence", "work_evidence"])
+                self.assertEqual(column["shape"][0], row_count)
+            layouts.add(json.dumps([[column["path"], column["dtype"], column["shape"][1:]]
+                                    for column in header["columns"]]))
+        # The same columns whatever the chunk size; only their length differs.
+        self.assertEqual(len(layouts), 1)
 
     def test_optimization_history_locator_storage_integrity(self):
         from scnsim.workspace.results import FixedPhysicalOptimizationReader

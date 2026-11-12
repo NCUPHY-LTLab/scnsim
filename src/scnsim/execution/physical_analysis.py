@@ -1423,6 +1423,8 @@ class PhysicalAnalysis:
         if in_memory:
             return {'type': 'direct_solve', 'point_count': len(frequencies),
                     'backend': self.backend.native_program_identity('direct')}
+        from ..workspace.direct_summary import work_evidence_columns
+
         context = point_contexts(program, inputs)[occurrence_layouts[0]['observable_index']]
         capabilities = tuple(bool(value) for value in np.asarray(candidate.realized_capabilities))
         output_chunk_size = self.execution_policy.frequency_chunk_size
@@ -1454,7 +1456,9 @@ class PhysicalAnalysis:
                 'realized_capabilities': capabilities,
                 **({'affine_evidence':self._affine_evidence.rows}
                    if self._affine_evidence.rows else {}),
-                'work_evidence': work_summaries,
+                # One array per counter and certificate field over this
+                # chunk's work rows, instead of one small array per value.
+                'work_evidence': work_evidence_columns(work_summaries),
             }))
             self.result_sink.append_direct_chunk(
                 frequencies_hz=frequencies[start:stop], families=families, evidence=evidence,
