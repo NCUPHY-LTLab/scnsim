@@ -69,6 +69,6 @@ Review file-URI conversion, declaration-matched drawings, portable notebooks, an
 ::: {.askr-card-body}
 ### [Numerical checks and local run](numerical-checks.md) {.askr-card-title .unlisted}
 
-Learn what forward bounds, backward residuals, exact comparisons, and the default local unittest command each cover.
+Learn what forward bounds, backward residuals, exact comparisons, the verification families, and the default local unittest command each cover.
 :::
 ::::
