@@ -45,7 +45,7 @@ SCNSim 的測試使用小型且明確宣告的電路案例，說明套件如何�
 ::: {.askr-card-body}
 ### [證據（Evidence）與讀回（Readback）](evidence-readback.md) {.askr-card-title .unlisted}
 
-從已完成的計算一路查看 v3 證據，再經過 Memory 或 Workspace 關閉與讀回。
+從已完成的計算一路查看 v4 證據，再經過 Memory 或 Workspace 關閉與讀回。
 :::
 ::::
 

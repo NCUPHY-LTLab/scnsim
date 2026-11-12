@@ -45,7 +45,7 @@ Trace affine parameter authorization, local-coordinate scales, and the small opt
 ::: {.askr-card-body}
 ### [Evidence and readback](evidence-readback.md) {.askr-card-title .unlisted}
 
-Follow values from a completed calculation into v3 evidence, then through Memory or Workspace close and readback.
+Follow values from a completed calculation into v4 evidence, then through Memory or Workspace close and readback.
 :::
 ::::
 

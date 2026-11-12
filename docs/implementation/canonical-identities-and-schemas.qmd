@@ -6,20 +6,20 @@ toc-depth: 2
 
 SCNSim identifies physical declarations with canonical documents and stores
 numerical evidence in exact binary columns. Use the document's own version;
-evidence v3 does not renumber Plan, Request or ParameterSet declarations.
+evidence v4 does not renumber Plan, Request or ParameterSet declarations.
 
 ## Current version domains
 
 | Authority | Current format |
 |---|---|
 | Plan, Request, ParameterSet and authoring snapshot | Existing per-document discriminators in `identity-v2.schema.json` |
-| Workspace envelope | Schema 1 with required `evidence_version: 3` |
-| Binary numeric block and evidence manifest | Evidence version 3, defined in `identity-v3.schema.json` |
+| Workspace envelope | Schema 1 with required `evidence_version: 4` |
+| Binary numeric block and evidence manifest | Evidence version 4, defined in `identity-v4.schema.json` |
 | SQLite operation store and object references | Internal revision 8 |
 | Shared canonical quantities and identities | Named definitions in `identity-common.schema.json` |
 
 The site publishes the actual package [v2](../../src/scnsim/_schemas/identity-v2.schema.json),
-[v3](../../src/scnsim/_schemas/identity-v3.schema.json) and
+[v4](../../src/scnsim/_schemas/identity-v4.schema.json) and
 [common](../../src/scnsim/_schemas/identity-common.schema.json) resources.
 
 ## Declaration and runtime identity
@@ -47,7 +47,7 @@ is not a substitute for checking role, schema, length or selected occurrence.
 Readers verify the current object reference, framing and header before decoding.
 Legacy JSON numerical array records are rejected rather than accepted as a
 compatibility codec. Small scalar and identity JSON documents remain valid.
-See [Workspace evidence v3](../contracts/workspace-evidence-v3.qmd).
+See [Workspace evidence v4](../contracts/workspace-evidence-v4.qmd).
 
 ## Fixed selection and occurrence identity
 

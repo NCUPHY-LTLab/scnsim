@@ -77,7 +77,7 @@ Readonly SQLite paths use `Path.as_uri()` with `mode=ro`, including Windows
 paths and Unicode. Lock success is separate from publication durability;
 filesystem and SQLite errors retain their original typed causes.
 
-See [Workspace evidence v3](../contracts/workspace-evidence-v3.qmd) for exact
+See [Workspace evidence v4](../contracts/workspace-evidence-v4.qmd) for exact
 columns and [the lifecycle contract](../v1-runtime-contract.qmd#package-lifecycle)
 for operation and reader ownership.
 

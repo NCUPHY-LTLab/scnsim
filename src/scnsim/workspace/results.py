@@ -1578,7 +1578,7 @@ class FixedPhysicalOptimizationReader:
             raise _integrity("Physical Optimization history count differs from its seal.", stage_id=stage_id)
         rows = []
         model = stage["model_identity"]
-        # This required v3 field is separate from the population-only SQL
+        # This required field is separate from the population-only SQL
         # index; a missing field is not an older private-format fallback.
         if "baseline_locator" not in history:
             raise _integrity("Physical Optimization history lacks its baseline declaration.",

@@ -1,5 +1,5 @@
 ---
-title: "Workspace evidence v3"
+title: "Workspace evidence v4"
 ---
 
 Workspace evidence stores numeric columns as exact binary bytes in immutable
@@ -11,17 +11,17 @@ evidence remain readable after `CircuitRun.close()` and in a fresh process.
 | Document or store | Version |
 |---|---:|
 | Plan, Request, ParameterSet and authoring snapshot | Existing per-document versions; canonical bytes unchanged |
-| Workspace envelope | Schema 1, with required `evidence_version: 3` |
-| Numeric block header and evidence manifest authority | Evidence 3 |
+| Workspace envelope | Schema 1, with required `evidence_version: 4` |
+| Numeric block header and evidence manifest authority | Evidence 4 |
 | Operation database and object references | Internal revision 8 |
 
-`identity-v3.schema.json` describes the evidence header, manifests and object
+`identity-v4.schema.json` describes the evidence header, manifests and object
 references. It does not replace the authoring document definitions in
 `identity-v2.schema.json`.
 
 ## Binary columns
 
-A numeric object contains eight magic bytes `SCNSIMB3`, an unsigned 64-bit
+A numeric object contains eight magic bytes `SCNSIMB4`, an unsigned 64-bit
 little-endian header length, a canonical JSON header, and contiguous numeric
 column bytes. Each column uses its declared dtype, little-endian representation
 and C order. Complex values interleave their real and imaginary components.

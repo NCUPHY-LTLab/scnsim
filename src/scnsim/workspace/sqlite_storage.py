@@ -21,6 +21,7 @@ import numpy as np
 from ..errors import EvidenceIntegrityError, UnsupportedEvidenceVersionError
 from .operation_store import OperationStore, Snapshot, _VERSION as _OPERATION_STORE_VERSION, _reference
 from .binary_blocks import record_bytes, record_document
+from .evidence_version import EVIDENCE_VERSION
 from ..numeric_encoding import record_bytes as numerical_record_bytes
 from .operation_scratch import cleanup_inactive_operation_scratch
 
@@ -1228,7 +1229,7 @@ def complete_sensitivity_operation(binding, *, operation_id, task_id, attempt_id
         raise _error("Sensitivity equation evidence differs from its derivative declaration.")
     _valid_sha(equation_evidence["program_sha256"])
     manifest_body = {
-        "schema": "scnsim.sensitivity_manifest", "schema_version": 1, "evidence_version": 3,
+        "schema": "scnsim.sensitivity_manifest", "schema_version": 1, "evidence_version": EVIDENCE_VERSION,
         "workspace_instance_id": workspace_instance_id, "plan_sha256": plan_sha256,
         "request_sha256": request_sha256, "task_id": task_id, "attempt_id": attempt_id,
         "outcome": outcome, "request_ref": dict(request_ref),
@@ -1509,7 +1510,7 @@ def _complete_chunked_operation(binding, *, domain, operation_id, task_id, attem
             raise _error("Chunked result binding changed before terminal publication.",
                          operation_id=operation_id, task_id=task_id, attempt_id=attempt_id)
         manifest_body = {
-            "schema": f"scnsim.{domain}_manifest", "schema_version": 1, "evidence_version": 3,
+            "schema": f"scnsim.{domain}_manifest", "schema_version": 1, "evidence_version": EVIDENCE_VERSION,
             **identity, "request_ref": dict(request_ref), "metadata": dict(metadata),
         }
         manifest_ref = tx.put_object(record_bytes(manifest_body), role=f"{domain}_manifest")
@@ -3291,7 +3292,7 @@ def complete_optimization_operation(binding, *, operation_id, task_id, attempt_i
         return _physical_candidate_source_locator(selected)
 
     manifest_body = {
-        "schema": "scnsim.optimization_manifest", "schema_version": 1, "evidence_version": 3,
+        "schema": "scnsim.optimization_manifest", "schema_version": 1, "evidence_version": EVIDENCE_VERSION,
         **identity, "outcome": outcome,
         "request_ref": dict(request_ref), "declarations": dict(manifest),
         "stage_ids": list(stage_order),

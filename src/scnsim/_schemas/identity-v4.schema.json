@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:scnsim:schema:identity-v3",
-  "title": "SCNSim evidence-v3 storage documents",
-  "description": "Evidence binary framing/header and manifest/ref authority. OperationStore revision8 is distinct. Plan/Request/ParameterSet/authoring snapshot schema numbers and bytes remain unchanged in identity-v2. Workspace schema1 has required evidence_version3 in identity-common.",
+  "$id": "urn:scnsim:schema:identity-v4",
+  "title": "SCNSim evidence-v4 storage documents",
+  "description": "Evidence binary framing/header and manifest/ref authority. OperationStore revision8 is distinct. Plan/Request/ParameterSet/authoring snapshot schema numbers and bytes remain unchanged in identity-v2. Workspace schema1 has required evidence_version4 in identity-common.",
   "oneOf": [
     {
       "$ref": "#/$defs/numericBlockHeader"
@@ -42,7 +42,7 @@
           "const": "scnsim.numeric_block"
         },
         "schema_version": {
-          "const": 3
+          "const": 4
         },
         "record": {},
         "columns": {
@@ -223,7 +223,7 @@
           "const": 1
         },
         "evidence_version": {
-          "const": 3
+          "const": 4
         },
         "workspace_instance_id": {
           "type": "string"
@@ -280,7 +280,7 @@
           "const": 1
         },
         "evidence_version": {
-          "const": 3
+          "const": 4
         },
         "workspace_instance_id": {
           "type": "string"
@@ -339,7 +339,7 @@
           "const": 1
         },
         "evidence_version": {
-          "const": 3
+          "const": 4
         },
         "workspace_instance_id": {
           "type": "string"
@@ -399,7 +399,7 @@
           "const": 1
         },
         "evidence_version": {
-          "const": 3
+          "const": 4
         },
         "workspace_instance_id": {
           "type": "string"
@@ -614,10 +614,10 @@
         {
           "type": "object",
           "required": [
-            "$scnsim_column_v3"
+            "$scnsim_column_v4"
           ],
           "properties": {
-            "$scnsim_column_v3": {
+            "$scnsim_column_v4": {
               "type": "integer",
               "minimum": 0
             }

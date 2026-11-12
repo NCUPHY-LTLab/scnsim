@@ -43,8 +43,8 @@
   description: "Separate preparation, numerical work, storage, and public-call clocks."
   topic: run
   order: 8
-- title: "Workspace evidence v3"
-  path: "workspace-evidence-v3.qmd"
+- title: "Workspace evidence v4"
+  path: "workspace-evidence-v4.qmd"
   description: "Read exact binary columns, fixed results and old-format rejection."
   topic: run
   order: 9

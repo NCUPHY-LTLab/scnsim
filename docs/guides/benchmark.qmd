@@ -60,7 +60,7 @@ unsupported by 1.0: use a new Workspace and recompute.
 For clock, progress and resource ownership, see
 [Runtime and Benchmark](../implementation/benchmark-and-backends.qmd).
 For required result publication and exact stored arrays, see
-[Workspace evidence v3](../contracts/workspace-evidence-v3.qmd).
+[Workspace evidence v4](../contracts/workspace-evidence-v4.qmd).
 
 ## History: pre-1.0 runtime and storage
 

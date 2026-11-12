@@ -885,13 +885,16 @@ def _fresh_partial(workspace):
     return _partial_saved(result)
 
 
-class EvidenceV3Tests(unittest.TestCase):
+class EvidenceV4Tests(unittest.TestCase):
     def test_literal_columns_preserve_bits_and_reject_corruption(self):
         # Signed zero and a NaN payload are data, not normalization choices.
         source = np.array([0x8000000000000000, 0x7ff8000000000042], dtype="<u8").view("<f8")
         body = {"values": array_record(source, exact_dtype=True)}
         payload = record_bytes(body)
+        self.assertEqual(MAGIC, b"SCNSIMB4")
         self.assertTrue(payload.startswith(MAGIC))
+        header_length = struct.unpack("<Q", payload[8:16])[0]
+        self.assertEqual(json.loads(payload[16:16 + header_length])["schema_version"], 4)
         self.assertEqual(_bits(array_from_record(record_document(payload)["values"])), _bits(source))
         for offset in (0, 8, 16):
             damaged = bytearray(payload)
@@ -1153,6 +1156,20 @@ class EvidenceV3Tests(unittest.TestCase):
         from scnsim.canonical import canonical_json_bytes
         with self.assertRaises(UnsupportedEvidenceVersionError):
             record_document(old_record_bytes({"values": array_record(np.array([1.0]))}))
+        # A numeric block of evidence version 3 (1.0.0a3) differs in its magic
+        # bytes and header version. Neither is read as current evidence.
+        current = record_bytes({"values": array_record(np.array([1.0]))})
+        with self.assertRaises(UnsupportedEvidenceVersionError) as rejected:
+            record_document(b"SCNSIMB3" + current[8:])
+        self.assertEqual(rejected.exception.evidence["supported_evidence_version"], 4)
+        header_length = struct.unpack("<Q", current[8:16])[0]
+        header = json.loads(current[16:16 + header_length])
+        old_header = canonical_json_bytes(dict(header, schema_version=3))
+        with self.assertRaises(EvidenceIntegrityError):
+            record_document(current[:8] + struct.pack("<Q", len(old_header)) + old_header
+                            + current[16 + header_length:])
+        with self.assertRaises(UnsupportedEvidenceVersionError):
+            record_document(record_bytes({"schema": "scnsim.direct_manifest", "evidence_version": 3}))
         for kind in ("empty_old_envelope", "requests", "zarr", "sqlite7"):
             with self.subTest(kind=kind), TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -1183,6 +1200,58 @@ class EvidenceV3Tests(unittest.TestCase):
                         CircuitRun(plan=plan, workspace=root, precision="float64")
                 self.assertEqual(snapshot(), before)
                 self.assertFalse((root/".scnsim.lock").exists())
+
+    def test_evidence_version_3_workspace_is_rejected_before_any_mutation(self):
+        from scnsim.canonical import canonical_json_bytes
+
+        def tree(root):
+            return {str(path.relative_to(root)): ("directory" if path.is_dir() else path.read_bytes())
+                    for path in root.rglob("*")}
+
+        def declare_version_3(path):
+            document = json.loads(path.read_bytes())
+            self.assertEqual(document["evidence_version"], 4)
+            path.write_bytes(canonical_json_bytes(dict(document, evidence_version=3)))
+
+        # Each case starts from a complete current Workspace holding one saved
+        # Direct result, then declares evidence version 3 where 1.0.0a3 did:
+        # in the root envelope, in the leaf envelope and in the database.
+        for declared in ("root_envelope", "leaf_envelope", "database", "all"):
+            with self.subTest(declared=declared), TemporaryDirectory() as directory:
+                root = Path(directory)
+                plan, _, _ = _primitive_plan()
+                run = CircuitRun(plan=plan, workspace=root, precision="float64")
+                try:
+                    run.solve(run.original, DirectSolveSpec(frequencies=[5.5, 6.0]*u.GHz))
+                finally:
+                    run.close()
+                databases = list(root.rglob("operations.sqlite3"))
+                self.assertEqual(len(databases), 1)
+                leaf = databases[0].parent.parent
+                if declared in ("root_envelope", "all"):
+                    declare_version_3(root/"workspace.json")
+                if declared in ("leaf_envelope", "all"):
+                    declare_version_3(leaf/"workspace.json")
+                if declared in ("database", "all"):
+                    connection = sqlite3.connect(databases[0])
+                    try:
+                        connection.execute("UPDATE metadata SET value='3' WHERE key='evidence_version'")
+                        connection.commit()
+                    finally:
+                        connection.close()
+                before = tree(root)
+                plan, _, _ = _primitive_plan()
+                with self.assertRaises(UnsupportedEvidenceVersionError) as rejected:
+                    CircuitRun(plan=plan, workspace=root, precision="float64")
+                self.assertEqual(rejected.exception.kind, "unsupported_evidence_version")
+                if declared != "database":
+                    self.assertEqual(rejected.exception.evidence["found_evidence_version"], 3)
+                    self.assertEqual(rejected.exception.evidence["supported_evidence_version"], 4)
+                self.assertEqual(tree(root), before)
+                if declared in ("database", "all"):
+                    with self.assertRaises(UnsupportedEvidenceVersionError):
+                        OperationStore.open_readonly(databases[0].parent)
+                    self.assertEqual(tree(root), before)
 
     def test_partial_sweep_preserves_failure_and_repeated_source_order(self):
         # Retain the original operands. The existing scalar Z operation checks
@@ -1215,7 +1284,7 @@ class EvidenceV3Tests(unittest.TestCase):
                 if storage == "workspace":
                     self.assertEqual(_fresh_partial(directory), row)
                     child = subprocess.run([sys.executable, "-c",
-                        "import json,sys; from tests.test_evidence_v3 import _fresh_partial; "
+                        "import json,sys; from tests.test_evidence_v4 import _fresh_partial; "
                         "print(json.dumps(_fresh_partial(sys.argv[1])))", directory],
                         capture_output=True, text=True, cwd=Path(__file__).parents[1])
                     self.assertEqual(child.returncode, 0, child.stderr)
@@ -1318,7 +1387,7 @@ class EvidenceV3Tests(unittest.TestCase):
                 _checkpoint(self)
                 _assert_same(self, key + "/reopen", original, _resolve_family(directory, family, archived))
                 command = [sys.executable, "-c",
-                    "import json,sys; from tests.test_evidence_v3 import _resolve_family; "
+                    "import json,sys; from tests.test_evidence_v4 import _resolve_family; "
                     "print(json.dumps(_resolve_family(sys.argv[1],sys.argv[2],json.load(sys.stdin))))",
                     directory, family]
                 child = subprocess.run(command, input=json.dumps(archived), capture_output=True,

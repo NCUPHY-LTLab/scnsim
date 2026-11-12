@@ -14,7 +14,7 @@ HB and external Julia execution are retired from 1.0.
 | Choice | Ownership |
 |---|---|
 | `storage="memory"` | Detached values and actual same-call numerical evidence; no Workspace or saved identity |
-| `workspace=path` | Immutable SQLite evidence v3, internal store revision 8, fixed completion and readonly resolve |
+| `workspace=path` | Immutable SQLite evidence v4, internal store revision 8, fixed completion and readonly resolve |
 | `prepare` / `warmup` | Detached numerical callable / compile-only preparation; no baseline solve |
 | `close` | Release Run-owned resources; returned values and fixed saved selections remain readable |
 
@@ -31,7 +31,7 @@ same-call evidence in Memory, Workspace and resolve. Conditional affine evidence
 is absent when unused; when used it records the actual candidate, affected edges
 and authorization source. Evidence does not rerun numerical work.
 
-[Workspace evidence v3](contracts/workspace-evidence-v3.qmd) defines exact
+[Workspace evidence v4](contracts/workspace-evidence-v4.qmd) defines exact
 binary fields and version domains. Plan/Request/ParameterSet canonical document
 versions remain unchanged. Old evidence is rejected read-only before directory,
 lock or SQLite mutation, then checked again under the ordinary lock. The error
@@ -2181,7 +2181,7 @@ never an AOT executable. `optimize(progress=True)` adds a transient observer dis
 durable callback; it cannot change numeric request identity or commit policy.
 Display failures warn and disable display, while durable callback failures keep
 their existing error contract. Private uncommitted-generation scratch is not a
-checkpoint or a compatibility reader; current Workspace uses store revision 8 and evidence v3.
+checkpoint or a compatibility reader; current Workspace uses store revision 8 and evidence v4.
 Intermediate continuation-step preparation and executable references end after
 the synchronized result is observed, before recursion. The current stage owns
 its fixed-model physical program and prepared variants; call-local frames,

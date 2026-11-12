@@ -41,7 +41,7 @@ saved selections remain usable after Run close.
 ## Storage and publication
 
 Memory owns actual detached values and evidence without a Workspace, spool or
-saved identity. Workspace uses evidence v3 and OperationStore revision 8.
+saved identity. Workspace uses evidence v4 and OperationStore revision 8.
 Direct and Direct Sweeps stream same-call host arrays directly to immutable
 objects; Optimization retains its bounded operation spool and lazy stage history.
 No second numerical pass materializes saved data.
@@ -51,7 +51,7 @@ cadence. Required publication completes before its callback; transient progress
 and optional timing are separate. Local accepted-iteration publication retains
 its declared cadence. Each public stage history includes its saved baseline,
 without changing evaluation or iteration counts. Final completion and success
-selection are atomic. See [Workspace evidence v3](../contracts/workspace-evidence-v3.qmd).
+selection are atomic. See [Workspace evidence v4](../contracts/workspace-evidence-v4.qmd).
 
 ## Built-in readonly Benchmark
 

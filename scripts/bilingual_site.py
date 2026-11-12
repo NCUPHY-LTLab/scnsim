@@ -56,7 +56,7 @@ def shared_assets(root: Path) -> None:
         shutil.copyfile(root / name, child / name)
     schema = child / 'src/scnsim/_schemas'
     schema.mkdir(parents=True, exist_ok=True)
-    for name in ('identity-common.schema.json', 'identity-v2.schema.json', 'identity-v3.schema.json'):
+    for name in ('identity-common.schema.json', 'identity-v2.schema.json', 'identity-v4.schema.json'):
         shutil.copyfile(root / 'src/scnsim/_schemas' / name, schema / name)
     for source in (root / 'examples/engineer').rglob('*.ipynb'):
         destination = child / source.relative_to(root)
