@@ -14,13 +14,14 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
 from scnsim import (CircuitRun, DirectResponseFormationError, DirectSolveSpec,
                     EvidenceIntegrityError, ExecutionPolicy,
                     DiagonalRootSpec, JVP, OperatorSpec, ParameterSpace, ReductionPipeline,
-                    ResponseElementSpec, SensitivitySpec,
+                    ResponseElementSpec, SensitivitySpec, TransferZeroSpec,
                     UnsupportedEvidenceVersionError, units as u)
 from scnsim.numeric_encoding import array_from_record, array_record
 from scnsim.results.memory_analysis import InMemoryAnalysisResult
@@ -28,6 +29,9 @@ from scnsim.results.matrix import OperatorResult
 from scnsim.workspace.binary_blocks import MAGIC, record_bytes, record_document
 from scnsim.workspace.direct_summary import work_evidence_columns, work_evidence_rows
 from scnsim.workspace.operation_store import OperationStore
+from scnsim.workspace.sweep_evidence import (read_sweep_evidence, stored_sweep_evidence,
+                                             work_evidence_run_rows, work_evidence_runs)
+from tests.test_affine_parameters import _affine_grid, _affine_plan
 from tests.test_workspace_readback import _primitive_plan
 from tests.test_workspace_optimization_readback import _fixture as _optimization_fixture, _saved_values
 
@@ -885,6 +889,203 @@ def _fresh_partial(workspace):
     return _partial_saved(result)
 
 
+_SWEEP_ROW_CONSTANTS = ("view_index", "demand")
+
+
+def _sweep_fixture(family):
+    """Return the Plan of one sweep family, its retained coordinate and its swept parameter."""
+    if family == "affine":
+        plan, length = _affine_plan()
+        return plan, None, length
+    return _primitive_plan()
+
+
+def _sweep_request(run, family, coordinate, parameter):
+    """A three-point grid: the second point is the Plan baseline, the third repeats the first."""
+    if family == "affine":
+        # The first and third length lie outside the mapped support, so their
+        # points carry public affine evidence; the second point carries none.
+        return run.original, DirectSolveSpec(frequencies=[5.0, 5.5]*u.GHz), _affine_grid(parameter)
+    capacitance = parameter
+    view = run.original.reduce(ReductionPipeline().retain(coordinate))
+    parameters = ParameterSpace.grid(axes={capacitance: [100.0, 110.0, 100.0]*u.fF})
+    if family == "direct":
+        # 6.0 GHz is requested twice and shares one work row.
+        return run.original, DirectSolveSpec(frequencies=[5.5, 6.0, 6.0, 6.5]*u.GHz), parameters
+    if family == "operator":
+        return view, OperatorSpec(frequencies=[5.5, 6.0, 6.5]*u.GHz), parameters
+    if family == "response":
+        return view, ResponseElementSpec(family="Z", input_coordinate=coordinate,
+                                         output_coordinate=coordinate, frequency=6.0*u.GHz), parameters
+    if family == "root":
+        return view, DiagonalRootSpec(coordinate=coordinate, root_hint=6.0*u.GHz), parameters
+    raise ValueError(family)
+
+
+def _run_sweep(run, family, coordinate, parameter):
+    view, spec, parameters = _sweep_request(run, family, coordinate, parameter)
+    if family in ("direct", "affine"):
+        return run.solve(view, spec, parameters=parameters)
+    return run.evaluate(view, spec, parameters=parameters)
+
+
+def _sweep_point_values(family, result):
+    if family in ("direct", "affine"):
+        return _saved(result)
+    if family == "operator":
+        return {"points": _operator_saved(result), "evidence": _tree(result.evidence)}
+    names = (("value", "magnitude", "real", "imag") if family == "response"
+             else ("root", "frequency", "linewidth", "slope"))
+    return {**{name: _saved_values(getattr(result, name)) for name in names},
+            "evidence": _tree(result.evidence)}
+
+
+def _sweep_saved(family, result):
+    """Every public value of a sweep, point by point, in its saved order."""
+    rows = []
+    for point in result.points:
+        source_index = point.source_index
+        if isinstance(source_index, int):
+            source_index = (source_index,)
+        row = {"source_index": list(source_index), "parameters": _saved_values(point.parameters),
+               "succeeded": point.succeeded}
+        if point.succeeded:
+            row["result"] = _sweep_point_values(family, point.result)
+        else:
+            failure = point.failure
+            row["failure"] = {"type": type(failure).__module__ + "." + type(failure).__qualname__,
+                "kind": failure.kind, "category": failure.category, "stage": failure.stage,
+                "message": str(failure), "evidence": _tree(failure.evidence)}
+        rows.append(row)
+    return rows
+
+
+@contextmanager
+def _observed_sweep_work():
+    """Record the native work rows that each sweep point hands to its sink.
+
+    The sinks receive their original arguments. The rows are the same-call
+    authority for the work evidence that a stored point must return.
+    """
+    from scnsim.execution.memory_analysis import InMemoryAnalysisSink
+    from scnsim.execution.physical_analysis import ChunkedResultSink
+    staged = {}
+    originals = []
+
+    def observe(owner):
+        original = owner.stage_native_work
+
+        def stage(sink, namespace, work_index, record):
+            staged.setdefault(namespace, []).append(_tree(
+                {name: record[name] for name in (*_WORK_COUNTERS, *_SWEEP_ROW_CONSTANTS, "certificates")}))
+            return original(sink, namespace, work_index, record)
+
+        originals.append((owner, original))
+        owner.stage_native_work = stage
+
+    for owner in (InMemoryAnalysisSink, ChunkedResultSink):
+        observe(owner)
+    try:
+        yield staged
+    finally:
+        for owner, original in originals:
+            owner.stage_native_work = original
+
+
+def _native_sweep_rows(family, staged):
+    """The work evidence each requested point must hold, from its own native rows."""
+    if family == "root":
+        # A root sweep solves no frequency row; its certificates are in the root packet.
+        if set(staged) - {"baseline"}:
+            raise AssertionError("root sweep staged frequency rows for a requested point")
+        return [None, None, None]
+    if set(staged) != {0, 1}:
+        raise AssertionError("sweep points 0 and 1 each run once; point 2 repeats point 0")
+    names = (*_WORK_COUNTERS, "certificates") + (
+        () if family in ("direct", "affine") else _SWEEP_ROW_CONSTANTS)
+    rows = {ordinal: [{name: row[name] for name in names} for row in staged[ordinal]]
+            for ordinal in (0, 1)}
+    return [rows[0], rows[1], rows[0]]
+
+
+@contextmanager
+def _observed_sweep_reads():
+    """Keep each point record that the fixed sweep reader returns; forward it unchanged."""
+    from scnsim.workspace.results import FixedSweepResultReader
+    original = FixedSweepResultReader.read_point
+    records = {}
+
+    def read_point(reader, flat_index):
+        record = original(reader, flat_index)
+        records[record["ordinal"]] = record
+        return record
+
+    FixedSweepResultReader.read_point = read_point
+    try:
+        yield records
+    finally:
+        FixedSweepResultReader.read_point = original
+
+
+def _sweep_readback(family, result):
+    """Public values of a saved sweep and the work evidence its reader returns."""
+    with _observed_sweep_reads() as records:
+        values = _sweep_saved(family, result)
+    work = [_tree(records[ordinal]["evidence"]["work_evidence"])
+            if "work_evidence" in records[ordinal]["evidence"] else None
+            for ordinal in range(len(values))]
+    return {"values": values, "work_evidence": work}
+
+
+def _fresh_sweep(workspace, family):
+    from scnsim.execution.jax_backend import JaxBackend
+    plan, coordinate, parameter = _sweep_fixture(family)
+    # Reading a saved sweep must not construct a numerical backend.
+    with patch.object(JaxBackend, "__init__",
+                      side_effect=AssertionError("resolve initialized a numerical backend")):
+        run = CircuitRun(plan=plan, workspace=Path(workspace), precision="float64")
+        try:
+            view, spec, parameters = _sweep_request(run, family, coordinate, parameter)
+            result = run.resolve(view, spec, parameters=parameters)
+        finally:
+            run.close()
+        return _sweep_readback(family, result)
+
+
+def _stored_sweep_points(workspace):
+    """Read each stored sweep point and the block that holds its evidence, with sqlite3 only."""
+    paths = list(Path(workspace).rglob("operations.sqlite3"))
+    if len(paths) != 1:
+        raise AssertionError("fixture must have exactly one OperationStore")
+    connection = sqlite3.connect(paths[0].absolute().as_uri() + "?mode=ro", uri=True)
+    try:
+        chunks = [bytes(payload) for (payload,) in connection.execute(
+            "SELECT o.payload FROM objects o JOIN object_roles r USING(sha256) WHERE r.role='sweep_chunk'")]
+        chunk_blocks = []
+        for payload in chunks:
+            header_length = struct.unpack("<Q", payload[8:16])[0] if payload.startswith(MAGIC) else 0
+            chunk_blocks.append({"body": record_document(payload),
+                                 "columns": (json.loads(payload[16:16 + header_length])["columns"]
+                                             if header_length else [])})
+        chunk_blocks.sort(key=lambda block: block["body"]["ordinal"])
+        points = []
+        for block in chunk_blocks:
+            for point in block["body"]["points"]:
+                (payload,) = connection.execute(
+                    "SELECT o.payload FROM objects o JOIN object_roles r USING(sha256) "
+                    "WHERE o.sha256=? AND r.role='benchmark_value'",
+                    (point["evidence_ref"]["sha256"],)).fetchone()
+                payload = bytes(payload)
+                if not payload.startswith(MAGIC):
+                    raise AssertionError("sweep point evidence is not a numeric block")
+                header_length = struct.unpack("<Q", payload[8:16])[0]
+                points.append({"point": point, "header": json.loads(payload[16:16 + header_length]),
+                               "evidence": record_document(payload), "byte_length": len(payload)})
+    finally:
+        connection.close()
+    return chunk_blocks, points
+
+
 class EvidenceV4Tests(unittest.TestCase):
     def test_literal_columns_preserve_bits_and_reject_corruption(self):
         # Signed zero and a NaN payload are data, not normalization choices.
@@ -899,8 +1100,9 @@ class EvidenceV4Tests(unittest.TestCase):
         for offset in (0, 8, 16):
             damaged = bytearray(payload)
             damaged[offset] ^= 0xff
-            with self.subTest(offset=offset), self.assertRaises(EvidenceIntegrityError):
+            with self.subTest(offset=offset), self.assertRaises(EvidenceIntegrityError) as rejected:
                 record_document(bytes(damaged))
+            self.assertEqual(rejected.exception.stage, "evidence_v4")
         with TemporaryDirectory() as directory:
             store = OperationStore(Path(directory), plan_sha256="a"*64, workspace_instance_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
             store.initialize()
@@ -1162,6 +1364,7 @@ class EvidenceV4Tests(unittest.TestCase):
         with self.assertRaises(UnsupportedEvidenceVersionError) as rejected:
             record_document(b"SCNSIMB3" + current[8:])
         self.assertEqual(rejected.exception.evidence["supported_evidence_version"], 4)
+        self.assertEqual(rejected.exception.stage, "evidence_v4")
         header_length = struct.unpack("<Q", current[8:16])[0]
         header = json.loads(current[16:16 + header_length])
         old_header = canonical_json_bytes(dict(header, schema_version=3))
@@ -1290,6 +1493,312 @@ class EvidenceV4Tests(unittest.TestCase):
                     self.assertEqual(child.returncode, 0, child.stderr)
                     self.assertEqual(json.loads(child.stdout), row)
         self.assertEqual(observed[0], observed[1])
+
+    def test_sweep_work_evidence_runs_recover_their_rows_exactly(self):
+        # A sweep point stores its work rows as columnar runs. The runs may
+        # only rearrange the rows: every value, every bit and the row order
+        # must return, whatever the rows look like.
+        payload_nan = np.array([0x7ff8000000000042], dtype="<u8").view("<f8")[0]
+
+        def certificate(site, stage, values):
+            return {"site": site, "role": "primal", "stage": stage, "derivative_order": 0,
+                    **{name: array_record(np.asarray(value)) for name, value in values.items()}}
+
+        def scalar_certificate(site, eta):
+            return certificate(site, 15, {
+                "status": 0.0, "eta": eta, "residual_numerator": -0.0,
+                "residual_denominator": np.inf, "performed": 1.0, "present": 1.0})
+
+        def vector_certificate(vector):
+            return certificate([7, ["rhs", 2]], 4, {
+                "status": np.zeros(2), "eta": np.asarray(vector, dtype=np.float32),
+                "residual_numerator": np.asarray(vector) * (1 + 2j),
+                "residual_denominator": np.asarray(vector),
+                "performed": np.ones(2), "present": np.ones(2)})
+
+        def work_row(index, certificates, **constants):
+            return {"work_index": index, "source_index": 10 + index, "check_status": 0,
+                    "certificate_status": index % 2, "check_position": -1,
+                    "certificate_position": index, "certificates": certificates, **constants}
+
+        # Rows as a Direct sweep point holds them: one layout, no view or demand.
+        direct_rows = [work_row(0, [scalar_certificate([183], payload_nan)]),
+                       work_row(1, [scalar_certificate([183], 2.5e-17)]),
+                       work_row(5, [scalar_certificate([183], -0.0)])]
+        runs = work_evidence_runs(direct_rows)
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(set(runs[0]), {*_WORK_COUNTERS, "certificates"})
+        self.assertEqual(runs[0]["work_index"].tolist(), [0, 1, 5])
+        self.assertEqual(runs[0]["certificates"][0]["eta"].shape, (3,))
+        stored = record_document(record_bytes({"work_evidence": runs}))
+        self.assertEqual(_tree(work_evidence_run_rows(stored["work_evidence"])), _tree(direct_rows))
+
+        # Rows as the operator holds them. The demand changes after two rows,
+        # one row then checks a different equation, and the first layout
+        # returns. Consecutive rows of one layout share a run; order is kept.
+        operator = {"view_index": 0, "demand": ["operator"]}
+        other = {"view_index": 1, "demand": ["Y", "Z"]}
+        mixed_rows = [
+            work_row(0, [scalar_certificate([189], 1.0)], **operator),
+            work_row(1, [scalar_certificate([189], payload_nan)], **operator),
+            work_row(2, [scalar_certificate([189], 3.0), vector_certificate([1.5, -0.0])], **other),
+            work_row(3, [scalar_certificate([189], 4.0), vector_certificate([np.inf, payload_nan])], **other),
+            work_row(4, [scalar_certificate([190], 5.0)], **operator),
+            work_row(5, [scalar_certificate([189], 6.0)], **operator),
+        ]
+        runs = work_evidence_runs(mixed_rows)
+        self.assertEqual([run["work_index"].tolist() for run in runs], [[0, 1], [2, 3], [4], [5]])
+        self.assertEqual([(run["view_index"], run["demand"]) for run in runs],
+                         [(0, ["operator"]), (1, ["Y", "Z"]), (0, ["operator"]), (0, ["operator"])])
+        self.assertEqual(runs[1]["certificates"][1]["eta"].shape, (2, 2))
+        self.assertEqual(runs[1]["certificates"][1]["eta"].dtype, np.dtype("float32"))
+        stored = record_document(record_bytes({"work_evidence": runs}))
+        self.assertEqual(_tree(work_evidence_run_rows(stored["work_evidence"])), _tree(mixed_rows))
+
+        # No work row at all is stored as no run.
+        self.assertEqual(work_evidence_runs([]), [])
+        self.assertEqual(work_evidence_run_rows([]), [])
+
+        # The evidence around the rows is untouched, evidence without work
+        # rows is returned as it is, and gathering is applied only once.
+        evidence = {"terminal_ids": ["net-1"], "realized_capabilities": [True],
+                    "work_evidence": mixed_rows}
+        gathered = stored_sweep_evidence(evidence)
+        self.assertIs(stored_sweep_evidence(gathered), gathered)
+        self.assertEqual({name: gathered[name] for name in ("terminal_ids", "realized_capabilities")},
+                         {name: evidence[name] for name in ("terminal_ids", "realized_capabilities")})
+        self.assertEqual(_tree(read_sweep_evidence(record_document(record_bytes(gathered)))), _tree(evidence))
+        plain = {"terminal_ids": ["net-1"]}
+        self.assertIs(stored_sweep_evidence(plain), plain)
+        self.assertIs(read_sweep_evidence(plain), plain)
+
+        for label, rows in (
+                ("rows_and_runs", [direct_rows[0], runs[0]]),
+                ("view_without_demand", [dict(direct_rows[0], view_index=0)]),
+                ("malformed_demand", [dict(direct_rows[0], view_index=0, demand=[1])]),
+                ("counter_type", [dict(direct_rows[0], work_index=0.0)]),
+                ("open_row", [dict(direct_rows[0], extra=1)]),
+                ("open_certificate", [dict(direct_rows[0], certificates=[
+                    dict(direct_rows[0]["certificates"][0], extra=1)])])):
+            with self.subTest(refused=label), self.assertRaises(TypeError):
+                stored_sweep_evidence({"work_evidence": rows})
+
+        run = stored["work_evidence"][0]
+        empty = dict(run, certificates=[], **{name: array_record(np.zeros(0, dtype=np.int64), exact_dtype=True)
+                                              for name in _WORK_COUNTERS})
+        for label, damaged in (
+                ("not_a_list", run),
+                ("row_form", mixed_rows),
+                ("open_run", [dict(run, extra=1)]),
+                ("view_without_demand", [{name: value for name, value in run.items() if name != "demand"}]),
+                ("malformed_demand", [dict(run, demand="operator")]),
+                ("short_counter", [dict(run, check_status=array_record(
+                    np.zeros(1, dtype=np.int64), exact_dtype=True))]),
+                ("empty_run", [empty])):
+            with self.subTest(damaged=label), self.assertRaises(EvidenceIntegrityError):
+                work_evidence_run_rows(damaged)
+
+    def test_sweep_point_evidence_columns_do_not_depend_on_frequency_count(self):
+        # Seventeen frequencies are solved in native batches of 8, 8 and 1.
+        for family, columns_per_point in (("direct", 4), ("operator", 2)):
+            layouts = set()
+            for count in (3, 17):
+                with self.subTest(family=family, count=count), TemporaryDirectory() as directory:
+                    plan, coordinate, capacitance = _primitive_plan()
+                    run = CircuitRun(plan=plan, workspace=Path(directory), precision="float64")
+                    try:
+                        frequencies = np.linspace(5.5, 6.5, count)*u.GHz
+                        parameters = ParameterSpace.grid(axes={capacitance: [100.0, 120.0]*u.fF})
+                        if family == "direct":
+                            run.solve(run.original, DirectSolveSpec(frequencies=frequencies),
+                                      parameters=parameters)
+                        else:
+                            run.evaluate(run.original.reduce(ReductionPipeline().retain(coordinate)),
+                                         OperatorSpec(frequencies=frequencies), parameters=parameters)
+                    finally:
+                        run.close()
+                    chunks, points = _stored_sweep_points(directory)
+                    self.assertEqual(len(chunks), 1)
+                    self.assertEqual(len(points), 2)
+                    # The chunk holds each point's arrays and a locator to its
+                    # evidence, never the evidence itself.
+                    self.assertEqual(len(chunks[0]["columns"]), columns_per_point*len(points))
+                    for stored in points:
+                        self.assertNotIn("evidence", stored["point"])
+                        header = stored["header"]
+                        runs = header["record"]["work_evidence"]
+                        self.assertEqual(len(runs), 1)
+                        certificates = runs[0]["certificates"]
+                        self.assertTrue(certificates, "sweep point stored no certificate")
+                        # One column per work counter and one per field of each certificate.
+                        self.assertEqual(len(header["columns"]),
+                                         len(_WORK_COUNTERS) + len(_CERTIFICATE_ARRAYS)*len(certificates))
+                        for column in header["columns"]:
+                            self.assertEqual(column["path"][:2], ["work_evidence", 0])
+                            self.assertEqual(column["shape"][0], count)
+                        # The reader returns one row per solved frequency.
+                        rows = work_evidence_run_rows(stored["evidence"]["work_evidence"])
+                        self.assertEqual([row["work_index"] for row in rows], list(range(count)))
+                        layouts.add(json.dumps([[column["path"], column["dtype"], column["shape"][1:]]
+                                                for column in header["columns"]]))
+            # The same columns whatever the number of frequencies; only their length differs.
+            self.assertEqual(len(layouts), 1, family)
+
+    def test_sweeps_leave_no_staging_or_unreferenced_objects(self):
+        from scnsim.execution.physical_analysis import PhysicalAnalysis
+        from scnsim.workspace.operation_store import StoreTransaction
+        result_roles = {"sweep_chunk", "sweep_manifest", "sweep_index_root", "sweep_completion",
+                        "benchmark_value", "operation_result", "success_selection"}
+        # 6.0 GHz is requested twice, so a point solves four work rows in two
+        # native batches. A one-byte budget closes a chunk after every point,
+        # so a sweep has three chunks.
+        frequencies = [5.5, 6.0, 6.0, 6.5, 7.0]*u.GHz
+        policy = ExecutionPolicy(frequency_chunk_size=2, scratch_budget_bytes=1)
+
+        def direct(run, coordinate, capacitance):
+            return run.solve(run.original, DirectSolveSpec(frequencies=frequencies),
+                             parameters=ParameterSpace.grid(axes={capacitance: [100.0, 120.0, 100.0]*u.fF}))
+
+        def root(run, coordinate, capacitance):
+            # The second point is the Plan baseline, which the root anchor already solved.
+            return run.evaluate(run.original.reduce(ReductionPipeline().retain(coordinate)),
+                                DiagonalRootSpec(coordinate=coordinate, root_hint=6.0*u.GHz),
+                                parameters=ParameterSpace.grid(axes={capacitance: [100.0, 110.0, 120.0]*u.fF}))
+
+        def partial(run, coordinate, capacitance):
+            view, spec, parameters = _partial_request(run, coordinate, capacitance)
+            return run.evaluate(view, spec, parameters=parameters)
+
+        def failing(run, coordinate, capacitance):
+            # The admittance of this one-port has no transfer zero: the root
+            # anchor fails and the sweep raises before any requested point.
+            return run.evaluate(run.original, TransferZeroSpec(
+                anchor=6.0*u.GHz, family="Y", input_coordinate="signal_in", output_coordinate="signal_in"),
+                parameters=ParameterSpace.grid(axes={capacitance: [100.0, 120.0]*u.fF}))
+
+        for case, call, attempt_status in (
+                ("completed_direct", direct, "success"), ("completed_root", root, "success"),
+                ("partial", partial, "success"), ("failed", failing, "failure"),
+                ("interrupted_while_solving", direct, "interrupted"),
+                ("interrupted_while_sealing", direct, "interrupted")):
+            with self.subTest(case=case), TemporaryDirectory() as directory:
+                plan, coordinate, capacitance = _primitive_plan()
+                run = CircuitRun(plan=plan, workspace=Path(directory), precision="float64",
+                                 execution_policy=policy)
+                try:
+                    if attempt_status == "success":
+                        result = call(run, coordinate, capacitance)
+                        succeeded = [point.succeeded for point in result.points]
+                        self.assertEqual(succeeded, [True, False, True] if case == "partial" else [True]*3)
+                    elif case == "failed":
+                        with self.assertRaises(DirectResponseFormationError):
+                            call(run, coordinate, capacitance)
+                    elif case == "interrupted_while_solving":
+                        # The first point is complete and held; the second point's
+                        # second native batch never runs.
+                        with _interrupted_at(PhysicalAnalysis, "_execute_native_chunk", call=4), \
+                                self.assertRaises(KeyboardInterrupt):
+                            call(run, coordinate, capacitance)
+                    else:
+                        # The terminal transaction already holds the first chunk and
+                        # the evidence of two points when it is interrupted.
+                        with _interrupted_at(
+                                StoreTransaction, "put_object", call=2,
+                                matches=lambda args, kwargs: kwargs.get("role") == "sweep_chunk"), \
+                                self.assertRaises(KeyboardInterrupt):
+                            call(run, coordinate, capacitance)
+                finally:
+                    run.close()
+                census = _database_census(directory)
+                objects, reached, bodies = census["objects"], census["reached"], census["bodies"]
+                roles = {role for _, role in objects}
+                self.assertFalse({role for role in roles if "staging" in role}, roles)
+                if attempt_status == "success":
+                    self.assertLessEqual(result_roles, roles)
+                    chunks = [bodies[digest] for digest, role in objects if role == "sweep_chunk"]
+                    self.assertEqual(sorted(chunk["ordinal"] for chunk in chunks), [0, 1, 2])
+                    for chunk in chunks:
+                        for point in chunk["points"]:
+                            # A point's bodies are stored once, behind locators.
+                            self.assertIn("evidence_ref", point)
+                            self.assertIn("dependency_refs", point)
+                            self.assertFalse({"evidence", "dependencies"} & set(point))
+                            if point["status"] == "failure":
+                                self.assertIn("evidence_ref", point["failure"])
+                                self.assertNotIn("evidence", point["failure"])
+                else:
+                    # Nothing of an unfinished sweep reaches the database.
+                    self.assertFalse(result_roles & roles, result_roles & roles)
+                attempts = [bodies[digest] for digest, role in reached if role == "attempt"]
+                self.assertEqual([attempt["status"] for attempt in attempts], [attempt_status])
+                # As after a Direct call, the only objects that nothing refers
+                # to are earlier states of the operation row and of the attempt.
+                for digest, role in objects - reached:
+                    body = bodies[digest]
+                    if role == "operation":
+                        self.assertIn(body["operation_id"], census["current_operations"])
+                    elif role == "attempt":
+                        self.assertEqual(body["attempt_id"], attempts[0]["attempt_id"])
+                    else:
+                        self.fail("unreferenced " + role + " object " + digest)
+
+    def _assert_sweep_storage_exact_bits(self, family):
+        self.observations = {}
+        with self.subTest(family=family), TemporaryDirectory() as directory:
+            saved, native = {}, {}
+            for storage in ("memory", "workspace"):
+                plan, coordinate, parameter = _sweep_fixture(family)
+                run = CircuitRun(plan=plan, storage=storage, precision="float64",
+                                 **({"workspace": Path(directory)} if storage == "workspace" else {}))
+                try:
+                    with _observed_sweep_work() as staged:
+                        result = _run_sweep(run, family, coordinate, parameter)
+                    before_close = _sweep_saved(family, result)
+                finally:
+                    run.close()
+                key = "sweep/" + family + "/" + storage
+                saved[storage] = _sweep_saved(family, result)
+                native[storage] = _native_sweep_rows(family, staged)
+                _assert_same(self, key + "/postclose_public", before_close, saved[storage])
+                self.assertEqual([row["succeeded"] for row in saved[storage]], [True, True, True])
+                self.assertEqual(saved[storage][0]["result"], saved[storage][2]["result"])
+                if family == "affine":
+                    # The public evidence under comparison is not empty.
+                    evidence = [row["result"]["evidence"] for row in saved[storage]]
+                    self.assertTrue(evidence[0]["affine_evidence"])
+                    self.assertEqual(evidence[1], {})
+            _assert_same(self, "sweep/" + family + "/memory_workspace_values",
+                         saved["memory"], saved["workspace"])
+            _assert_same(self, "sweep/" + family + "/memory_workspace_native",
+                         native["memory"], native["workspace"])
+            # The fixed reader expands the stored columnar runs into the rows
+            # that the same call's native lanes produced.
+            original = _sweep_readback(family, result)
+            _assert_same(self, "sweep/" + family + "/reader_values", saved["workspace"], original["values"])
+            _assert_same(self, "sweep/" + family + "/reader_work_evidence_vs_native",
+                         native["workspace"], original["work_evidence"])
+            _assert_same(self, "sweep/" + family + "/reopen", original, _fresh_sweep(directory, family))
+            child = subprocess.run([sys.executable, "-c",
+                "import json,sys; from tests.test_evidence_v4 import _fresh_sweep; "
+                "print(json.dumps(_fresh_sweep(sys.argv[1],sys.argv[2])))", directory, family],
+                capture_output=True, text=True, cwd=Path(__file__).parents[1])
+            self.assertEqual(child.returncode, 0, child.stderr)
+            _assert_same(self, "sweep/" + family + "/fresh_process", original, json.loads(child.stdout))
+
+    def test_sweep_memory_workspace_postclose_and_fresh_process_exact_bits_direct(self):
+        self._assert_sweep_storage_exact_bits("direct")
+
+    def test_sweep_memory_workspace_postclose_and_fresh_process_exact_bits_direct_with_affine_evidence(self):
+        self._assert_sweep_storage_exact_bits("affine")
+
+    def test_sweep_memory_workspace_postclose_and_fresh_process_exact_bits_operator(self):
+        self._assert_sweep_storage_exact_bits("operator")
+
+    def test_sweep_memory_workspace_postclose_and_fresh_process_exact_bits_response(self):
+        self._assert_sweep_storage_exact_bits("response")
+
+    def test_sweep_memory_workspace_postclose_and_fresh_process_exact_bits_root(self):
+        self._assert_sweep_storage_exact_bits("root")
 
     def _assert_family_storage_exact_bits(self, family):
         self.observations = {}
