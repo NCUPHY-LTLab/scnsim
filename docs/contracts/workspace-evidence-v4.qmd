@@ -19,8 +19,9 @@ database, every numeric block and every result manifest declare it.
 | Operation database and object references | Internal revision 8; the database metadata also declares evidence 4 |
 
 `identity-v4.schema.json` describes the evidence header, manifests, object
-references and Direct chunk summaries. It does not replace the authoring
-document definitions in `identity-v2.schema.json`.
+references and Direct chunk summaries. It does not describe sweep chunks or
+the evidence of a sweep point; this page does. It does not replace the
+authoring document definitions in `identity-v2.schema.json`.
 
 ## Binary columns
 
@@ -72,6 +73,46 @@ every array at one work row gives that row's certificate values with their
 shape and bits unchanged; `work_evidence_rows` in
 `workspace/direct_summary.py` returns the rows in that form.
 
+## Sweep points
+
+A parameter sweep stores its points in chunk objects, in declared order. A
+chunk holds each point's own arrays and identities. The bodies a point refers
+to are separate objects, and the chunk holds only their locators:
+
+| Locator in the stored point | Body it names |
+|---|---|
+| `evidence_ref` | The evidence of the point |
+| `dependency_refs` | The numerical bodies the point depends on, by their content identity |
+| `failure.evidence_ref` | The evidence of a failed point's typed failure |
+
+Each body is stored once. Points with identical bodies, such as a repeated
+point, name the same object. A continuation record of a point and the
+root-anchor baseline of the result are stored the same way. A stored point or
+continuation that carries a body instead of its locator is rejected on read.
+
+A point of a Direct sweep, of an operator sweep or of a response-element sweep
+carries work evidence: one work row per solved frequency. Stored, the work
+evidence is a list of runs. A run is a stretch of consecutive work rows that
+ran the same checked equations, and it uses the columnar layout of a Direct
+chunk summary:
+
+- the six work counters, each as one 64-bit integer array over the run's rows;
+- for each checked equation, its identity once and each of its six fields as
+  one array whose leading axis is the rows;
+- for rows of the operator and of a response element, their `view_index` and
+  `demand`, once.
+
+The rows of one point normally run one frequency function and form one run.
+The number of columns therefore depends on the checked equations and not on
+the number of frequencies. A point that solved no frequency row stores no run.
+
+Reading a point expands the runs into the per-row records again, in work
+order, with every dtype, shape and bit unchanged. `workspace/sweep_evidence.py`
+defines both directions: `stored_sweep_evidence` gathers the rows and
+`read_sweep_evidence` returns them. A root sweep solves no frequency row; its
+points keep their root packet with one array per field, as a single-point root
+call does.
+
 ## Publication and lifetime
 
 A Direct call keeps its rows in memory while it runs. Its chunks and chunk
@@ -80,11 +121,18 @@ the manifest, result, completion, attempt state and success selection. A
 Direct call that fails or is interrupted leaves no result object and no staging
 object in the operation database.
 
-A parameter sweep stages its rows and points as checked immutable objects
-while it runs, and only small references remain in its sink. Staged objects
-are not part of a result, and their existence does not select a successful
-one. Neither path uses an operation spool. Optimization retains its existing
-spool and lazy stage-history lifetime.
+A parameter sweep keeps its rows in memory as well. The frequency rows of the
+point being solved are released when that point is complete. A completed point
+is held with its work evidence already gathered into runs, and the final
+transaction encodes and writes the points once, chunk by chunk. A chunk closes
+before the array bytes of its points pass the scratch budget of the execution
+policy, 256 MiB by default; a single larger point is its own chunk. A sweep
+that fails or is interrupted leaves no result object and no staging object in
+the operation database. The memory a sweep holds while it runs grows with its
+number of points.
+
+Neither path uses an operation spool. Optimization retains its existing spool
+and lazy stage-history lifetime.
 
 Each public Optimization `stage.history` includes its saved starting baseline
 before that stage's ordered evaluation occurrences, matching Memory history.
@@ -103,8 +151,9 @@ declared order, repeated points, executed markers and typed failures.
 
 Readers verify reference structure, content hash, framing, exact byte length
 and the closed header before decoding. Missing, truncated or corrupted data
-fails through the evidence error path. Reads never repair data or invoke a
-solver.
+fails through the evidence error path. The block codec raises its integrity
+and version errors with the stage `evidence_v4`. Reads never repair data or
+invoke a solver.
 
 ## Opening a Workspace
 
